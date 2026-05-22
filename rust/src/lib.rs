@@ -5,16 +5,25 @@
 //! derivation, wire-format types, and PA-owned constants. Integrators should depend
 //! on this crate rather than re-implementing PA-binding logic inline.
 
+pub mod accounts;
 pub mod constants;
 pub mod discriminator;
+pub mod external_call;
 pub mod pda;
 pub mod program_ids;
+pub mod wrap_message;
 
+pub use accounts::{decode_pa_state, DecodeError, PAStateAccount};
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
+pub use external_call::{
+    encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,
+    OP_UNWRAP, OP_WRAP,
+};
 pub use pda::{
     derive_associated_token_address, derive_forwarder_config_pda, derive_forwarder_escrow_pda,
     derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
     derive_tx_data_pda, derive_verifier_router_pdas,
 };
 pub use program_ids::*;
+pub use wrap_message::{sha256, WrapMessage, WRAP_MESSAGE_LEN};
