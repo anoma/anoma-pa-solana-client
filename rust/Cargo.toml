@@ -1,16 +1,22 @@
 [package]
 name = "anoma-pa-solana-client"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder"
 repository = "https://github.com/anoma/anoma-pa-solana-client"
 readme = "../README.md"
-publish = false  # not yet ready for crates.io; flip when v0.1 lands
+publish = false
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-# Placeholder. Concrete deps land with the v0.1 implementation per REQUIREMENTS.md §3 / §8.
-# Expected at minimum: solana-sdk, solana-program, borsh, sha2, bs58, base64, thiserror.
+solana-program = "2.1"
+anchor-lang = "0.31.1"
+borsh = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+base64 = "0.22"
+bs58 = "0.5"
+thiserror = "2.0"

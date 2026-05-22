@@ -1,6 +1,6 @@
 {
   "name": "@anoma/pa-solana-client",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder",
   "license": "Apache-2.0",
   "private": true,
@@ -9,10 +9,32 @@
     "url": "https://github.com/anoma/anoma-pa-solana-client"
   },
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./src/index.ts"
+    }
+  },
   "files": [
     "src",
-    "../REQUIREMENTS.md",
-    "../README.md"
-  ]
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "tsc": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0"
+  }
 }
