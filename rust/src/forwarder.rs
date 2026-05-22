@@ -83,6 +83,11 @@ pub fn build_unwrap_forwarder_accounts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
+
+    fn canonical_spl_token_program_id() -> Pubkey {
+        Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").unwrap()
+    }
 
     #[test]
     fn wrap_segment_has_12_accounts() {
@@ -94,6 +99,7 @@ mod tests {
             0,
         );
         assert_eq!(accs.len(), FORWARDER_WRAP_NUM_ACCOUNTS as usize);
+        assert_eq!(accs[8].pubkey, canonical_spl_token_program_id());
     }
 
     #[test]
@@ -104,5 +110,6 @@ mod tests {
             &Pubkey::new_unique(),
         );
         assert_eq!(accs.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);
+        assert_eq!(accs[7].pubkey, canonical_spl_token_program_id());
     }
 }
