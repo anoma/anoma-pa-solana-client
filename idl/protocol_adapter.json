@@ -1,0 +1,1566 @@
+{
+  "address": "De5uxTic9Ed8dRW8TFDKDk6wWtCZa5BDCnLiVhLEoFyJ",
+  "metadata": {
+    "name": "solana_pa_prototype",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Solana Protocol Adapter for Anoma Resource Machine"
+  },
+  "instructions": [
+    {
+      "name": "accept_authority",
+      "docs": [
+        "Accept a pending authority transfer. Must be signed by the proposed",
+        "authority. Completes the two-step transfer."
+      ],
+      "discriminator": [
+        107,
+        86,
+        198,
+        91,
+        33,
+        12,
+        107,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_authority_transfer",
+      "docs": [
+        "Cancel a pending authority transfer. Only callable by the current authority."
+      ],
+      "discriminator": [
+        94,
+        131,
+        125,
+        184,
+        183,
+        24,
+        125,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "pa_state"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_markers_batch",
+      "docs": [
+        "Close multiple marker PDAs (nullifier or root) in one transaction.",
+        "Markers are passed as remaining_accounts."
+      ],
+      "discriminator": [
+        77,
+        196,
+        51,
+        2,
+        49,
+        195,
+        48,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "pa_state"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_pa_state",
+      "docs": [
+        "Close the PAState account and reclaim rent to authority.",
+        "",
+        "Uses raw account data instead of typed deserialization so it works",
+        "even when the PAState layout has changed (migration-safe)."
+      ],
+      "discriminator": [
+        107,
+        246,
+        61,
+        149,
+        44,
+        99,
+        88,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "emergency_stop",
+      "docs": [
+        "Emergency stop — permanently pause the protocol (requires upgrade to unpause)."
+      ],
+      "discriminator": [
+        179,
+        143,
+        200,
+        137,
+        108,
+        245,
+        248,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "pa_state"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize a new PAState account.",
+        "",
+        "remaining_accounts[0]: genesis root marker PDA (REQUIRED - will be created)",
+        "",
+        "The genesis root marker is required so that transactions built against the",
+        "initial empty tree remain valid after subsequent transactions update the root."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "verifier_router",
+          "type": "pubkey"
+        },
+        {
+          "name": "proof_selector",
+          "type": {
+            "array": [
+              "u8",
+              4
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "propose_authority",
+      "docs": [
+        "Propose a new authority. The transfer is not effective until the",
+        "proposed authority calls `accept_authority`."
+      ],
+      "discriminator": [
+        20,
+        148,
+        236,
+        198,
+        76,
+        119,
+        99,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "pa_state"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "Settle a transaction: verify proofs, update commitment tree, mark nullifiers."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "verifier_router_program"
+        },
+        {
+          "name": "router"
+        },
+        {
+          "name": "verifier_entry"
+        },
+        {
+          "name": "verifier_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "transaction_data",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "settle_from_txdata",
+      "docs": [
+        "Execute settlement from a TxData account."
+      ],
+      "discriminator": [
+        141,
+        97,
+        29,
+        108,
+        240,
+        251,
+        12,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tx_data",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  120,
+                  95,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "upload_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "tx_data"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "verifier_router_program"
+        },
+        {
+          "name": "router"
+        },
+        {
+          "name": "verifier_entry"
+        },
+        {
+          "name": "verifier_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "_upload_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "txdata_close",
+      "docs": [
+        "Close a TxData account and reclaim rent."
+      ],
+      "discriminator": [
+        165,
+        24,
+        165,
+        134,
+        14,
+        10,
+        107,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "tx_data",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  120,
+                  95,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "upload_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "tx_data"
+          ]
+        },
+        {
+          "name": "refund",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "upload_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "txdata_close_expired",
+      "docs": [
+        "Close an expired TxData account. Anyone can call; rent goes to `refund`."
+      ],
+      "discriminator": [
+        238,
+        239,
+        34,
+        38,
+        249,
+        84,
+        191,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "tx_data",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Anyone can call, pays tx fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "refund",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "txdata_extend",
+      "docs": [
+        "Extend the expiration deadline of a TxData account."
+      ],
+      "discriminator": [
+        57,
+        68,
+        222,
+        156,
+        189,
+        244,
+        20,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "docs": [
+            "PAState for reading configurable expiry bounds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tx_data",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  120,
+                  95,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "upload_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "tx_data"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "upload_id",
+          "type": "u64"
+        },
+        {
+          "name": "new_expires_slot",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "txdata_init",
+      "docs": [
+        "Initialize a TxData account for chunked upload."
+      ],
+      "discriminator": [
+        148,
+        221,
+        221,
+        251,
+        65,
+        217,
+        106,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "docs": [
+            "PAState for reading configurable expiry bounds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tx_data",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  120,
+                  95,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "upload_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "upload_id",
+          "type": "u64"
+        },
+        {
+          "name": "capacity",
+          "type": "u32"
+        },
+        {
+          "name": "expires_slot",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "txdata_write",
+      "docs": [
+        "Write a chunk to TxData."
+      ],
+      "discriminator": [
+        176,
+        190,
+        247,
+        145,
+        83,
+        146,
+        231,
+        198
+      ],
+      "accounts": [
+        {
+          "name": "tx_data",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  120,
+                  95,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "upload_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "tx_data"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "_upload_id",
+          "type": "u64"
+        },
+        {
+          "name": "offset",
+          "type": "u32"
+        },
+        {
+          "name": "data",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "update_expiry_config",
+      "docs": [
+        "Update TxData expiry configuration (authority only)."
+      ],
+      "discriminator": [
+        227,
+        244,
+        128,
+        228,
+        251,
+        247,
+        161,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "pa_state"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_min_expiry_slots",
+          "type": "u64"
+        },
+        {
+          "name": "new_max_expiry_slots",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "PAStateAccount",
+      "discriminator": [
+        201,
+        5,
+        193,
+        188,
+        9,
+        187,
+        131,
+        53
+      ]
+    },
+    {
+      "name": "TxDataAccount",
+      "discriminator": [
+        80,
+        208,
+        0,
+        159,
+        216,
+        183,
+        139,
+        138
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ActionExecutedEvent",
+      "discriminator": [
+        26,
+        208,
+        150,
+        242,
+        244,
+        40,
+        227,
+        100
+      ]
+    },
+    {
+      "name": "ApplicationPayloadEvent",
+      "discriminator": [
+        116,
+        47,
+        207,
+        237,
+        40,
+        118,
+        57,
+        37
+      ]
+    },
+    {
+      "name": "DiscoveryPayloadEvent",
+      "discriminator": [
+        82,
+        177,
+        217,
+        159,
+        20,
+        108,
+        254,
+        124
+      ]
+    },
+    {
+      "name": "ExternalPayloadEvent",
+      "discriminator": [
+        249,
+        232,
+        109,
+        135,
+        42,
+        245,
+        173,
+        178
+      ]
+    },
+    {
+      "name": "ForwarderCallExecutedEvent",
+      "discriminator": [
+        40,
+        34,
+        13,
+        93,
+        115,
+        181,
+        107,
+        8
+      ]
+    },
+    {
+      "name": "ResourcePayloadEvent",
+      "discriminator": [
+        216,
+        2,
+        17,
+        160,
+        189,
+        83,
+        46,
+        102
+      ]
+    },
+    {
+      "name": "TransactionExecutedEvent",
+      "discriminator": [
+        138,
+        185,
+        121,
+        218,
+        65,
+        145,
+        254,
+        24
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "DuplicateNullifier",
+      "msg": "Duplicate nullifier detected"
+    },
+    {
+      "code": 6001,
+      "name": "NullifierPdaMismatch",
+      "msg": "Nullifier PDA pubkey mismatch"
+    },
+    {
+      "code": 6002,
+      "name": "NonExistingRoot",
+      "msg": "Commitment tree root does not exist in historical set"
+    },
+    {
+      "code": 6003,
+      "name": "RootPdaMismatch",
+      "msg": "Root marker PDA pubkey mismatch"
+    },
+    {
+      "code": 6004,
+      "name": "TxDataExpired",
+      "msg": "TxData has expired"
+    },
+    {
+      "code": 6005,
+      "name": "TxDataBoundsExceeded",
+      "msg": "TxData write exceeds payload capacity"
+    },
+    {
+      "code": 6006,
+      "name": "TxDataExpiryTooSoon",
+      "msg": "TxData expires_slot is below minimum (too soon)"
+    },
+    {
+      "code": 6007,
+      "name": "TxDataExpiryTooLate",
+      "msg": "TxData expires_slot exceeds maximum (too far in future)"
+    },
+    {
+      "code": 6008,
+      "name": "TxDataExtendMustIncrease",
+      "msg": "TxData extension must increase expires_slot"
+    },
+    {
+      "code": 6009,
+      "name": "TxDataNotExpired",
+      "msg": "TxData has not expired yet (permissionless close requires expiration)"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidExpiryConfig",
+      "msg": "Invalid expiry configuration (min must be < max, within reasonable bounds)"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidTransactionData",
+      "msg": "Invalid transaction data"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidProof",
+      "msg": "Invalid proof"
+    },
+    {
+      "code": 6013,
+      "name": "VerifierRouterFailed",
+      "msg": "Verifier router call failed (verifier may be estopped)"
+    },
+    {
+      "code": 6014,
+      "name": "AggregationRequired",
+      "msg": "Aggregation required: non-aggregated proofs not enabled"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidProofSelector",
+      "msg": "Proof selector does not match expected selector"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidExternalCallBlob",
+      "msg": "Invalid external call blob encoding"
+    },
+    {
+      "code": 6017,
+      "name": "UnregisteredForwarder",
+      "msg": "Forwarder is not registered"
+    },
+    {
+      "code": 6018,
+      "name": "ExternalCallOutputMismatch",
+      "msg": "External call output verification failed"
+    },
+    {
+      "code": 6019,
+      "name": "ExternalCallCpiFailed",
+      "msg": "External call CPI failed"
+    },
+    {
+      "code": 6020,
+      "name": "DeltaProofVerificationFailed",
+      "msg": "Delta proof verification failed"
+    },
+    {
+      "code": 6021,
+      "name": "DeltaMismatch",
+      "msg": "Delta mismatch: transaction is not balanced"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidDeltaProof",
+      "msg": "Invalid delta proof format"
+    },
+    {
+      "code": 6023,
+      "name": "DeltaPointNotOnCurve",
+      "msg": "Delta point not on secp256k1 curve"
+    },
+    {
+      "code": 6024,
+      "name": "ExpectedDeltaProof",
+      "msg": "Expected delta proof, got witness"
+    },
+    {
+      "code": 6025,
+      "name": "TagNotFound",
+      "msg": "Logic verifier input not found for tag"
+    },
+    {
+      "code": 6026,
+      "name": "Stopped",
+      "msg": "Protocol adapter is stopped"
+    },
+    {
+      "code": 6027,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: caller is not the authority"
+    },
+    {
+      "code": 6028,
+      "name": "AlreadyStopped",
+      "msg": "Protocol adapter is already stopped"
+    },
+    {
+      "code": 6029,
+      "name": "NoPendingAuthority",
+      "msg": "No pending authority transfer to accept"
+    },
+    {
+      "code": 6030,
+      "name": "NotStopped",
+      "msg": "Operation requires the PA to be stopped"
+    },
+    {
+      "code": 6031,
+      "name": "TreeMaxDepthReached",
+      "msg": "Tree has reached maximum depth (32 levels)"
+    },
+    {
+      "code": 6032,
+      "name": "InvalidMarker",
+      "msg": "Account is not owned by this program"
+    },
+    {
+      "code": 6033,
+      "name": "ComplianceInstanceParseFailed",
+      "msg": "Failed to parse compliance instance from journal bytes"
+    }
+  ],
+  "types": [
+    {
+      "name": "ActionExecutedEvent",
+      "docs": [
+        "Matches EVM PA's ActionExecuted event."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "action_tree_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "action_tag_count",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ApplicationPayloadEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "blob",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DiscoveryPayloadEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "blob",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExternalPayloadEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "blob",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ForwarderCallExecutedEvent",
+      "docs": [
+        "Matches EVM PA's ForwarderCallExecuted event."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "forwarder",
+            "type": "pubkey"
+          },
+          {
+            "name": "input",
+            "type": "bytes"
+          },
+          {
+            "name": "output",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PALifecycle",
+      "docs": [
+        "PA lifecycle: Running (0) or Stopped (1)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Running"
+          },
+          {
+            "name": "Stopped"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PAStateAccount",
+      "docs": [
+        "Protocol Adapter state — commitment tree frontier with variable depth (1-32).",
+        "Nullifiers and historical roots are stored as separate PDA marker accounts."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Authority that can call emergency_stop."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "verifier_router",
+            "docs": [
+              "Verifier router program ID, set at initialization.",
+              "Mirrors EVM's immutable `_TRUSTED_RISC_ZERO_VERIFIER_ROUTER`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_selector",
+            "docs": [
+              "Expected proof selector (4 bytes), set at initialization.",
+              "Validated before sending proofs to the verifier router."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "pending_authority",
+            "docs": [
+              "Pending authority for two-step transfer (propose + accept)."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "lifecycle",
+            "docs": [
+              "Lifecycle state. One-way transition: Running → Stopped."
+            ],
+            "type": {
+              "defined": {
+                "name": "PALifecycle"
+              }
+            }
+          },
+          {
+            "name": "root",
+            "docs": [
+              "Cached tree root (updated on every append). Avoids recomputing from frontier."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "next_index",
+            "type": "u64"
+          },
+          {
+            "name": "current_depth",
+            "docs": [
+              "Tree depth (1-32). Capacity = 2^current_depth."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frontier",
+            "docs": [
+              "Filled subtree hashes at each level. Grows via realloc when tree expands."
+            ],
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "min_expiry_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_expiry_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResourcePayloadEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "blob",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TransactionExecutedEvent",
+      "docs": [
+        "Matches EVM PA's TransactionExecuted event."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tags",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "logic_refs",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TxDataAccount",
+      "docs": [
+        "Chunked transaction upload buffer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "refund",
+            "docs": [
+              "Account to receive rent refund on close."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "written_len",
+            "type": "u32"
+          },
+          {
+            "name": "expires_slot",
+            "type": "u64"
+          },
+          {
+            "name": "payload",
+            "type": "bytes"
+          }
+        ]
+      }
+    }
+  ]
+}

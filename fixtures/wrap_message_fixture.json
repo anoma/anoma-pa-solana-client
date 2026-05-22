@@ -1,0 +1,28 @@
+{
+  "_description": "Canonical WrapMessage fixture for cross-package byte-identity verification. Rust and TS implementations must serialize this to the same 120 bytes, hash to the same 32-byte digest, and base64-encode to the same UTF-8 text. Verified by rust/tests/cross_package_fixture.rs and ts/src/crossPackageFixture.test.ts.",
+  "input": {
+    "forwarder_id_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+    "token_mint_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+    "amount": "1000000",
+    "nonce": "7",
+    "deadline": "1700000000",
+    "action_tree_root_hex": "0303030303030303030303030303030303030303030303030303030303030303"
+  },
+  "expected": {
+    "serialized_hex": "01010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202024042 0f00000000000700000000000000 00f15365000000000303030303030303030303030303030303030303030303030303030303030303",
+    "serialized_hex_normalized": "0101010101010101010101010101010101010101010101010101010101010101020202020202020202020202020202020202020202020202020202020202020240420f000000000007000000000000000000f1536500000000 0303030303030303030303030303030303030303030303030303030303030303",
+    "sha256_digest_hex": "96a1c836883ef3c223d918728ee2698fbd48998e2017ee028aa23c221b882886",
+    "sha256_digest_base64": "lqHINog-88Ij2RhyjuJpj71ImY4gF-4Cipo8IhuIKIY="
+  },
+  "_layout_notes": [
+    "Byte offsets (little-endian where multi-byte):",
+    "  [0..32]   forwarder_id  (32)",
+    "  [32..64]  token_mint    (32)",
+    "  [64..72]  amount        (u64 LE)",
+    "  [72..80]  nonce         (u64 LE)",
+    "  [80..88]  deadline      (i64 LE, signed)",
+    "  [88..120] action_tree_root (32)",
+    "Total: 120 bytes.",
+    "Signed digest is base64(sha256(layout)) as 44-byte UTF-8 text (Phantom-safe)."
+  ]
+}

@@ -3,4 +3,10 @@
 #
 # Format: full 40-character commit SHA, one per line. Comments allowed.
 
-UNSET
+# solana-protocol-adapter HEAD (branch: solana/anomapay)
+# Tier 1–6 v0.1 integration anchored against this commit.
+# Note: PA-side types.rs (SolanaExternalCall import flip) and Cargo.toml dep
+# additions are present in the working tree of this commit but not yet
+# committed there. v0.1 ships against this commit's behavior with the
+# integrator-side migrations applied.
+8519d2dc3d33f97cb5ee70c2463f2d3ae862e932

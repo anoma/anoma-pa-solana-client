@@ -1,0 +1,56 @@
+{
+  "address": "3mesRGxMv9wRB1xp7X4uxbf7GwnQC9PpHSJyCzcXwrsf",
+  "metadata": {
+    "name": "block_time_forwarder",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Example forwarder program for time comparison"
+  },
+  "instructions": [
+    {
+      "name": "forward_call",
+      "docs": [
+        "Sets return data to a single byte: LT(0), EQ(1), or GT(2) comparing the",
+        "expected unix timestamp (`input` as i64 LE) against the current clock."
+      ],
+      "discriminator": [
+        159,
+        170,
+        224,
+        10,
+        253,
+        105,
+        108,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "_logic_ref",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "input",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidInput",
+      "msg": "Invalid input: expected 8 bytes for timestamp"
+    }
+  ]
+}

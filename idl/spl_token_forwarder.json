@@ -1,0 +1,898 @@
+{
+  "address": "3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48",
+  "metadata": {
+    "name": "spl_token_forwarder",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "SPL Token forwarder for wrap/unwrap operations with Ed25519 signature verification"
+  },
+  "instructions": [
+    {
+      "name": "close_config",
+      "docs": [
+        "Close the forwarder config PDA, recovering rent to the authority.",
+        "",
+        "Call LAST, after closing all escrows and nonce bitmaps."
+      ],
+      "discriminator": [
+        145,
+        9,
+        72,
+        157,
+        95,
+        125,
+        61,
+        85
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Emergency committee — receives rent from closed config."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_escrow",
+      "docs": [
+        "Close the escrow for a specific token mint, draining tokens first.",
+        "",
+        "Transfers ALL remaining tokens to the recipient, then closes the",
+        "escrow token account. Rent lamports are recovered to the authority.",
+        "",
+        "The drain is automatic: if the escrow holds tokens, they are",
+        "transferred out before the account is closed."
+      ],
+      "discriminator": [
+        139,
+        171,
+        94,
+        146,
+        191,
+        91,
+        144,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Emergency committee — receives rent lamports from closed escrow ATA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_ata",
+          "docs": [
+            "The escrow token account to drain and close."
+          ],
+          "writable": true
+        },
+        {
+          "name": "escrow_pda",
+          "docs": [
+            "The escrow PDA authority over the escrow ATA."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "recipient_ata",
+          "docs": [
+            "Recipient token account for drained tokens."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "The token mint for this escrow.",
+            "ensures the correct mint is provided."
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_nonce_bitmaps_batch",
+      "docs": [
+        "Close nonce bitmap PDAs in a batch, recovering rent to the authority.",
+        "",
+        "Bitmap PDAs are passed as remaining_accounts."
+      ],
+      "discriminator": [
+        212,
+        67,
+        15,
+        190,
+        226,
+        141,
+        142,
+        101
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Emergency committee — receives rent from closed bitmaps."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "forward_call",
+      "docs": [
+        "Forward a wrap or unwrap call from the Protocol Adapter.",
+        "",
+        "Note: Unlike EVM which doesn't check stopped state here (trusting PA won't call if stopped),",
+        "we also don't check here. The PA is responsible for not calling forwarders when stopped.",
+        "This matches the EVM ForwarderBase.forwardCall() pattern exactly."
+      ],
+      "discriminator": [
+        159,
+        170,
+        224,
+        10,
+        253,
+        105,
+        108,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ix_sysvar",
+          "docs": [
+            "Instructions sysvar for CPI caller verification and Ed25519 signature introspection."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "clock",
+          "docs": [
+            "Clock sysvar for deadline checking"
+          ],
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "logic_ref",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "input",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "forward_emergency_call",
+      "docs": [
+        "Forward an emergency call when PA is stopped.",
+        "",
+        "Mirrors EVM's forwardEmergencyCall() which checks _checkEmergencyStopped()",
+        "by querying ProtocolAdapter.isEmergencyStopped()."
+      ],
+      "discriminator": [
+        236,
+        144,
+        86,
+        28,
+        9,
+        25,
+        177,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pa_state",
+          "docs": [
+            "Protocol Adapter state account for checking paused status.",
+            "Mirrors EVM's _checkEmergencyStopped() which queries ProtocolAdapter.isEmergencyStopped()."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "input",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize the forwarder config with emergency committee.",
+        "",
+        "Mirrors EVM constructor validation:",
+        "- protocol_adapter must not be zero",
+        "- logic_ref must not be all zeros",
+        "- emergency_committee must not be zero"
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "protocol_adapter",
+          "type": "pubkey"
+        },
+        {
+          "name": "logic_ref",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "emergency_committee",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_emergency_caller",
+      "docs": [
+        "Set the emergency caller (one-time, by emergency committee when PA is stopped).",
+        "",
+        "Mirrors EVM's setEmergencyCaller() which checks _checkEmergencyStopped()",
+        "by querying ProtocolAdapter.isEmergencyStopped()."
+      ],
+      "discriminator": [
+        220,
+        233,
+        248,
+        6,
+        234,
+        58,
+        82,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "committee",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pa_state",
+          "docs": [
+            "Protocol Adapter state account for checking paused status.",
+            "Mirrors EVM's _checkEmergencyStopped() which queries ProtocolAdapter.isEmergencyStopped()."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_emergency_caller",
+          "type": "pubkey"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "EmergencyCallerSet",
+      "discriminator": [
+        23,
+        219,
+        26,
+        66,
+        233,
+        253,
+        158,
+        79
+      ]
+    },
+    {
+      "name": "EmergencyWithdraw",
+      "discriminator": [
+        128,
+        80,
+        236,
+        119,
+        137,
+        129,
+        241,
+        144
+      ]
+    },
+    {
+      "name": "Unwrapped",
+      "discriminator": [
+        25,
+        86,
+        93,
+        80,
+        145,
+        113,
+        86,
+        93
+      ]
+    },
+    {
+      "name": "Wrapped",
+      "discriminator": [
+        11,
+        127,
+        145,
+        31,
+        206,
+        134,
+        73,
+        130
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidInput",
+      "msg": "Invalid input data - check logs for expected vs actual length"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidWrapInputLength",
+      "msg": "Invalid wrap input length - expected 185 bytes"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidUnwrapInputLength",
+      "msg": "Invalid unwrap input length - expected 72 bytes"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidEmergencyInputLength",
+      "msg": "Invalid emergency withdraw input length - expected 72 bytes"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidTokenAccountData",
+      "msg": "Invalid token account data - too short or malformed"
+    },
+    {
+      "code": 6005,
+      "name": "InsufficientRemainingAccounts",
+      "msg": "Insufficient remaining accounts - check logs for expected count"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidTokenProgram",
+      "msg": "Invalid token program - expected SPL Token program ID"
+    },
+    {
+      "code": 6007,
+      "name": "TokenMintMismatch",
+      "msg": "Token mint mismatch - provided mint doesn't match input"
+    },
+    {
+      "code": 6008,
+      "name": "UnknownOperation",
+      "msg": "Unknown operation code"
+    },
+    {
+      "code": 6009,
+      "name": "UnauthorizedCaller",
+      "msg": "Unauthorized caller - only Protocol Adapter can call forward_call"
+    },
+    {
+      "code": 6010,
+      "name": "UnauthorizedLogicRef",
+      "msg": "Unauthorized logic_ref - this forwarder doesn't handle this resource type"
+    },
+    {
+      "code": 6011,
+      "name": "DeadlineExpired",
+      "msg": "Signature deadline has expired"
+    },
+    {
+      "code": 6012,
+      "name": "NonceAlreadyUsed",
+      "msg": "Nonce has already been used (replay attack prevented)"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidSignature",
+      "msg": "Ed25519 signature verification failed"
+    },
+    {
+      "code": 6014,
+      "name": "Ed25519InstructionNotFound",
+      "msg": "Ed25519 instruction not found at specified index"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidEd25519Instruction",
+      "msg": "Invalid Ed25519 instruction format"
+    },
+    {
+      "code": 6016,
+      "name": "Ed25519PubkeyMismatch",
+      "msg": "Ed25519 public key mismatch"
+    },
+    {
+      "code": 6017,
+      "name": "Ed25519MessageMismatch",
+      "msg": "Ed25519 message mismatch"
+    },
+    {
+      "code": 6018,
+      "name": "InsufficientEscrowBalance",
+      "msg": "Insufficient escrow balance for unwrap"
+    },
+    {
+      "code": 6019,
+      "name": "EmergencyCallerAlreadySet",
+      "msg": "Emergency caller already set"
+    },
+    {
+      "code": 6020,
+      "name": "EmergencyCallerNotSet",
+      "msg": "Emergency caller not set"
+    },
+    {
+      "code": 6021,
+      "name": "ProtocolAdapterNotStopped",
+      "msg": "Protocol Adapter not stopped - cannot perform emergency operations"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidPaState",
+      "msg": "Invalid PA state account - does not match derived PDA from protocol_adapter"
+    },
+    {
+      "code": 6023,
+      "name": "ZeroAddressNotAllowed",
+      "msg": "Zero address not allowed"
+    },
+    {
+      "code": 6024,
+      "name": "AccountNotFound",
+      "msg": "Account not found in remaining accounts"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidAccountOwner",
+      "msg": "Invalid account owner"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidEscrowPda",
+      "msg": "Invalid escrow PDA"
+    },
+    {
+      "code": 6027,
+      "name": "InvalidNonceBitmapPda",
+      "msg": "Invalid nonce bitmap PDA - doesn't match derived address"
+    },
+    {
+      "code": 6028,
+      "name": "TokenTransferFailed",
+      "msg": "Token transfer failed - ensure user has approved escrow PDA as delegate with sufficient amount"
+    },
+    {
+      "code": 6029,
+      "name": "InsufficientDelegateApproval",
+      "msg": "Insufficient delegate approval - user must approve escrow PDA as delegate before wrap"
+    },
+    {
+      "code": 6030,
+      "name": "BalanceMismatch",
+      "msg": "Balance mismatch - actual transfer amount differs from expected (possible fee-on-transfer token)"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "docs": [
+        "Configuration account for the forwarder.",
+        "",
+        "Mirrors EVM's ForwarderBase + EmergencyMigratableForwarderBase state:",
+        "- protocol_adapter: Only this address can call forward_call",
+        "- logic_ref: Only handle this resource type",
+        "- emergency_committee: Can set emergency_caller when PA stopped",
+        "- emergency_caller: Can call forward_emergency_call when PA stopped"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "protocol_adapter",
+            "docs": [
+              "The Protocol Adapter program ID that can call forward_call"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "logic_ref",
+            "docs": [
+              "The logic reference (verifying key) this forwarder handles"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "emergency_committee",
+            "docs": [
+              "Emergency committee that can set emergency_caller"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "emergency_caller",
+            "docs": [
+              "Emergency caller set by committee (zero = not set)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EmergencyCallerSet",
+      "docs": [
+        "Emitted when emergency caller is set by committee.",
+        "",
+        "Mirrors EVM: `event EmergencyCallerSet(address caller);`"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "emergency_caller",
+            "docs": [
+              "The new emergency caller address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "set_by",
+            "docs": [
+              "The committee that set this caller"
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EmergencyWithdraw",
+      "docs": [
+        "Emitted when emergency withdrawal is performed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "token_mint",
+            "docs": [
+              "The SPL token mint that was withdrawn"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "docs": [
+              "The recipient who received the tokens"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "The amount of tokens withdrawn"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "caller",
+            "docs": [
+              "The emergency caller who performed the withdrawal"
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Unwrapped",
+      "docs": [
+        "Emitted when tokens are unwrapped (released from escrow).",
+        "",
+        "Mirrors EVM: `event Unwrapped(address indexed token, address indexed to, uint128 amount);`"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "token_mint",
+            "docs": [
+              "The SPL token mint that was unwrapped"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "docs": [
+              "The recipient who received the tokens"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "The amount of tokens unwrapped"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Wrapped",
+      "docs": [
+        "Emitted when tokens are wrapped (locked into escrow).",
+        "",
+        "Mirrors EVM: `event Wrapped(address indexed token, address indexed from, uint128 amount);`"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "token_mint",
+            "docs": [
+              "The SPL token mint that was wrapped"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "from",
+            "docs": [
+              "The user who wrapped tokens (signed the authorization)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "The amount of tokens wrapped"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "The nonce used for replay protection"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "action_tree_root",
+            "docs": [
+              "The action tree root this wrap was bound to"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
