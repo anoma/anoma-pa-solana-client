@@ -1,0 +1,6 @@
+# The solana-protocol-adapter commit this release pairs with.
+# Update on every release; CI extracts IDLs and source-of-truth values from this commit.
+#
+# Format: full 40-character commit SHA, one per line. Comments allowed.
+
+UNSET
