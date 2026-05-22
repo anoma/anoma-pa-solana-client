@@ -53,7 +53,7 @@ const toBytes32 = (value: string | Uint8Array, label: string): Uint8Array => {
  * Validates `amount` (u64 range) and `deadline` (i64 range) before serializing.
  */
 export function buildWrapMessage(input: WrapMessageInput): Uint8Array<ArrayBuffer> {
-  assertSplTokenAmount(input.amount, "wrap amount");
+  assertSplTokenAmount(input.amount, "Wrap amount");
   if (input.nonce < 0n || input.nonce > (1n << 64n) - 1n) {
     throw new RangeError(`wrap nonce must fit in u64; got ${input.nonce}`);
   }
