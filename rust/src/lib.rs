@@ -26,9 +26,7 @@ pub use external_call::{
     OP_UNWRAP, OP_WRAP,
 };
 pub use forwarder::{build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts};
-pub use instructions::{
-    settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix,
-};
+pub use instructions::{settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix};
 pub use merkle::{hash_two, zero_hashes, CommitmentTreeState, MerkleError, PADDING_LEAF};
 pub use pda::{
     derive_associated_token_address, derive_forwarder_config_pda, derive_forwarder_escrow_pda,

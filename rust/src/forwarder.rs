@@ -2,9 +2,8 @@
 //! `remaining_accounts`. Ordering is owned by the forwarder program; integrators
 //! must use these builders rather than hand-rolling the slice.
 
-use solana_program::{
-    instruction::AccountMeta, pubkey::Pubkey, sysvar, system_program,
-};
+use solana_program::{instruction::AccountMeta, pubkey::Pubkey, sysvar};
+use solana_sdk_ids::system_program;
 
 use crate::constants::{FORWARDER_UNWRAP_NUM_ACCOUNTS, FORWARDER_WRAP_NUM_ACCOUNTS};
 use crate::pda::{

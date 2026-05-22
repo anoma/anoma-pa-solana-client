@@ -48,10 +48,9 @@ impl core::fmt::Display for DecodeError {
                 write!(f, "invalid Option tag {tag} for field {field}")
             }
             DecodeError::InvalidDepth(d) => write!(f, "invalid PA tree depth: {d}"),
-            DecodeError::FrontierTooShort { len, depth } => write!(
-                f,
-                "PA frontier length {len} is smaller than depth {depth}"
-            ),
+            DecodeError::FrontierTooShort { len, depth } => {
+                write!(f, "PA frontier length {len} is smaller than depth {depth}")
+            }
             DecodeError::InvalidLength { field } => write!(f, "invalid {field} length"),
         }
     }
@@ -131,7 +130,9 @@ fn take<'a>(
     let end = cursor
         .checked_add(len)
         .ok_or(DecodeError::Truncated { field })?;
-    let slice = data.get(*cursor..end).ok_or(DecodeError::Truncated { field })?;
+    let slice = data
+        .get(*cursor..end)
+        .ok_or(DecodeError::Truncated { field })?;
     *cursor = end;
     Ok(slice)
 }

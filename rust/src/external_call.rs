@@ -32,11 +32,7 @@ pub enum OutputMode {
     ///
     /// `index` is relative to the *full* `remaining_accounts` slice (including
     /// nullifier PDAs), not relative to the forwarder's account segment.
-    OutputAccount {
-        index: u8,
-        offset: u32,
-        len: u32,
-    },
+    OutputAccount { index: u8, offset: u32, len: u32 },
 }
 
 impl SolanaExternalCall {

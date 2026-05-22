@@ -42,11 +42,17 @@ mod tests {
 
     #[test]
     fn discriminator_is_deterministic() {
-        assert_eq!(anchor_instruction_disc("settle"), anchor_instruction_disc("settle"));
+        assert_eq!(
+            anchor_instruction_disc("settle"),
+            anchor_instruction_disc("settle")
+        );
     }
 
     #[test]
     fn instruction_and_event_discriminators_differ() {
-        assert_ne!(anchor_instruction_disc("settle"), anchor_event_disc("settle"));
+        assert_ne!(
+            anchor_instruction_disc("settle"),
+            anchor_event_disc("settle")
+        );
     }
 }

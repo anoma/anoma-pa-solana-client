@@ -16,11 +16,7 @@ pub fn derive_pa_state_pda(pa_program: &Pubkey) -> (Pubkey, u8) {
 }
 
 /// Derive a per-authority+upload `tx_data` PDA. Seed: `["tx_data", authority, upload_id_le]`.
-pub fn derive_tx_data_pda(
-    pa_program: &Pubkey,
-    authority: &Pubkey,
-    upload_id: u64,
-) -> (Pubkey, u8) {
+pub fn derive_tx_data_pda(pa_program: &Pubkey, authority: &Pubkey, upload_id: u64) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[b"tx_data", authority.as_ref(), &upload_id.to_le_bytes()],
         pa_program,
