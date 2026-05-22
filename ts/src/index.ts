@@ -11,3 +11,5 @@ export * from "./amount.js";
 export * from "./wrapMessage.js";
 export * from "./accounts.js";
 export * from "./ed25519IxIndex.js";
+export * from "./confirmation.js";
+export * from "./labelValueRef.js";

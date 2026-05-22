@@ -12,6 +12,7 @@ pub mod discriminator;
 pub mod external_call;
 pub mod forwarder;
 pub mod instructions;
+pub mod merkle;
 pub mod pda;
 pub mod program_ids;
 pub mod wrap_message;
@@ -28,6 +29,7 @@ pub use forwarder::{build_unwrap_forwarder_accounts, build_wrap_forwarder_accoun
 pub use instructions::{
     settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix,
 };
+pub use merkle::{hash_two, zero_hashes, CommitmentTreeState, MerkleError, PADDING_LEAF};
 pub use pda::{
     derive_associated_token_address, derive_forwarder_config_pda, derive_forwarder_escrow_pda,
     derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
