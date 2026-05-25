@@ -105,7 +105,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 ### 3.10 External call construction
 
 - `SolanaExternalCall { program_id: [u8; 32], instruction_data: Vec<u8>, expected_output: Vec<u8>, output_mode: OutputMode, num_accounts: u8 }` — exact match for the PA's `solana-pa-prototype/src/types.rs`.
-- `OutputMode = ReturnData | OutputAccount { index: u8, offset: u32, len: u32 }`.
+- `OutputMode = ReturnData`.
 - Convenience constructors for wrap and unwrap calls that fill `num_accounts` and `output_mode` correctly.
 
 ### 3.11 Forwarder CPI account assembly
