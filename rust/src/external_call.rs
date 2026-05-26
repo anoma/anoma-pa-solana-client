@@ -13,7 +13,7 @@ pub struct SolanaExternalCall {
     pub program_id: [u8; 32],
     /// The forwarder's instruction data (op byte + input layout).
     pub instruction_data: Vec<u8>,
-    /// Expected return-data or output-account slice (committed in the proof).
+    /// Expected return-data bytes (committed in the proof).
     pub expected_output: Vec<u8>,
     /// How the PA reads the forwarder's output.
     pub output_mode: OutputMode,
@@ -28,11 +28,6 @@ pub struct SolanaExternalCall {
 pub enum OutputMode {
     /// Read output from Solana `return_data`.
     ReturnData,
-    /// Read a slice from a specific account in `remaining_accounts`.
-    ///
-    /// `index` is relative to the *full* `remaining_accounts` slice (including
-    /// nullifier PDAs), not relative to the forwarder's account segment.
-    OutputAccount { index: u8, offset: u32, len: u32 },
 }
 
 impl SolanaExternalCall {
