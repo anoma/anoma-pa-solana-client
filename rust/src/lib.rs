@@ -15,6 +15,7 @@ pub mod instructions;
 pub mod merkle;
 pub mod pda;
 pub mod program_ids;
+pub mod wallet_keyring;
 pub mod wrap_message;
 
 pub use accounts::{decode_pa_state, DecodeError, PAStateAccount};
@@ -34,4 +35,8 @@ pub use pda::{
     derive_tx_data_pda, derive_verifier_router_pdas,
 };
 pub use program_ids::*;
+pub use wallet_keyring::{
+    derive_keyring_secrets, nullifier_commitment, sign_message, KeyringSecrets, AUTHORITY_DOMAIN,
+    DISCOVERY_DOMAIN, ENCRYPTION_DOMAIN, KEYRING_SALT, NULLIFIER_DOMAIN,
+};
 pub use wrap_message::{sha256, WrapMessage, WRAP_MESSAGE_LEN};
