@@ -1,10 +1,10 @@
 [package]
 name = "anoma-pa-solana-client"
-version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder"
-repository = "https://github.com/anoma/anoma-pa-solana-client"
+repository.workspace = true
 readme = "../README.md"
 publish = false
 
