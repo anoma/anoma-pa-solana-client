@@ -53,6 +53,26 @@ jobs:
       - name: cargo test --workspace
         run: cargo test --workspace
 
+  rust-no-default-features:
+    name: Rust No-Default-Features (guest-compatible subset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # `--all-targets` compiles the lib, tests, and examples, so this verifies
+      # the crate builds free of solana-program (and its libsecp256k1 -> rand 0.7
+      # -> getrandom 0.1.16 chain) when the `solana` feature is off — keeping the
+      # pure modules usable by consumers that can't take solana-program. If a pure
+      # module gains a Solana dependency, or solana-program becomes non-optional,
+      # this job fails. It runs on the host target; building for the actual risc0
+      # guest target is exercised downstream by the transfer circuit build.
+      - name: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+
   ts:
     name: TS (tsc + vitest)
     runs-on: ubuntu-latest

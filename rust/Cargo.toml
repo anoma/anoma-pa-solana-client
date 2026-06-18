@@ -12,15 +12,26 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-solana-program = "2.1"
-anchor-lang = "0.31.1"
+# Pure deps — no Solana SDK, compile for any target including the risc0 guest.
 bincode = "1.3.3"
-borsh = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 hkdf = "0.12"
 hmac = "0.12"
 base64 = "0.22"
-bs58 = "0.5"
-thiserror = "2.0"
-solana-sdk-ids = "2.2"
+
+# Solana SDK deps — used only by the on-chain instruction/PDA/program-id
+# builders. Optional so that consumers needing only the pure wire-format and
+# crypto modules (e.g. the zkVM transfer circuit, which compiles for
+# riscv32im-risc0-zkvm-elf) can depend on this crate with `default-features =
+# false`. Pulling solana-program unconditionally drags in its transitive crypto
+# stack (libsecp256k1 -> rand 0.7 -> getrandom 0.1.16), which has no support for
+# the guest target and fails to compile there.
+solana-program = { version = "2.1", optional = true }
+solana-sdk-ids = { version = "2.2", optional = true }
+
+[features]
+default = ["solana"]
+# Enables the modules that depend on the Solana SDK: instruction builders, PDA
+# derivation, program IDs, and ATA helpers.
+solana = ["dep:solana-program", "dep:solana-sdk-ids"]
