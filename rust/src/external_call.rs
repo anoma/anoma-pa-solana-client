@@ -51,6 +51,12 @@ pub const OP_WRAP: u8 = 0;
 /// Op byte prepended to `UnwrapInput`-shaped instruction data.
 pub const OP_UNWRAP: u8 = 1;
 
+/// Op byte prepended to `MigrateInput`-shaped instruction data.
+///
+/// `OP_WRAP` (0) and `OP_UNWRAP` (1) are the v1 op codes; `OP_MIGRATE` continues
+/// that op space for the v2 forwarder's migrate instruction.
+pub const OP_MIGRATE: u8 = 2;
+
 /// Build the 186-byte forwarder instruction data for a wrap.
 ///
 /// Layout: `op(1) + token_mint(32) + amount_le(8) + user(32) + nonce_le(8) +
@@ -90,6 +96,37 @@ pub fn encode_unwrap_forwarder_input(token_mint: &[u8], amount: u64, recipient: 
     buf.extend_from_slice(&pad_to_32(token_mint));
     buf.extend_from_slice(&amount.to_le_bytes());
     buf.extend_from_slice(&pad_to_32(recipient));
+    buf
+}
+
+/// Build the 169-byte forwarder instruction data for a migrate.
+///
+/// Layout (mirrors the v1 wrap/unwrap shape — op byte, 32-byte fields, LE
+/// amount): `op(1) + token_mint(32) + amount_le(8) + nullifier(32) +
+/// commitment_tree_root(32) + logic_ref_v1(32) + forwarder_v1(32)`.
+///
+/// - `nullifier` is the nullifier of the v1 resource being migrated.
+/// - `commitment_tree_root` is the v1 commitment-tree root that witnesses the
+///   migrated resource's existence.
+/// - `migrate_resource_logic_ref` is the v1 resource's logic reference.
+/// - `migrate_resource_forwarder_id` is the **v1** forwarder program id encoded
+///   in the migrated resource's label.
+pub fn encode_migrate_forwarder_input(
+    token_mint: &[u8],
+    amount: u64,
+    nullifier: &[u8],
+    commitment_tree_root: &[u8],
+    migrate_resource_logic_ref: &[u8],
+    migrate_resource_forwarder_id: &[u8],
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(169);
+    buf.push(OP_MIGRATE);
+    buf.extend_from_slice(&pad_to_32(token_mint));
+    buf.extend_from_slice(&amount.to_le_bytes());
+    buf.extend_from_slice(&pad_to_32(nullifier));
+    buf.extend_from_slice(&pad_to_32(commitment_tree_root));
+    buf.extend_from_slice(&pad_to_32(migrate_resource_logic_ref));
+    buf.extend_from_slice(&pad_to_32(migrate_resource_forwarder_id));
     buf
 }
 
@@ -154,5 +191,27 @@ mod tests {
         let bytes = encode_unwrap_forwarder_input(&[1u8; 32], 100, &[2u8; 32]);
         assert_eq!(bytes.len(), 73);
         assert_eq!(bytes[0], OP_UNWRAP);
+    }
+
+    #[test]
+    fn migrate_input_layout_is_169_bytes() {
+        let bytes = encode_migrate_forwarder_input(
+            &[1u8; 32], 42, &[2u8; 32], &[3u8; 32], &[4u8; 32], &[5u8; 32],
+        );
+        // Pin the wire layout field-by-field: this crate is the sole authority
+        // for the migrate forwarder encoding, so a silent field transposition
+        // must fail here rather than on-chain.
+        assert_eq!(bytes.len(), 169);
+        assert_eq!(bytes[0], OP_MIGRATE);
+        assert_eq!(&bytes[1..33], &[1u8; 32], "token_mint");
+        assert_eq!(
+            u64::from_le_bytes(bytes[33..41].try_into().unwrap()),
+            42,
+            "amount (LE)"
+        );
+        assert_eq!(&bytes[41..73], &[2u8; 32], "nullifier");
+        assert_eq!(&bytes[73..105], &[3u8; 32], "commitment_tree_root");
+        assert_eq!(&bytes[105..137], &[4u8; 32], "logic_ref_v1");
+        assert_eq!(&bytes[137..169], &[5u8; 32], "forwarder_v1");
     }
 }
