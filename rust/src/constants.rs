@@ -36,6 +36,14 @@ pub const FORWARDER_WRAP_NUM_ACCOUNTS: u8 = 12;
 /// recipient_ata, escrow_pda, token_program, token_mint]`.
 pub const FORWARDER_UNWRAP_NUM_ACCOUNTS: u8 = 9;
 
+/// Number of accounts in a migrate forwarder CPI segment (including the forwarder
+/// program account at position 0).
+///
+/// NOTE: this value MUST match the migrate instruction of the on-chain v2
+/// forwarder. It is provisional until that program is finalized; revisit before
+/// shipping migration to a live network.
+pub const FORWARDER_MIGRATE_NUM_ACCOUNTS: u8 = 9;
+
 /// Groth16 proof selector for the verifier-router lookup. The first 4 bytes identify
 /// the verifier type; the PA verifier-entry PDA is derived from `["verifier", selector]`.
 pub const GROTH16_VERIFIER_SELECTOR: [u8; 4] = [0x73, 0xc4, 0x57, 0xba];

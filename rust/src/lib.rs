@@ -28,8 +28,8 @@ pub use accounts::{decode_pa_state, DecodeError, PAStateAccount};
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
 pub use external_call::{
-    encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,
-    OP_UNWRAP, OP_WRAP,
+    encode_migrate_forwarder_input, encode_unwrap_forwarder_input, encode_wrap_forwarder_input,
+    OutputMode, SolanaExternalCall, OP_MIGRATE, OP_UNWRAP, OP_WRAP,
 };
 pub use merkle::{hash_two, zero_hashes, CommitmentTreeState, MerkleError, PADDING_LEAF};
 
