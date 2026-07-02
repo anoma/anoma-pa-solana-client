@@ -123,10 +123,10 @@ pub fn encode_migrate_forwarder_input(
     buf.push(OP_MIGRATE);
     buf.extend_from_slice(&pad_to_32(token_mint));
     buf.extend_from_slice(&amount.to_le_bytes());
-    buf.extend_from_slice(nullifier);
-    buf.extend_from_slice(commitment_tree_root);
-    buf.extend_from_slice(migrate_resource_logic_ref);
-    buf.extend_from_slice(migrate_resource_forwarder_id);
+    buf.extend_from_slice(&pad_to_32(nullifier));
+    buf.extend_from_slice(&pad_to_32(commitment_tree_root));
+    buf.extend_from_slice(&pad_to_32(migrate_resource_logic_ref));
+    buf.extend_from_slice(&pad_to_32(migrate_resource_forwarder_id));
     buf
 }
 
@@ -194,11 +194,24 @@ mod tests {
     }
 
     #[test]
-    fn migrate_input_length_is_169_bytes() {
+    fn migrate_input_layout_is_169_bytes() {
         let bytes = encode_migrate_forwarder_input(
             &[1u8; 32], 42, &[2u8; 32], &[3u8; 32], &[4u8; 32], &[5u8; 32],
         );
+        // Pin the wire layout field-by-field: this crate is the sole authority
+        // for the migrate forwarder encoding, so a silent field transposition
+        // must fail here rather than on-chain.
         assert_eq!(bytes.len(), 169);
         assert_eq!(bytes[0], OP_MIGRATE);
+        assert_eq!(&bytes[1..33], &[1u8; 32], "token_mint");
+        assert_eq!(
+            u64::from_le_bytes(bytes[33..41].try_into().unwrap()),
+            42,
+            "amount (LE)"
+        );
+        assert_eq!(&bytes[41..73], &[2u8; 32], "nullifier");
+        assert_eq!(&bytes[73..105], &[3u8; 32], "commitment_tree_root");
+        assert_eq!(&bytes[105..137], &[4u8; 32], "logic_ref_v1");
+        assert_eq!(&bytes[137..169], &[5u8; 32], "forwarder_v1");
     }
 }
