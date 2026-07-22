@@ -34,18 +34,18 @@ pub fn build_wrap_forwarder_accounts(
     let (nonce_bitmap_pda, _) = derive_nonce_bitmap_pda(forwarder_program, user, word_index);
 
     let accounts = vec![
-        AccountMeta::new_readonly(*forwarder_program, false), // segment marker
-        AccountMeta::new_readonly(config_pda, false),         // config
-        AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
-        AccountMeta::new_readonly(sysvar::clock::id(), false), // clock
-        AccountMeta::new(user_ata, false),                    // user ATA
-        AccountMeta::new(escrow_ata, false),                  // escrow ATA
-        AccountMeta::new_readonly(escrow_pda, false),         // escrow PDA
-        AccountMeta::new(nonce_bitmap_pda, false),            // nonce bitmap
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false), // token program
-        AccountMeta::new_readonly(system_program::id(), false), // system program
-        AccountMeta::new(*payer, false),                      // payer for nonce bitmap
-        AccountMeta::new_readonly(*token_mint, false),        // mint
+        AccountMeta::new_readonly(*forwarder_program, false),
+        AccountMeta::new_readonly(config_pda, false),
+        AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+        AccountMeta::new(user_ata, false),
+        AccountMeta::new(escrow_ata, false),
+        AccountMeta::new_readonly(escrow_pda, false),
+        AccountMeta::new(nonce_bitmap_pda, false),
+        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new(*payer, false),
+        AccountMeta::new_readonly(*token_mint, false),
     ];
     debug_assert_eq!(accounts.len(), FORWARDER_WRAP_NUM_ACCOUNTS as usize);
     accounts
@@ -66,15 +66,15 @@ pub fn build_unwrap_forwarder_accounts(
     let recipient_ata = derive_associated_token_address(recipient, token_mint);
 
     let accounts = vec![
-        AccountMeta::new_readonly(*forwarder_program, false), // segment marker
-        AccountMeta::new_readonly(config_pda, false),         // config
-        AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
-        AccountMeta::new_readonly(sysvar::clock::id(), false), // clock
-        AccountMeta::new(escrow_ata, false),                  // escrow ATA
-        AccountMeta::new(recipient_ata, false),               // recipient ATA
-        AccountMeta::new_readonly(escrow_pda, false),         // escrow PDA
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false), // token program
-        AccountMeta::new_readonly(*token_mint, false),        // mint
+        AccountMeta::new_readonly(*forwarder_program, false),
+        AccountMeta::new_readonly(config_pda, false),
+        AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+        AccountMeta::new(escrow_ata, false),
+        AccountMeta::new(recipient_ata, false),
+        AccountMeta::new_readonly(escrow_pda, false),
+        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+        AccountMeta::new_readonly(*token_mint, false),
     ];
     debug_assert_eq!(accounts.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);
     accounts

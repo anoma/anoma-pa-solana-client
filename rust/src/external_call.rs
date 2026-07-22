@@ -17,10 +17,17 @@ pub struct SolanaExternalCall {
     pub expected_output: Vec<u8>,
     /// How the PA reads the forwarder's output.
     pub output_mode: OutputMode,
-    /// Number of accounts in this call's CPI segment (including the forwarder
-    /// program account at position 0). Committed in the proof so segment
-    /// boundaries are unambiguous.
-    pub num_accounts: u8,
+    /// Exact non-program accounts and writable capabilities authorized by the proof.
+    pub accounts: Vec<SolanaAccountMeta>,
+}
+
+/// Proof-bound account capability for one Solana forwarder CPI.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SolanaAccountMeta {
+    /// Account public key.
+    pub pubkey: [u8; 32],
+    /// Whether the forwarder is authorized to receive writable access.
+    pub is_writable: bool,
 }
 
 /// How the PA reads an external call's output.
@@ -126,7 +133,10 @@ mod tests {
             instruction_data: vec![1, 2, 3, 4, 5],
             expected_output: vec![1],
             output_mode: OutputMode::ReturnData,
-            num_accounts: 12,
+            accounts: vec![SolanaAccountMeta {
+                pubkey: [9; 32],
+                is_writable: true,
+            }],
         };
         let bytes = call.encode();
         let back = SolanaExternalCall::decode(&bytes).expect("decode");

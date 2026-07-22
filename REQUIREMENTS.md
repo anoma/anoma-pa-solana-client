@@ -58,11 +58,11 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 - Wrap entry point (with full CPI account list assembled internally).
 - Unwrap entry point (with full CPI account list assembled internally).
-- The integrator does not have to know `num_accounts` per call or the account ordering; the builder produces a correct slice.
+- These application-specific helpers describe the deployed forwarder's account order; they are not an alternate settlement authority.
 
 ### 3.5 Settle transaction orchestration
 
-- A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, optional `Ed25519Program` verify ix(es) for wrap authorizations, and the `settle_from_txdata` ix with correct `remaining_accounts`.
+- A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, optional `Ed25519Program` verify ix(es) for wrap authorizations, and the `settle_from_txdata` ix. Its remaining accounts are derived only from typed nullifiers, proof-bound external calls, ordered historical roots, and the produced root; callers cannot append a free-form account vector.
 - Computes `ed25519_ix_index` from the actual transaction layout, not from a constant.
 - Chunked upload helper: bincode-serializes the ARM `Transaction`, splits into appropriately-sized chunks, returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions.
 
@@ -104,9 +104,9 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.10 External call construction
 
-- `SolanaExternalCall { program_id: [u8; 32], instruction_data: Vec<u8>, expected_output: Vec<u8>, output_mode: OutputMode, num_accounts: u8 }` — exact match for the PA's `solana-pa-prototype/src/types.rs`.
+- `SolanaExternalCall { program_id: [u8; 32], instruction_data: Vec<u8>, expected_output: Vec<u8>, output_mode: OutputMode, accounts: Vec<SolanaAccountMeta> }` — exact match for the PA's `solana-pa-prototype/src/types.rs`; every non-program account identity and writable capability is proof-bound.
 - `OutputMode = ReturnData`.
-- Convenience constructors for wrap and unwrap calls that fill `num_accounts` and `output_mode` correctly.
+- Convenience constructors for wrap and unwrap calls that fill proof-bound account metadata and `output_mode` correctly.
 
 ### 3.11 Forwarder CPI account assembly
 
