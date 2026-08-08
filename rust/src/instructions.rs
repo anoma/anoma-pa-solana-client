@@ -76,7 +76,10 @@ pub fn txdata_write_ix(
 /// Build a PA `settle_from_txdata` instruction.
 ///
 /// `remaining_accounts` is the caller-assembled slice covering nullifier PDAs,
-/// per-call forwarder CPI segments, root markers, and the new-root marker PDA.
+/// per-call forwarder CPI segments, and historical root markers. The
+/// new-root marker is NOT part of it: since the STATE-03 remediation it is a
+/// required named account, passed here as `new_root_marker` (writable) —
+/// the marker PDA of the post-settlement root.
 #[allow(clippy::too_many_arguments)]
 pub fn settle_from_txdata_ix(
     pa_program: &Pubkey,
@@ -84,6 +87,7 @@ pub fn settle_from_txdata_ix(
     tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
+    new_root_marker: &Pubkey,
     verifier_router_program: &Pubkey,
     router: &Pubkey,
     verifier_entry: &Pubkey,
@@ -100,6 +104,7 @@ pub fn settle_from_txdata_ix(
         AccountMeta::new_readonly(*tx_data, false),
         AccountMeta::new(*authority, true),
         AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new(*new_root_marker, false),
         AccountMeta::new_readonly(*verifier_router_program, false),
         AccountMeta::new_readonly(*router, false),
         AccountMeta::new_readonly(*verifier_entry, false),
@@ -154,6 +159,49 @@ mod tests {
             100,
         );
         assert_eq!(&ix.data[..8], &anchor_instruction_disc("txdata_init"));
+    }
+
+    #[test]
+    fn settle_from_txdata_account_layout_matches_remediated_pa() {
+        // The PA's SettleFromTxData accounts struct, in declaration order:
+        // pa_state(w), tx_data, authority(s), system_program,
+        // new_root_marker(w), verifier_router_program, router,
+        // verifier_entry, verifier_program. STATE-03 inserted
+        // new_root_marker after system_program; a builder without it (or
+        // with it in remaining_accounts) is off by one from there on.
+        let keys: Vec<Pubkey> = (0..8).map(|_| Pubkey::new_unique()).collect();
+        let ix = settle_from_txdata_ix(
+            &keys[0],
+            &keys[1],
+            &keys[2],
+            &keys[3],
+            42,
+            &keys[4],
+            &keys[5],
+            &keys[6],
+            &keys[7],
+            &Pubkey::new_unique(),
+            vec![],
+        );
+        assert_eq!(ix.accounts.len(), 9);
+        let expect = [
+            (keys[1], true, false),               // pa_state: writable
+            (keys[2], false, false),              // tx_data
+            (keys[3], true, true),                // authority: writable signer (pays marker rent)
+            (system_program::id(), false, false), // system_program
+            (keys[4], true, false),               // new_root_marker: writable
+            (keys[5], false, false),              // verifier_router_program
+            (keys[6], false, false),              // router
+            (keys[7], false, false),              // verifier_entry
+        ];
+        for (i, (key, writable, signer)) in expect.iter().enumerate() {
+            assert_eq!(ix.accounts[i].pubkey, *key, "account {i} pubkey");
+            assert_eq!(
+                ix.accounts[i].is_writable, *writable,
+                "account {i} writable"
+            );
+            assert_eq!(ix.accounts[i].is_signer, *signer, "account {i} signer");
+        }
     }
 
     #[test]
