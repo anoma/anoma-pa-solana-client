@@ -1,5 +1,5 @@
 {
-  "address": "De5uxTic9Ed8dRW8TFDKDk6wWtCZa5BDCnLiVhLEoFyJ",
+  "address": "9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF",
   "metadata": {
     "name": "solana_pa_prototype",
     "version": "0.1.0",
@@ -100,105 +100,30 @@
       "args": []
     },
     {
-      "name": "close_markers_batch",
-      "docs": [
-        "Close multiple marker PDAs (nullifier or root) in one transaction.",
-        "Markers are passed as remaining_accounts."
-      ],
-      "discriminator": [
-        77,
-        196,
-        51,
-        2,
-        49,
-        195,
-        48,
-        181
-      ],
-      "accounts": [
-        {
-          "name": "pa_state",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "pa_state"
-          ]
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "close_pa_state",
-      "docs": [
-        "Close the PAState account and reclaim rent to authority.",
-        "",
-        "Uses raw account data instead of typed deserialization so it works",
-        "even when the PAState layout has changed (migration-safe)."
-      ],
-      "discriminator": [
-        107,
-        246,
-        61,
-        149,
-        44,
-        99,
-        88,
-        46
-      ],
-      "accounts": [
-        {
-          "name": "pa_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "emergency_stop",
       "docs": [
-        "Emergency stop — permanently pause the protocol (requires upgrade to unpause)."
+        "Emergency stop — terminal. Retires this deployment permanently.",
+        "",
+        "There is no resume instruction: `Running` is set only at initialization",
+        "and this is the only transition out of it. Recovery from a stop is",
+        "migration to a new deployment, matching the EVM adapter, which has no",
+        "unpause and whose contract is not upgradeable.",
+        "",
+        "Solana programs are upgradeable, so the runtime does not enforce",
+        "terminality the way EVM immutability does — that boundary is",
+        "operational, not on-chain. `close_markers_batch` exists only in",
+        "`dev-teardown` builds (never present in production) to reclaim marker",
+        "rent so a *development* deployment can be re-initialized in place; it",
+        "has no production counterpart. Reclaiming marker rent has no",
+        "dependency on the upgrade authority.",
+        "",
+        "A production shutdown of this deployment is a separate, later step:",
+        "setting `program_data.upgrade_authority_address` to `None` makes the",
+        "program immutable. Do that only once the deployment is truly retired,",
+        "because `initialize` requires",
+        "`program_data.upgrade_authority_address == Some(payer.key())` — once",
+        "the authority is `None`, this program ID can never be initialized",
+        "again, even after `close-pa-state`."
       ],
       "discriminator": [
         179,
@@ -247,10 +172,9 @@
       "docs": [
         "Initialize a new PAState account.",
         "",
-        "remaining_accounts[0]: genesis root marker PDA (REQUIRED - will be created)",
-        "",
-        "The genesis root marker is required so that transactions built against the",
-        "initial empty tree remain valid after subsequent transactions update the root."
+        "Takes no remaining accounts. The empty-tree root equals `PADDING_LEAF`,",
+        "which `is_root_valid` accepts unconditionally, so transactions built",
+        "against the initial tree stay valid without a genesis marker."
       ],
       "discriminator": [
         175,
@@ -292,6 +216,24 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program",
+          "docs": [
+            "The program account is required so `program_data` is proven to be",
+            "*this* program's ProgramData address rather than merely an account",
+            "shaped like one: the constraint reads the programdata address the",
+            "loader recorded inside this very program account and requires it to",
+            "match the supplied `program_data` account."
+          ],
+          "address": "9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here at deploy time, which is the",
+            "only trust anchor available before the adapter has any state of its own."
+          ]
         }
       ],
       "args": [
@@ -410,6 +352,14 @@
           "address": "11111111111111111111111111111111"
         },
         {
+          "name": "new_root_marker",
+          "docs": [
+            "Cannot use a seeds constraint: the address depends on the resulting root,",
+            "which is only known after commitments are appended."
+          ],
+          "writable": true
+        },
+        {
           "name": "verifier_router_program"
         },
         {
@@ -504,6 +454,14 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "new_root_marker",
+          "docs": [
+            "Cannot use a seeds constraint: the address depends on the resulting root,",
+            "which is only known after commitments are appended."
+          ],
+          "writable": true
         },
         {
           "name": "verifier_router_program"
@@ -606,7 +564,31 @@
       "accounts": [
         {
           "name": "tx_data",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  120,
+                  95,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "upload_id"
+              }
+            ]
+          }
         },
         {
           "name": "payer",
@@ -620,7 +602,16 @@
           "writable": true
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "upload_id",
+          "type": "u64"
+        },
+        {
+          "name": "_authority",
+          "type": "pubkey"
+        }
+      ]
     },
     {
       "name": "txdata_extend",
@@ -1215,6 +1206,26 @@
       "code": 6033,
       "name": "ComplianceInstanceParseFailed",
       "msg": "Failed to parse compliance instance from journal bytes"
+    },
+    {
+      "code": 6034,
+      "name": "EmptyExpectedOutput",
+      "msg": "External call expected_output must be non-empty: Solana cannot represent an explicit empty return"
+    },
+    {
+      "code": 6035,
+      "name": "MarkerUnexpectedOwner",
+      "msg": "Marker address is held by an unexpected owner"
+    },
+    {
+      "code": 6036,
+      "name": "MarkerUnexpectedData",
+      "msg": "Marker address already contains data"
+    },
+    {
+      "code": 6037,
+      "name": "RootMarkerAlreadyExists",
+      "msg": "Root marker already exists: the commitment tree produced a repeated root"
     }
   ],
   "types": [

@@ -10,3 +10,10 @@
 # committed there. v0.1 ships against this commit's behavior with the
 # integrator-side migrations applied.
 8519d2dc3d33f97cb5ee70c2463f2d3ae862e932
+
+# solana-protocol-adapter main (beta deployment, 2026-08-08)
+# Devnet beta PA 9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF is deployed and
+# initialized from this commit (production build). Predecessor deployments,
+# including De5uxTic..., are retired; see the PA repo's
+# solana-pa-prototype/docs/DEVNET_DEPLOYMENT.md and docs/INTEGRATION.md.
+14d0ddda45cdefe0910d70a1144b8aa234af13b2
