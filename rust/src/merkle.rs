@@ -6,8 +6,10 @@ use sha2::{Digest as _, Sha256};
 
 use crate::constants::MAX_TREE_DEPTH;
 
-/// `sha256("")`, the canonical padding leaf used for empty positions in the
-/// commitment tree. Same value as the PA's `EMPTY_HASH_BYTES`.
+/// The canonical padding leaf used for empty positions in the commitment
+/// tree: the ARM empty-hash constant (the PA's `EMPTY_HASH_WORDS`, from
+/// `arm_core::constants`), which is also the empty tree's root at depth 1.
+/// Note this is NOT `sha256("")` (`e3b0c442…`).
 pub const PADDING_LEAF: [u8; 32] = [
     0xcc, 0x1d, 0x2f, 0x83, 0x84, 0x45, 0xdb, 0x7a, 0xec, 0x43, 0x1d, 0xf9, 0xee, 0x8a, 0x87, 0x1f,
     0x40, 0xe7, 0xaa, 0x5e, 0x06, 0x4f, 0xc0, 0x56, 0x63, 0x3e, 0xf8, 0xc6, 0x0f, 0xab, 0x7b, 0x06,

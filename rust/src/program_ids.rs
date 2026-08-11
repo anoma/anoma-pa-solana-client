@@ -7,7 +7,7 @@
 use solana_program::{pubkey, pubkey::Pubkey};
 
 /// Anoma Protocol Adapter program ID (devnet/localnet default).
-pub const PA_PROGRAM_ID: Pubkey = pubkey!("De5uxTic9Ed8dRW8TFDKDk6wWtCZa5BDCnLiVhLEoFyJ");
+pub const PA_PROGRAM_ID: Pubkey = pubkey!("9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF");
 
 /// SPL Token Forwarder program ID (devnet/localnet default).
 pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48");
