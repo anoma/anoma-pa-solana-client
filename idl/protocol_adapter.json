@@ -1,7 +1,7 @@
 {
   "address": "9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF",
   "metadata": {
-    "name": "solana_pa_prototype",
+    "name": "protocol_adapter",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
