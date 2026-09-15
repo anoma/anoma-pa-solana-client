@@ -5,12 +5,23 @@
 
 import { ANCHOR_DISCRIMINATOR_LEN, HASH_LEN, MAX_TREE_DEPTH } from "./constants.js";
 
+/**
+ * The `PAStateAccount` layout number this decoder reads. The PA stores it at
+ * byte 8 of the account data, right after the Anchor discriminator, in every
+ * layout, and refuses every instruction on an account whose number is not its
+ * own; a mismatch seen by a client is a deployment mid-migration.
+ */
+export const PA_STATE_SCHEMA_VERSION = 1;
+
 /** Decoded PA state account. */
 export interface PAStateAccount {
+  schemaVersion: number;
   bump: number;
   authority: Uint8Array;
   verifierRouter: Uint8Array;
   proofSelector: Uint8Array;
+  /** Kind-table commitment every settled aggregation instance must carry. */
+  kindTableCommitment: Uint8Array;
   pendingAuthority: Uint8Array | null;
   lifecycle: number;
   root: Uint8Array;
@@ -53,10 +64,17 @@ export function decodePaState(data: Uint8Array): PAStateAccount {
     new DataView(take(8, field).buffer).getBigUint64(0, true);
   const readHash = (field: string): Uint8Array => take(HASH_LEN, field);
 
+  const schemaVersion = readU8("schema_version");
+  if (schemaVersion !== PA_STATE_SCHEMA_VERSION) {
+    throw new PAStateDecodeError(
+      `unsupported PAState schema version ${schemaVersion} (this decoder reads ${PA_STATE_SCHEMA_VERSION})`,
+    );
+  }
   const bump = readU8("bump");
   const authority = readHash("authority");
   const verifierRouter = readHash("verifier_router");
   const proofSelector = take(4, "proof_selector");
+  const kindTableCommitment = readHash("kind_table_commitment");
 
   const pendingTag = readU8("pending_authority tag");
   let pendingAuthority: Uint8Array | null;
@@ -95,10 +113,12 @@ export function decodePaState(data: Uint8Array): PAStateAccount {
   const maxExpirySlots = readU64Le("max_expiry_slots");
 
   return {
+    schemaVersion,
     bump,
     authority,
     verifierRouter,
     proofSelector,
+    kindTableCommitment,
     pendingAuthority,
     lifecycle,
     root,

@@ -24,7 +24,7 @@ pub mod pda;
 #[cfg(feature = "solana")]
 pub mod program_ids;
 
-pub use accounts::{decode_pa_state, DecodeError, PAStateAccount};
+pub use accounts::{decode_pa_state, DecodeError, PAStateAccount, PA_STATE_SCHEMA_VERSION};
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
 pub use external_call::{
@@ -41,9 +41,9 @@ pub use forwarder::{build_unwrap_forwarder_accounts, build_wrap_forwarder_accoun
 pub use instructions::{settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix};
 #[cfg(feature = "solana")]
 pub use pda::{
-    derive_associated_token_address, derive_forwarder_config_pda, derive_forwarder_escrow_pda,
-    derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
-    derive_tx_data_pda, derive_verifier_router_pdas,
+    derive_associated_token_address, derive_event_authority_pda, derive_forwarder_config_pda,
+    derive_forwarder_escrow_pda, derive_nonce_bitmap_pda, derive_nullifier_pda,
+    derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda, derive_verifier_router_pdas,
 };
 #[cfg(feature = "solana")]
 pub use program_ids::*;
