@@ -10,6 +10,7 @@ PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder.
 |------|---------|
 | `REQUIREMENTS.md` | Authoritative spec for what this package must provide. Implementation follows from it. |
 | `rust/` | Rust crate (`Cargo.toml`, `src/`). Cargo target. |
+| `tools/settle-fixture/` | Pairing check: settles one adapter fixture on a cluster through the crate's builders, then verifies the replayed root and decodes the settlement's events. |
 | `ts/` | TypeScript / npm package (`package.json`, `src/`). npm target. |
 | `idl/` | Anchor IDL files extracted from the PA and forwarder programs, regenerated per release. |
 | `PA_COMMIT.txt` | The `solana-protocol-adapter` commit this release pairs with. Updated per release. |
@@ -19,6 +20,20 @@ PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder.
 - `anomapay-backend` (Rust): Cargo dependency on `rust/`.
 - `pay-interface-app` (TypeScript): npm dependency on `ts/`.
 - `galileo-indexer` (Elixir): consumes `idl/*.json` for event decoding via its hosted indexing service.
+
+## Pairing check
+
+`tools/settle-fixture` exercises the whole client surface against a live adapter: it decodes the state account, replays the commitment tree to predict the new root marker, uploads a fixture transaction with the `txdata_*` builders, settles it with `settle_from_txdata_ix`, asserts the on-chain root equals the replay, and decodes the settlement's CPI events. Run it against a local validator with the adapter deployed (`./scripts/dev.sh validator` and `./scripts/dev.sh deploy all --cluster localnet` in the adapter repo) or against devnet:
+
+```bash
+cargo run -p settle-fixture -- \
+  --url http://127.0.0.1:8899 \
+  --keypair ~/.config/solana/id.json \
+  --fixture <adapter repo>/solana-pa-prototype/tests/fixtures/batch_groth16.json \
+  --call-accounts 3mesRGxMv9wRB1xp7X4uxbf7GwnQC9PpHSJyCzcXwrsf,SysvarC1ock11111111111111111111111111111111
+```
+
+`--call-accounts` is the account segment of one external call (repeat it per call, in call order); the adapter's committed fixtures call the block-time forwarder with the forwarder and the clock sysvar. The fixture must have been proven for the deployed build: a fixture's proof binds the circuit image ids the deployment was built with.
 
 ## Release coupling
 
