@@ -2,7 +2,7 @@
 
 PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder. One source of truth for instruction builders, account decoders, PDA helpers, event decoders, and constants — published as a Rust crate and a TypeScript/npm package from this repository.
 
-**Status:** spec phase. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full scope, surface, and open questions.
+**Status:** paired with the V2 protocol adapter (branch `anthony/arm-v2-port`, commit in `PA_COMMIT.txt`; devnet program `28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT`). The SPL Token Forwarder bindings still describe the V1 forwarder until it is brought to V2. See [REQUIREMENTS.md](REQUIREMENTS.md) for the intended surface.
 
 ## Layout
 

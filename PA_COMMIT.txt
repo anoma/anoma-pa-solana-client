@@ -1,5 +1,6 @@
 # The solana-protocol-adapter commit this release pairs with.
-# Update on every release; CI extracts IDLs and source-of-truth values from this commit.
+# Update on every release; the IDL files and hand-written values are regenerated
+# from and reviewed against this commit.
 #
 # Format: full 40-character commit SHA, one per line. Comments allowed.
 
@@ -18,3 +19,11 @@
 # including De5uxTic..., are retired; see the PA repo's
 # solana-pa-prototype/docs/DEVNET_DEPLOYMENT.md and docs/INTEGRATION.md.
 9ecaa03c43f1b71b8568b0a9bebba88a0b050efd
+
+# solana-protocol-adapter anthony/arm-v2-port (the V2 adapter; PR #76 is the
+# branch's tracking pull request). Settle takes the event-CPI accounts, PAState
+# carries schema_version and kind_table_commitment, TransactionExecutedEvent
+# carries is_consumed. Devnet V2 PA 28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT
+# was deployed from 76648e6 on this branch; the program source is identical at
+# this commit (only dependency pins, fixture-gen and fixtures changed since).
+2bb6fb58c136746bceb7dd025d86df796d8bf12e

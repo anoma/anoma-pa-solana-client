@@ -7,7 +7,7 @@ import { PublicKey } from "@solana/web3.js";
 
 /** Anoma Protocol Adapter program ID (devnet/localnet default). */
 export const PA_PROGRAM_ID = new PublicKey(
-  "9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF",
+  "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT",
 );
 
 /** SPL Token Forwarder program ID (devnet/localnet default). */

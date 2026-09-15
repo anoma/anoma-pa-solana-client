@@ -1,5 +1,5 @@
 {
-  "address": "9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF",
+  "address": "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT",
   "metadata": {
     "name": "protocol_adapter",
     "version": "0.1.0",
@@ -226,7 +226,7 @@
             "loader recorded inside this very program account and requires it to",
             "match the supplied `program_data` account."
           ],
-          "address": "9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF"
+          "address": "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT"
         },
         {
           "name": "program_data",
@@ -247,6 +247,15 @@
             "array": [
               "u8",
               4
+            ]
+          }
+        },
+        {
+          "name": "kind_table_commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
             ]
           }
         }
@@ -370,6 +379,38 @@
         },
         {
           "name": "verifier_program"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -474,6 +515,38 @@
         },
         {
           "name": "verifier_program"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -1164,68 +1237,78 @@
     },
     {
       "code": 6025,
-      "name": "TagNotFound",
-      "msg": "Logic verifier input not found for tag"
+      "name": "ComplianceKeyMismatch",
+      "msg": "Aggregation instance compliance key does not match the compliance circuit VK"
     },
     {
       "code": 6026,
+      "name": "KindTableCommitmentMismatch",
+      "msg": "Aggregation instance kind-table commitment does not match the configured table"
+    },
+    {
+      "code": 6027,
+      "name": "NullifierDuplication",
+      "msg": "Duplicate nullifier within the aggregation instance"
+    },
+    {
+      "code": 6028,
       "name": "Stopped",
       "msg": "Protocol adapter is stopped"
     },
     {
-      "code": 6027,
+      "code": 6029,
       "name": "Unauthorized",
       "msg": "Unauthorized: caller is not the authority"
     },
     {
-      "code": 6028,
+      "code": 6030,
       "name": "AlreadyStopped",
       "msg": "Protocol adapter is already stopped"
     },
     {
-      "code": 6029,
+      "code": 6031,
       "name": "NoPendingAuthority",
       "msg": "No pending authority transfer to accept"
     },
     {
-      "code": 6030,
+      "code": 6032,
       "name": "NotStopped",
       "msg": "Operation requires the PA to be stopped"
     },
     {
-      "code": 6031,
+      "code": 6033,
       "name": "TreeMaxDepthReached",
       "msg": "Tree has reached maximum depth (32 levels)"
     },
     {
-      "code": 6032,
+      "code": 6034,
       "name": "InvalidMarker",
       "msg": "Account is not owned by this program"
     },
     {
-      "code": 6033,
-      "name": "ComplianceInstanceParseFailed",
-      "msg": "Failed to parse compliance instance from journal bytes"
-    },
-    {
-      "code": 6034,
+      "code": 6035,
       "name": "EmptyExpectedOutput",
       "msg": "External call expected_output must be non-empty: Solana cannot represent an explicit empty return"
     },
     {
-      "code": 6035,
+      "code": 6036,
       "name": "MarkerUnexpectedOwner",
       "msg": "Marker address is held by an unexpected owner"
     },
     {
-      "code": 6036,
+      "code": 6037,
       "name": "MarkerUnexpectedData",
       "msg": "Marker address already contains data"
     },
     {
-      "code": 6037,
+      "code": 6038,
       "name": "RootMarkerAlreadyExists",
       "msg": "Root marker already exists: the commitment tree produced a repeated root"
+    },
+    {
+      "code": 6039,
+      "name": "UnsupportedStateSchema",
+      "msg": "PAState schema version is not the one this program binary reads; migrate the account first"
     }
   ],
   "types": [
@@ -1378,6 +1461,21 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "schema_version",
+            "docs": [
+              "Layout number of this account's bytes. Always the first field, so it",
+              "sits at byte 8 of the account data (after Anchor's discriminator) in",
+              "every layout: a later binary that changes the layout reads this byte",
+              "through an unchecked account to decide whether it may migrate. Every",
+              "instruction that reads this account — all but `initialize`, which",
+              "creates it, and the development-only `dev_set_schema_version` —",
+              "refuses an account whose version is not `SCHEMA_VERSION`. Layout",
+              "changes append fields and bump the constant; they never reorder or",
+              "remove fields ahead of the frontier."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "bump",
             "type": "u8"
           },
@@ -1406,6 +1504,22 @@
               "array": [
                 "u8",
                 4
+              ]
+            }
+          },
+          {
+            "name": "kind_table_commitment",
+            "docs": [
+              "Kind-table commitment every settled aggregation instance must carry,",
+              "set at initialization. The aggregation circuit binds each transaction",
+              "to one kind table; this pin decides which table this deployment",
+              "accepts (sha256 of the concatenated entries; the empty table hashes",
+              "to sha256 of zero bytes)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
               ]
             }
           },
@@ -1505,7 +1619,9 @@
     {
       "name": "TransactionExecutedEvent",
       "docs": [
-        "Matches EVM PA's TransactionExecuted event."
+        "Matches EVM PA's TransactionExecuted event, with each tag's role stated",
+        "explicitly: `is_consumed[i]` is true when `tags[i]` is a nullifier and",
+        "false when it is a commitment."
       ],
       "type": {
         "kind": "struct",
@@ -1530,6 +1646,12 @@
                   32
                 ]
               }
+            }
+          },
+          {
+            "name": "is_consumed",
+            "type": {
+              "vec": "bool"
             }
           }
         ]
