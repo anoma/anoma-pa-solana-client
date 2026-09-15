@@ -3,7 +3,8 @@
 // changes (new fields, type bumps) at the cost of a re-parse rather than a
 // coordinated cross-repo offset edit.
 
-import { ANCHOR_DISCRIMINATOR_LEN, HASH_LEN, MAX_TREE_DEPTH } from "./constants.js";
+import { ANCHOR_DISCRIMINATOR_LEN, MAX_TREE_DEPTH } from "./constants.js";
+import { Cursor, TruncatedError } from "./cursor.js";
 
 /**
  * The `PAStateAccount` layout number this decoder reads. The PA stores it at
@@ -46,44 +47,37 @@ export class PAStateDecodeError extends Error {
  * including the 8-byte Anchor discriminator prefix.
  */
 export function decodePaState(data: Uint8Array): PAStateAccount {
-  let cursor = ANCHOR_DISCRIMINATOR_LEN;
-
-  const take = (len: number, field: string): Uint8Array => {
-    if (cursor + len > data.length) {
-      throw new PAStateDecodeError(`PAState truncated while reading ${field}`);
+  try {
+    return decode(new Cursor(data, ANCHOR_DISCRIMINATOR_LEN));
+  } catch (e) {
+    if (e instanceof TruncatedError) {
+      throw new PAStateDecodeError(`PAState ${e.message}`);
     }
-    const slice = data.slice(cursor, cursor + len);
-    cursor += len;
-    return slice;
-  };
+    throw e;
+  }
+}
 
-  const readU8 = (field: string): number => take(1, field)[0]!;
-  const readU32Le = (field: string): number =>
-    new DataView(take(4, field).buffer).getUint32(0, true);
-  const readU64Le = (field: string): bigint =>
-    new DataView(take(8, field).buffer).getBigUint64(0, true);
-  const readHash = (field: string): Uint8Array => take(HASH_LEN, field);
-
-  const schemaVersion = readU8("schema_version");
+function decode(c: Cursor): PAStateAccount {
+  const schemaVersion = c.u8("schema_version");
   if (schemaVersion !== PA_STATE_SCHEMA_VERSION) {
     throw new PAStateDecodeError(
       `unsupported PAState schema version ${schemaVersion} (this decoder reads ${PA_STATE_SCHEMA_VERSION})`,
     );
   }
-  const bump = readU8("bump");
-  const authority = readHash("authority");
-  const verifierRouter = readHash("verifier_router");
-  const proofSelector = take(4, "proof_selector");
-  const kindTableCommitment = readHash("kind_table_commitment");
+  const bump = c.u8("bump");
+  const authority = c.array32("authority");
+  const verifierRouter = c.array32("verifier_router");
+  const proofSelector = c.take(4, "proof_selector");
+  const kindTableCommitment = c.array32("kind_table_commitment");
 
-  const pendingTag = readU8("pending_authority tag");
+  const pendingTag = c.u8("pending_authority tag");
   let pendingAuthority: Uint8Array | null;
   switch (pendingTag) {
     case 0:
       pendingAuthority = null;
       break;
     case 1:
-      pendingAuthority = readHash("pending_authority");
+      pendingAuthority = c.array32("pending_authority");
       break;
     default:
       throw new PAStateDecodeError(
@@ -91,14 +85,14 @@ export function decodePaState(data: Uint8Array): PAStateAccount {
       );
   }
 
-  const lifecycle = readU8("lifecycle");
-  const root = readHash("root");
-  const nextIndex = readU64Le("next_index");
-  const currentDepth = readU8("current_depth");
+  const lifecycle = c.u8("lifecycle");
+  const root = c.array32("root");
+  const nextIndex = c.u64Le("next_index");
+  const currentDepth = c.u8("current_depth");
   if (currentDepth === 0 || currentDepth > MAX_TREE_DEPTH) {
     throw new PAStateDecodeError(`invalid PA tree depth: ${currentDepth}`);
   }
-  const frontierLen = readU32Le("frontier length");
+  const frontierLen = c.u32Le("frontier length");
   if (frontierLen < currentDepth) {
     throw new PAStateDecodeError(
       `PA frontier length ${frontierLen} is smaller than depth ${currentDepth}`,
@@ -106,11 +100,11 @@ export function decodePaState(data: Uint8Array): PAStateAccount {
   }
   const frontier: Uint8Array[] = [];
   for (let i = 0; i < frontierLen; i++) {
-    frontier.push(readHash("frontier entry"));
+    frontier.push(c.array32("frontier entry"));
   }
 
-  const minExpirySlots = readU64Le("min_expiry_slots");
-  const maxExpirySlots = readU64Le("max_expiry_slots");
+  const minExpirySlots = c.u64Le("min_expiry_slots");
+  const maxExpirySlots = c.u64Le("max_expiry_slots");
 
   return {
     schemaVersion,

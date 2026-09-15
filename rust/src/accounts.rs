@@ -3,7 +3,8 @@
 //! changes (new fields, type bumps) at the cost of a re-parse rather than a
 //! coordinated cross-repo offset edit.
 
-use crate::constants::{ANCHOR_DISCRIMINATOR_LEN, HASH_LEN, MAX_TREE_DEPTH};
+use crate::constants::{ANCHOR_DISCRIMINATOR_LEN, MAX_TREE_DEPTH};
+use crate::cursor::{Cursor, Truncated};
 
 /// The `PAStateAccount` layout number this decoder reads. The PA stores it at
 /// byte 8 of the account data, right after the Anchor discriminator, in every
@@ -45,9 +46,6 @@ pub enum DecodeError {
     InvalidDepth(u8),
     /// `frontier` declared a length that's smaller than `current_depth`.
     FrontierTooShort { len: usize, depth: usize },
-    /// An array slice didn't have the expected fixed length (should not happen
-    /// in practice, but exposed as an error rather than a panic).
-    InvalidLength { field: &'static str },
 }
 
 impl core::fmt::Display for DecodeError {
@@ -67,7 +65,6 @@ impl core::fmt::Display for DecodeError {
             DecodeError::FrontierTooShort { len, depth } => {
                 write!(f, "PA frontier length {len} is smaller than depth {depth}")
             }
-            DecodeError::InvalidLength { field } => write!(f, "invalid {field} length"),
         }
     }
 }
@@ -77,25 +74,22 @@ impl core::fmt::Display for DecodeError {
 /// The buffer is the full account-data slice returned by `getAccountInfo`,
 /// including the 8-byte Anchor discriminator prefix.
 pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
-    let mut cursor = ANCHOR_DISCRIMINATOR_LEN;
-    let schema_version = read_u8(data, &mut cursor, "schema_version")?;
+    let mut c = Cursor::new(data, ANCHOR_DISCRIMINATOR_LEN);
+    let schema_version = c.u8("schema_version")?;
     if schema_version != PA_STATE_SCHEMA_VERSION {
         return Err(DecodeError::UnsupportedSchemaVersion {
             found: schema_version,
         });
     }
-    let bump = read_u8(data, &mut cursor, "bump")?;
-    let authority = read_array_32(data, &mut cursor, "authority")?;
-    let verifier_router = read_array_32(data, &mut cursor, "verifier_router")?;
-    let proof_selector_slice = take(data, &mut cursor, 4, "proof_selector")?;
-    let mut proof_selector = [0u8; 4];
-    proof_selector.copy_from_slice(proof_selector_slice);
-    let kind_table_commitment = read_array_32(data, &mut cursor, "kind_table_commitment")?;
+    let bump = c.u8("bump")?;
+    let authority = c.array_32("authority")?;
+    let verifier_router = c.array_32("verifier_router")?;
+    let proof_selector: [u8; 4] = c.take(4, "proof_selector")?.try_into().expect("4 bytes");
+    let kind_table_commitment = c.array_32("kind_table_commitment")?;
 
-    let pending_tag = read_u8(data, &mut cursor, "pending_authority tag")?;
-    let pending_authority = match pending_tag {
+    let pending_authority = match c.u8("pending_authority tag")? {
         0 => None,
-        1 => Some(read_array_32(data, &mut cursor, "pending_authority")?),
+        1 => Some(c.array_32("pending_authority")?),
         tag => {
             return Err(DecodeError::InvalidOptionTag {
                 field: "pending_authority",
@@ -104,29 +98,28 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
         }
     };
 
-    let lifecycle = read_u8(data, &mut cursor, "lifecycle")?;
-    let root = read_array_32(data, &mut cursor, "root")?;
-    let next_index = read_u64_le(data, &mut cursor, "next_index")?;
-    let current_depth = read_u8(data, &mut cursor, "current_depth")?;
+    let lifecycle = c.u8("lifecycle")?;
+    let root = c.array_32("root")?;
+    let next_index = c.u64_le("next_index")?;
+    let current_depth = c.u8("current_depth")?;
     let depth = current_depth as usize;
     if depth == 0 || depth > MAX_TREE_DEPTH {
         return Err(DecodeError::InvalidDepth(current_depth));
     }
 
-    let frontier_len = read_u32_le(data, &mut cursor, "frontier length")? as usize;
+    let frontier_len = c.u32_le("frontier length")? as usize;
     if frontier_len < depth {
         return Err(DecodeError::FrontierTooShort {
             len: frontier_len,
             depth,
         });
     }
-    let mut frontier = Vec::with_capacity(frontier_len);
-    for _ in 0..frontier_len {
-        frontier.push(read_array_32(data, &mut cursor, "frontier entry")?);
-    }
+    let frontier = (0..frontier_len)
+        .map(|_| c.array_32("frontier entry"))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let min_expiry_slots = read_u64_le(data, &mut cursor, "min_expiry_slots")?;
-    let max_expiry_slots = read_u64_le(data, &mut cursor, "max_expiry_slots")?;
+    let min_expiry_slots = c.u64_le("min_expiry_slots")?;
+    let max_expiry_slots = c.u64_le("max_expiry_slots")?;
 
     Ok(PAStateAccount {
         schema_version,
@@ -146,48 +139,10 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
     })
 }
 
-fn take<'a>(
-    data: &'a [u8],
-    cursor: &mut usize,
-    len: usize,
-    field: &'static str,
-) -> Result<&'a [u8], DecodeError> {
-    let end = cursor
-        .checked_add(len)
-        .ok_or(DecodeError::Truncated { field })?;
-    let slice = data
-        .get(*cursor..end)
-        .ok_or(DecodeError::Truncated { field })?;
-    *cursor = end;
-    Ok(slice)
-}
-
-fn read_u8(data: &[u8], cursor: &mut usize, field: &'static str) -> Result<u8, DecodeError> {
-    Ok(take(data, cursor, 1, field)?[0])
-}
-
-fn read_u32_le(data: &[u8], cursor: &mut usize, field: &'static str) -> Result<u32, DecodeError> {
-    let bytes: [u8; 4] = take(data, cursor, 4, field)?
-        .try_into()
-        .map_err(|_| DecodeError::InvalidLength { field })?;
-    Ok(u32::from_le_bytes(bytes))
-}
-
-fn read_u64_le(data: &[u8], cursor: &mut usize, field: &'static str) -> Result<u64, DecodeError> {
-    let bytes: [u8; 8] = take(data, cursor, 8, field)?
-        .try_into()
-        .map_err(|_| DecodeError::InvalidLength { field })?;
-    Ok(u64::from_le_bytes(bytes))
-}
-
-fn read_array_32(
-    data: &[u8],
-    cursor: &mut usize,
-    field: &'static str,
-) -> Result<[u8; 32], DecodeError> {
-    take(data, cursor, HASH_LEN, field)?
-        .try_into()
-        .map_err(|_| DecodeError::InvalidLength { field })
+impl From<Truncated> for DecodeError {
+    fn from(t: Truncated) -> Self {
+        DecodeError::Truncated { field: t.field }
+    }
 }
 
 #[cfg(test)]

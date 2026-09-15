@@ -30,6 +30,10 @@ base64 = "0.22"
 solana-program = { version = "2.1", optional = true }
 solana-sdk-ids = { version = "2.2", optional = true }
 
+[dev-dependencies]
+# Reads the cross-package fixtures under `fixtures/`.
+serde_json = "1.0"
+
 [features]
 default = ["solana"]
 # Enables the modules that depend on the Solana SDK: instruction builders, PDA

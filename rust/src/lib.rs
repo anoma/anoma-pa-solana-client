@@ -7,7 +7,9 @@
 
 pub mod accounts;
 pub mod constants;
+mod cursor;
 pub mod discriminator;
+pub mod events;
 pub mod external_call;
 pub mod merkle;
 pub mod wallet_keyring;
@@ -27,6 +29,10 @@ pub mod program_ids;
 pub use accounts::{decode_pa_state, DecodeError, PAStateAccount, PA_STATE_SCHEMA_VERSION};
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
+pub use events::{
+    decode_event_instruction, ActionExecutedEvent, EventDecodeError, ForwarderCallExecutedEvent,
+    PaEvent, PayloadEvent, TransactionExecutedEvent, EVENT_IX_TAG,
+};
 pub use external_call::{
     encode_migrate_forwarder_input, encode_unwrap_forwarder_input, encode_wrap_forwarder_input,
     OutputMode, SolanaExternalCall, OP_MIGRATE, OP_UNWRAP, OP_WRAP,
