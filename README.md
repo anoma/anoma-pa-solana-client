@@ -33,7 +33,7 @@ cargo run -p settle-fixture -- \
   --call-accounts 3mesRGxMv9wRB1xp7X4uxbf7GwnQC9PpHSJyCzcXwrsf,SysvarC1ock11111111111111111111111111111111
 ```
 
-`--call-accounts` is the account segment of one external call (repeat it per call, in call order); the adapter's committed fixtures call the block-time forwarder with the forwarder and the clock sysvar. The fixture must have been proven for the deployed build: a fixture's proof binds the circuit image ids the deployment was built with.
+`fixtures/devnet_v2_seed21.json` is the fixture this pairing settled on devnet (proven locally for the deployed build; its nullifier is now consumed there, so it only serves as a template for the format). `--call-accounts` is the account segment of one external call (repeat it per call, in call order); the adapter's committed fixtures call the block-time forwarder with the forwarder and the clock sysvar. The fixture must have been proven for the deployed build: a fixture's proof binds the circuit image ids the deployment was built with.
 
 ## Release coupling
 
