@@ -338,13 +338,21 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
         )
         .expect("fetch settle transaction");
     let meta = tx.transaction.meta.expect("meta");
-    let keys: Vec<String> = match tx.transaction.transaction {
+    // Instruction account indexes address the message's static keys followed
+    // by the addresses loaded from lookup tables, writable first: a v0
+    // settlement's inner instructions are unreadable without the loaded set.
+    let mut keys: Vec<String> = match tx.transaction.transaction {
         solana_transaction_status::EncodedTransaction::Json(ui) => match ui.message {
             solana_transaction_status::UiMessage::Raw(raw) => raw.account_keys,
             other => panic!("unexpected message encoding {other:?}"),
         },
         other => panic!("unexpected transaction encoding {other:?}"),
     };
+    if let Some(loaded) = Option::<_>::from(meta.loaded_addresses.clone()) {
+        let loaded: solana_transaction_status::UiLoadedAddresses = loaded;
+        keys.extend(loaded.writable);
+        keys.extend(loaded.readonly);
+    }
     let inner: Vec<_> = Option::from(meta.inner_instructions).unwrap_or_default();
     let mut count = 0;
     for group in inner {
