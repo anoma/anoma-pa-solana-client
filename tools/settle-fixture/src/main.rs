@@ -6,12 +6,15 @@
 //!
 //! ```text
 //! cargo run -p settle-fixture -- --url <rpc> --keypair <path> --fixture <path>
-//!     [--pa <program id>] [--call-accounts <b58>,<b58>]...
+//!     [--pa <program id>] [--lookup-table <address>] [--call-accounts <b58>,<b58>]...
 //! ```
 //!
 //! `--call-accounts` gives the account segment of one external call, in call
 //! order, starting with the forwarder program (the adapter repo's committed
 //! fixtures call the block-time forwarder with `[forwarder, clock sysvar]`).
+//! `--lookup-table` is the deployment's settlement lookup table (default: the
+//! devnet table `SETTLE_LOOKUP_TABLE`); the settle step is a v0 transaction
+//! against it, the shape every submitter sends.
 
 use std::str::FromStr;
 
@@ -19,18 +22,20 @@ use anoma_pa_solana_client::{
     decode_event_instruction, decode_pa_state, derive_nullifier_pda, derive_pa_state_pda,
     derive_root_marker_pda, derive_tx_data_pda, derive_verifier_router_pdas, settle_from_txdata_ix,
     txdata_close_ix, txdata_init_ix, txdata_write_ix, CommitmentTreeState, PaEvent, EVENT_IX_TAG,
-    PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, TXDATA_CHUNK_SIZE,
-    TXDATA_EXPIRY_SLOTS_DEFAULT,
+    PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, SETTLE_LOOKUP_TABLE,
+    TXDATA_CHUNK_SIZE, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
+use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcTransactionConfig;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::compute_budget::ComputeBudgetInstruction;
 use solana_sdk::instruction::{AccountMeta, Instruction};
+use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{read_keypair_file, Keypair, Signature, Signer};
-use solana_sdk::transaction::Transaction;
+use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_transaction_status::{UiInstruction, UiTransactionEncoding};
 
 #[derive(serde::Deserialize)]
@@ -46,6 +51,7 @@ struct Args {
     keypair: String,
     fixture: String,
     pa: Pubkey,
+    lookup_table: Pubkey,
     call_accounts: Vec<Vec<Pubkey>>,
 }
 
@@ -54,6 +60,7 @@ fn parse_args() -> Args {
     let mut keypair = None;
     let mut fixture = None;
     let mut pa = PA_PROGRAM_ID;
+    let mut lookup_table = SETTLE_LOOKUP_TABLE;
     let mut call_accounts = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -63,6 +70,9 @@ fn parse_args() -> Args {
             "--keypair" => keypair = Some(value),
             "--fixture" => fixture = Some(value),
             "--pa" => pa = Pubkey::from_str(&value).expect("--pa is a base58 pubkey"),
+            "--lookup-table" => {
+                lookup_table = Pubkey::from_str(&value).expect("--lookup-table is a base58 pubkey")
+            }
             "--call-accounts" => call_accounts.push(
                 value
                     .split(',')
@@ -77,6 +87,7 @@ fn parse_args() -> Args {
         keypair: keypair.expect("--keypair is required"),
         fixture: fixture.expect("--fixture is required"),
         pa,
+        lookup_table,
         call_accounts,
     }
 }
@@ -101,6 +112,47 @@ fn send(client: &RpcClient, payer: &Keypair, ixs: &[Instruction], label: &str) -
     sig
 }
 
+/// The deployment's settlement lookup table, as the message compiler wants it.
+fn lookup_table(client: &RpcClient, address: Pubkey) -> AddressLookupTableAccount {
+    let data = client
+        .get_account_data(&address)
+        .unwrap_or_else(|e| panic!("lookup table {address} not found: {e}"));
+    let table = AddressLookupTable::deserialize(&data).expect("lookup table state");
+    AddressLookupTableAccount {
+        key: address,
+        addresses: table.addresses.to_vec(),
+    }
+}
+
+/// Send `ixs` as a v0 transaction compiled against `table`, the shape every
+/// settlement submitter sends. Prints the wire size and how many keys the
+/// table absorbed.
+fn send_v0(
+    client: &RpcClient,
+    payer: &Keypair,
+    ixs: &[Instruction],
+    table: &AddressLookupTableAccount,
+    label: &str,
+) -> Signature {
+    let blockhash = client.get_latest_blockhash().expect("blockhash");
+    let message =
+        v0::Message::try_compile(&payer.pubkey(), ixs, std::slice::from_ref(table), blockhash)
+            .expect("compile v0 message");
+    let looked_up: usize = message
+        .address_table_lookups
+        .iter()
+        .map(|l| l.writable_indexes.len() + l.readonly_indexes.len())
+        .sum();
+    let static_keys = message.account_keys.len();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer]).expect("sign");
+    let size = bincode::serialize(&tx).expect("serialize").len();
+    let sig = client
+        .send_and_confirm_transaction(&tx)
+        .unwrap_or_else(|e| panic!("{label} failed: {e}"));
+    println!("{label}: {sig} ({size} bytes, {static_keys} static keys, {looked_up} looked up)");
+    sig
+}
+
 fn main() {
     let args = parse_args();
     let client = RpcClient::new_with_commitment(args.url.clone(), CommitmentConfig::confirmed());
@@ -110,13 +162,15 @@ fn main() {
             .expect("fixture json");
     let tx_bytes = b64(&fixture.tx_b64);
     println!(
-        "payer {} | adapter {} | fixture {} ({} bytes, selector {})",
+        "payer {} | adapter {} | lookup table {} | fixture {} ({} bytes, selector {})",
         payer.pubkey(),
         args.pa,
+        args.lookup_table,
         args.fixture,
         tx_bytes.len(),
         fixture.selector
     );
+    let table = lookup_table(&client, args.lookup_table);
 
     // 1. Read and decode the adapter state with the crate's decoder.
     let (pa_state, _) = derive_pa_state_pda(&args.pa);
@@ -212,7 +266,7 @@ fn main() {
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&Pubkey::from(state.verifier_router));
     let verifier_program = verifier_program_of(&client, &verifier_entry);
-    let settle_sig = send(
+    let settle_sig = send_v0(
         &client,
         &payer,
         &[
@@ -232,6 +286,7 @@ fn main() {
                 remaining,
             ),
         ],
+        &table,
         "settle_from_txdata",
     );
     send(
