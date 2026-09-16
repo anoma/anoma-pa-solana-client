@@ -20,10 +20,12 @@
 # solana-pa-prototype/docs/DEVNET_DEPLOYMENT.md and docs/INTEGRATION.md.
 9ecaa03c43f1b71b8568b0a9bebba88a0b050efd
 
-# solana-protocol-adapter anthony/arm-v2-port (the V2 adapter; PR #76 is the
-# branch's tracking pull request). Settle takes the event-CPI accounts, PAState
-# carries schema_version and kind_table_commitment, TransactionExecutedEvent
-# carries is_consumed. Devnet V2 PA 28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT
-# was deployed from 76648e6 on this branch; the program source is identical at
-# this commit (only dependency pins, fixture-gen and fixtures changed since).
-2bb6fb58c136746bceb7dd025d86df796d8bf12e
+# solana-protocol-adapter anthony/arm-v2-port (the V2 adapter). Settle takes the
+# event-CPI accounts, PAState carries schema_version and kind_table_commitment,
+# TransactionExecutedEvent carries is_consumed. Devnet V2 PA
+# 28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT was upgraded to this commit on
+# 2026-09-16 (production build); the adapter program source is unchanged since
+# 2bb6fb5, the previous pin. This commit also carries the V2 SPL token forwarder,
+# which this release does NOT pair with yet: the forwarder interface file, id
+# and segment builders are updated by the forwarder pairing (anoma/dos-pm#76).
+30f13a4800476aac9f87149d0915a6af8fe7e532
