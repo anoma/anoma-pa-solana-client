@@ -16,6 +16,16 @@ export const FORWARDER_PROGRAM_ID = new PublicKey(
 );
 
 /**
+ * The devnet V2 deployment's settlement lookup table: the accounts every
+ * settlement carries that are fixed for the deployment. Settle transactions
+ * are v0 messages compiled against it (`TransactionMessage.compileToV0Message`
+ * with the fetched `AddressLookupTableAccount`).
+ */
+export const SETTLE_LOOKUP_TABLE = new PublicKey(
+  "CKAMrsJSf1SDgsmaM7hsKEwmi2efQsoCAuMNf4msGRSW",
+);
+
+/**
  * Solana's native ed25519 signature-verification program. Used to carry verified
  * wrap-authorization signatures into the settle transaction.
  */

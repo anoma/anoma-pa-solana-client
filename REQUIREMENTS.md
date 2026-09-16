@@ -36,6 +36,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 
 - `PA_PROGRAM_ID` — the on-chain address of the Protocol Adapter.
 - `FORWARDER_PROGRAM_ID` — the on-chain address of the SPL Token Forwarder.
+- `SETTLE_LOOKUP_TABLE` — the deployment's settlement address lookup table (created per deployment by the adapter repo's `lookup-table` command).
 - `ED25519_PROGRAM_ID` — Solana's native ed25519 verification program (`Ed25519SigVerify111111111111111111111111111`).
 - These are environment-parameterizable (devnet vs mainnet) with sensible defaults shipped per release.
 
@@ -62,6 +63,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.5 Settle transaction orchestration
 
+- The settle transaction is a v0 message compiled against `SETTLE_LOOKUP_TABLE`. The table holds the settlement accounts that are fixed per deployment; signers, invoked programs and per-transaction accounts (upload, markers, token accounts, nonce bitmap) stay static.
 - A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, optional `Ed25519Program` verify ix(es) for wrap authorizations, and the `settle_from_txdata` ix with correct `remaining_accounts`.
 - Computes `ed25519_ix_index` from the actual transaction layout, not from a constant.
 - Chunked upload helper: bincode-serializes the ARM `Transaction`, splits into appropriately-sized chunks, returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions.
