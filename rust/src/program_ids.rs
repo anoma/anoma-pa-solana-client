@@ -13,12 +13,10 @@ pub const PA_PROGRAM_ID: Pubkey = pubkey!("28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZ
 pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48");
 
 /// The devnet V2 deployment's settlement lookup table: the accounts every
-/// settlement carries that are fixed for the deployment (PAState, the
-/// verifier router, entry and program, the event authority, the forwarders
-/// and the SPL forwarder's config, the sysvars, the SPL token program, each
-/// supported mint's escrow accounts). Settle transactions are v0 messages
-/// compiled against it; the adapter repo's `lookup-table` command creates
-/// one per deployment and its deployment record names it.
+/// settlement carries that are fixed for the deployment. Settle transactions
+/// are v0 messages compiled against it. The adapter repo's `lookup-table`
+/// command creates one per deployment; its operations runbook lists the keys
+/// and its deployment record names the table.
 pub const SETTLE_LOOKUP_TABLE: Pubkey = pubkey!("CKAMrsJSf1SDgsmaM7hsKEwmi2efQsoCAuMNf4msGRSW");
 
 /// Solana's native ed25519 signature-verification program. Used to carry verified

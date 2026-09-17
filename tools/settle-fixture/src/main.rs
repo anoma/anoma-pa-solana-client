@@ -35,8 +35,8 @@ use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{read_keypair_file, Keypair, Signature, Signer};
-use solana_sdk::transaction::{Transaction, VersionedTransaction};
-use solana_transaction_status::{UiInstruction, UiTransactionEncoding};
+use solana_sdk::transaction::VersionedTransaction;
+use solana_transaction_status::{UiInstruction, UiParsedInstruction, UiTransactionEncoding};
 
 #[derive(serde::Deserialize)]
 struct Fixture {
@@ -102,16 +102,6 @@ fn b64_32(s: &str) -> [u8; 32] {
     b64(s).try_into().expect("32-byte fixture field")
 }
 
-fn send(client: &RpcClient, payer: &Keypair, ixs: &[Instruction], label: &str) -> Signature {
-    let blockhash = client.get_latest_blockhash().expect("blockhash");
-    let tx = Transaction::new_signed_with_payer(ixs, Some(&payer.pubkey()), &[payer], blockhash);
-    let sig = client
-        .send_and_confirm_transaction(&tx)
-        .unwrap_or_else(|e| panic!("{label} failed: {e}"));
-    println!("{label}: {sig}");
-    sig
-}
-
 /// The deployment's settlement lookup table, as the message compiler wants it.
 fn lookup_table(client: &RpcClient, address: Pubkey) -> AddressLookupTableAccount {
     let data = client
@@ -124,20 +114,19 @@ fn lookup_table(client: &RpcClient, address: Pubkey) -> AddressLookupTableAccoun
     }
 }
 
-/// Send `ixs` as a v0 transaction compiled against `table`, the shape every
-/// settlement submitter sends. Prints the wire size and how many keys the
-/// table absorbed.
-fn send_v0(
+/// Send `ixs` as a v0 transaction compiled against `tables`, the shape every
+/// submitter sends (none for the upload steps, the settlement table for the
+/// settle). Prints the wire size and how many keys the tables absorbed.
+fn send(
     client: &RpcClient,
     payer: &Keypair,
     ixs: &[Instruction],
-    table: &AddressLookupTableAccount,
+    tables: &[AddressLookupTableAccount],
     label: &str,
 ) -> Signature {
     let blockhash = client.get_latest_blockhash().expect("blockhash");
-    let message =
-        v0::Message::try_compile(&payer.pubkey(), ixs, std::slice::from_ref(table), blockhash)
-            .expect("compile v0 message");
+    let message = v0::Message::try_compile(&payer.pubkey(), ixs, tables, blockhash)
+        .expect("compile v0 message");
     let looked_up: usize = message
         .address_table_lookups
         .iter()
@@ -145,7 +134,7 @@ fn send_v0(
         .sum();
     let static_keys = message.account_keys.len();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer]).expect("sign");
-    let size = bincode::serialize(&tx).expect("serialize").len();
+    let size = bincode::serialized_size(&tx).expect("serialize");
     let sig = client
         .send_and_confirm_transaction(&tx)
         .unwrap_or_else(|e| panic!("{label} failed: {e}"));
@@ -244,6 +233,7 @@ fn main() {
             tx_bytes.len() as u32,
             expires_slot,
         )],
+        &[],
         "txdata_init",
     );
     for (i, chunk) in tx_bytes.chunks(TXDATA_CHUNK_SIZE).enumerate() {
@@ -258,6 +248,7 @@ fn main() {
                 (i * TXDATA_CHUNK_SIZE) as u32,
                 chunk,
             )],
+            &[],
             &format!("txdata_write[{i}]"),
         );
     }
@@ -266,7 +257,7 @@ fn main() {
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&Pubkey::from(state.verifier_router));
     let verifier_program = verifier_program_of(&client, &verifier_entry);
-    let settle_sig = send_v0(
+    let settle_sig = send(
         &client,
         &payer,
         &[
@@ -286,7 +277,7 @@ fn main() {
                 remaining,
             ),
         ],
-        &table,
+        std::slice::from_ref(&table),
         "settle_from_txdata",
     );
     send(
@@ -299,6 +290,7 @@ fn main() {
             &payer.pubkey(),
             upload_id,
         )],
+        &[],
         "txdata_close",
     );
 
@@ -327,43 +319,32 @@ fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
 }
 
 fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
+    // The parsed encoding resolves lookup-table addresses and names each
+    // inner instruction's program; the adapter has no RPC parser, so its
+    // event self-invocations arrive partially decoded with base58 data.
     let tx = client
         .get_transaction_with_config(
             sig,
             RpcTransactionConfig {
-                encoding: Some(UiTransactionEncoding::Json),
+                encoding: Some(UiTransactionEncoding::JsonParsed),
                 commitment: Some(CommitmentConfig::confirmed()),
                 max_supported_transaction_version: Some(0),
             },
         )
         .expect("fetch settle transaction");
     let meta = tx.transaction.meta.expect("meta");
-    // Instruction account indexes address the message's static keys followed
-    // by the addresses loaded from lookup tables, writable first: a v0
-    // settlement's inner instructions are unreadable without the loaded set.
-    let mut keys: Vec<String> = match tx.transaction.transaction {
-        solana_transaction_status::EncodedTransaction::Json(ui) => match ui.message {
-            solana_transaction_status::UiMessage::Raw(raw) => raw.account_keys,
-            other => panic!("unexpected message encoding {other:?}"),
-        },
-        other => panic!("unexpected transaction encoding {other:?}"),
-    };
-    if let Some(loaded) = Option::<_>::from(meta.loaded_addresses.clone()) {
-        let loaded: solana_transaction_status::UiLoadedAddresses = loaded;
-        keys.extend(loaded.writable);
-        keys.extend(loaded.readonly);
-    }
     let inner: Vec<_> = Option::from(meta.inner_instructions).unwrap_or_default();
+    let pa = pa.to_string();
     let mut count = 0;
     for group in inner {
         for ix in group.instructions {
-            let UiInstruction::Compiled(c) = ix else {
+            let UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(ix)) = ix else {
                 continue;
             };
-            if keys[c.program_id_index as usize] != pa.to_string() {
+            if ix.program_id != pa {
                 continue;
             }
-            let data = bs58::decode(&c.data).into_vec().expect("base58 ix data");
+            let data = bs58::decode(&ix.data).into_vec().expect("base58 ix data");
             if !data.starts_with(&EVENT_IX_TAG) {
                 continue;
             }
