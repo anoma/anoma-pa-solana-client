@@ -30,10 +30,13 @@ cargo run -p settle-fixture -- \
   --url http://127.0.0.1:8899 \
   --keypair ~/.config/solana/id.json \
   --fixture <adapter repo>/solana-pa-prototype/tests/fixtures/batch_groth16.json \
-  --call-accounts 3mesRGxMv9wRB1xp7X4uxbf7GwnQC9PpHSJyCzcXwrsf,SysvarC1ock11111111111111111111111111111111
+  --call-accounts 3mesRGxMv9wRB1xp7X4uxbf7GwnQC9PpHSJyCzcXwrsf,SysvarC1ock11111111111111111111111111111111 \
+  --lookup-table <address>
 ```
 
-`fixtures/devnet_v2_seed21.json` is the fixture this pairing settled on devnet (proven locally for the deployed build; its nullifier is now consumed there, so it only serves as a template for the format). `--call-accounts` is the account segment of one external call (repeat it per call, in call order); the adapter's committed fixtures call the block-time forwarder with the forwarder and the clock sysvar. The fixture must have been proven for the deployed build: a fixture's proof binds the circuit image ids the deployment was built with.
+`fixtures/devnet_v2_seed21.json` and `fixtures/devnet_v2_seed22.json` are the fixtures this pairing settled on devnet (seed 21 as a legacy transaction, seed 22 as a v0 transaction through the settlement lookup table, signature `s84CCDa5hHCBgYKzeHAKZdVy6dVxfup3xKFHgUNhxZAxm9ybYHC4FREZ3ynSokbWjoHZXb2FEdfMJwnJWzXeQSS`); both were proven locally for the deployed build and their nullifiers are consumed there, so they serve as templates for the format. `--call-accounts` is the account segment of one external call (repeat it per call, in call order); the adapter's committed fixtures call the block-time forwarder with the forwarder and the clock sysvar. The fixture must have been proven for the deployed build: a fixture's proof binds the circuit image ids the deployment was built with.
+
+The settle step is a v0 transaction against the deployment's settlement lookup table (`--lookup-table`, default `SETTLE_LOOKUP_TABLE`, the devnet table). The tool prints the wire size and how many keys the table absorbed; the adapter repo's `dev.sh lookup-table` command creates a deployment's table.
 
 ## Release coupling
 
