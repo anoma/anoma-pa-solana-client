@@ -3,13 +3,10 @@
 // These mirror the seed schemas baked into the on-chain programs. They are pure
 // functions: same inputs always produce the same PublicKey + bump.
 
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
 import { GROTH16_VERIFIER_SELECTOR } from "./constants.js";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  SPL_TOKEN_PROGRAM_ID,
-} from "./programIds.js";
 
 const u64Le = (value: bigint): Uint8Array => {
   const buf = new Uint8Array(8);
@@ -132,11 +129,7 @@ export function deriveAssociatedTokenAddress(
   wallet: PublicKey,
   tokenMint: PublicKey,
 ): PublicKey {
-  const [ata] = PublicKey.findProgramAddressSync(
-    [wallet.toBuffer(), SPL_TOKEN_PROGRAM_ID.toBuffer(), tokenMint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  );
-  return ata;
+  return getAssociatedTokenAddressSync(tokenMint, wallet);
 }
 
 // ---- Verifier router PDAs --------------------------------------------------

@@ -23,16 +23,6 @@ export const ED25519_PROGRAM_ID = new PublicKey(
   "Ed25519SigVerify111111111111111111111111111",
 );
 
-/** SPL Token program ID. */
-export const SPL_TOKEN_PROGRAM_ID = new PublicKey(
-  "TokenkegQfeZyiNwAJsyFbPVwwQQUtr5ZWf5rTgvvHe",
-);
-
-/** Associated Token Account program ID. */
-export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
-);
-
 /**
  * Solana's `Instructions` sysvar — used by the forwarder to introspect the
  * ed25519-verify instruction at `ed25519_ix_index`.

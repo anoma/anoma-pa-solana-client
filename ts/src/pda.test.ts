@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
 import {
@@ -7,7 +8,7 @@ import {
   deriveForwarderEscrowPda,
   derivePaStatePda,
 } from "./pda.js";
-import { FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "./programIds.js";
+import { FORWARDER_PROGRAM_ID, PA_PROGRAM_ID } from "./programIds.js";
 
 describe("PDA derivation", () => {
   it("pa_state PDA is deterministic", () => {
@@ -33,14 +34,10 @@ describe("PDA derivation", () => {
     expect(e1.equals(e2)).toBe(false);
   });
 
-  it("ATA derivation matches the standard SPL seed order", () => {
-    const wallet = Keypair.generate().publicKey;
+  it("ATA derivation agrees with the SPL token library, owner then mint", () => {
+    const owner = Keypair.generate().publicKey;
     const mint = Keypair.generate().publicKey;
-    const ata = deriveAssociatedTokenAddress(wallet, mint);
-    const [expected] = PublicKey.findProgramAddressSync(
-      [wallet.toBuffer(), SPL_TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-      ASSOCIATED_TOKEN_PROGRAM_ID,
-    );
-    expect(ata.equals(expected)).toBe(true);
+    const expected = getAssociatedTokenAddressSync(mint, owner);
+    expect(deriveAssociatedTokenAddress(owner, mint).equals(expected)).toBe(true);
   });
 });
