@@ -10,7 +10,6 @@ use crate::pda::{
     derive_associated_token_address, derive_forwarder_config_pda, derive_forwarder_escrow_pda,
     derive_nonce_bitmap_pda,
 };
-use crate::program_ids::SPL_TOKEN_PROGRAM_ID;
 
 /// Word index for the nonce bitmap PDA seed. Each bitmap covers 256 nonces.
 const NONCES_PER_WORD: u64 = 256;
@@ -42,7 +41,7 @@ pub fn build_wrap_forwarder_accounts(
         AccountMeta::new(escrow_ata, false),                  // escrow ATA
         AccountMeta::new_readonly(escrow_pda, false),         // escrow PDA
         AccountMeta::new(nonce_bitmap_pda, false),            // nonce bitmap
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false), // token program
+        AccountMeta::new_readonly(spl_token::id(), false),    // token program
         AccountMeta::new_readonly(system_program::id(), false), // system program
         AccountMeta::new(*payer, false),                      // payer for nonce bitmap
         AccountMeta::new_readonly(*token_mint, false),        // mint
@@ -73,7 +72,7 @@ pub fn build_unwrap_forwarder_accounts(
         AccountMeta::new(escrow_ata, false),                  // escrow ATA
         AccountMeta::new(recipient_ata, false),               // recipient ATA
         AccountMeta::new_readonly(escrow_pda, false),         // escrow PDA
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false), // token program
+        AccountMeta::new_readonly(spl_token::id(), false),    // token program
         AccountMeta::new_readonly(*token_mint, false),        // mint
     ];
     debug_assert_eq!(accounts.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);

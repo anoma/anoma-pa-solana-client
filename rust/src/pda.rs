@@ -4,9 +4,9 @@
 //! functions: same inputs always produce the same `(Pubkey, bump)` pair.
 
 use solana_program::pubkey::Pubkey;
+use spl_associated_token_account_client::address::get_associated_token_address;
 
 use crate::constants::GROTH16_VERIFIER_SELECTOR;
-use crate::program_ids::{ASSOCIATED_TOKEN_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID};
 
 // ---- PA program PDAs ---------------------------------------------------------
 
@@ -84,20 +84,10 @@ pub fn derive_nonce_bitmap_pda(
 
 // ---- SPL Associated Token Account --------------------------------------------
 
-/// Derive the SPL Associated Token Account address for a wallet and mint.
-///
-/// Note: ATA derivation does *not* return the bump because the ATA program ignores
-/// it during account creation. Only the address is consumed by integrators.
+/// The SPL Associated Token Account address for a wallet and mint, from the
+/// SPL client library (the ids and seed order are the library's, not ours).
 pub fn derive_associated_token_address(wallet: &Pubkey, token_mint: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[
-            wallet.as_ref(),
-            SPL_TOKEN_PROGRAM_ID.as_ref(),
-            token_mint.as_ref(),
-        ],
-        &ASSOCIATED_TOKEN_PROGRAM_ID,
-    )
-    .0
+    get_associated_token_address(wallet, token_mint)
 }
 
 // ---- Verifier router PDAs ----------------------------------------------------
@@ -149,22 +139,5 @@ mod tests {
         let (e1, _) = derive_forwarder_escrow_pda(&FORWARDER_PROGRAM_ID, &mint1);
         let (e2, _) = derive_forwarder_escrow_pda(&FORWARDER_PROGRAM_ID, &mint2);
         assert_ne!(e1, e2);
-    }
-
-    #[test]
-    fn ata_derivation_matches_pda_construction() {
-        // Sanity-check that our ATA derivation matches the canonical seed order.
-        let wallet = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        let ata = derive_associated_token_address(&wallet, &mint);
-        let (expected, _) = Pubkey::find_program_address(
-            &[
-                wallet.as_ref(),
-                SPL_TOKEN_PROGRAM_ID.as_ref(),
-                mint.as_ref(),
-            ],
-            &ASSOCIATED_TOKEN_PROGRAM_ID,
-        );
-        assert_eq!(ata, expected);
     }
 }
