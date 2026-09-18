@@ -123,13 +123,15 @@ export function deriveNonceBitmapPda(
 /**
  * Derive the SPL Associated Token Account address for a wallet and mint.
  *
+ * The owner may be a PDA (the forwarder's escrow is one), so the on-curve
+ * check the SPL library applies by default is off, as in the Rust crate.
  * Returns only the address (bump is unused by the ATA program during creation).
  */
 export function deriveAssociatedTokenAddress(
   wallet: PublicKey,
   tokenMint: PublicKey,
 ): PublicKey {
-  return getAssociatedTokenAddressSync(tokenMint, wallet);
+  return getAssociatedTokenAddressSync(tokenMint, wallet, true);
 }
 
 // ---- Verifier router PDAs --------------------------------------------------
