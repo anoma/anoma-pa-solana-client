@@ -105,9 +105,103 @@ impl CommitmentTreeState {
     }
 }
 
+/// The depth of the tree once `leaf_count` leaves are appended: the tree
+/// starts at depth 1 and gains a level whenever it fills, so it is the bit
+/// length of the count, at least 1.
+pub fn depth_for_leaves(leaf_count: u64) -> usize {
+    let bits = (u64::BITS - leaf_count.leading_zeros()) as usize;
+    bits.max(1)
+}
+
+impl CommitmentTreeState {
+    /// The empty tree the PA's `initialize` writes.
+    pub fn empty() -> Self {
+        CommitmentTreeState {
+            root: PADDING_LEAF,
+            next_index: 0,
+            current_depth: 1,
+            frontier: vec![PADDING_LEAF],
+        }
+    }
+
+    /// The tree over `leaves`, appended in order.
+    pub fn over(leaves: &[[u8; 32]]) -> Result<Self, MerkleError> {
+        let mut state = Self::empty();
+        for leaf in leaves {
+            state.append(*leaf)?;
+        }
+        Ok(state)
+    }
+}
+
+/// The Merkle path of `leaves[index]` in the tree over `leaves`: per level,
+/// the sibling and whether the leaf's side is the right one (the pair ARM's
+/// `MerklePath` takes), over `depth_for_leaves` levels, empty slots padded
+/// with the zero subtrees.
+pub fn merkle_path(leaves: &[[u8; 32]], index: usize) -> Vec<([u8; 32], bool)> {
+    let zeros = zero_hashes();
+    let depth = depth_for_leaves(leaves.len() as u64);
+    let mut nodes = leaves.to_vec();
+    let mut position = index;
+    let mut path = Vec::with_capacity(depth);
+    for zero in zeros.iter().take(depth) {
+        path.push((
+            nodes.get(position ^ 1).copied().unwrap_or(*zero),
+            position & 1 == 1,
+        ));
+        nodes = nodes
+            .chunks(2)
+            .map(|pair| hash_two(&pair[0], pair.get(1).unwrap_or(zero)))
+            .collect();
+        position >>= 1;
+    }
+    path
+}
+
+/// The root a Merkle path reconstructs from `leaf`.
+pub fn path_root(leaf: &[u8; 32], path: &[([u8; 32], bool)]) -> [u8; 32] {
+    path.iter()
+        .fold(*leaf, |node, (sibling, leaf_is_on_right)| {
+            if *leaf_is_on_right {
+                hash_two(sibling, &node)
+            } else {
+                hash_two(&node, sibling)
+            }
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn depth_for_leaves_gains_a_level_whenever_the_tree_fills() {
+        assert_eq!(depth_for_leaves(0), 1);
+        assert_eq!(depth_for_leaves(1), 1);
+        assert_eq!(depth_for_leaves(2), 2);
+        assert_eq!(depth_for_leaves(3), 2);
+        assert_eq!(depth_for_leaves(4), 3);
+        assert_eq!(depth_for_leaves(8), 4);
+        assert_eq!(depth_for_leaves(9), 4);
+    }
+
+    #[test]
+    fn merkle_path_reconstructs_the_replayed_root_for_every_leaf() {
+        for n in 1..=12usize {
+            let leaves: Vec<[u8; 32]> = (0..n).map(|i| [i as u8 + 1; 32]).collect();
+            let replayed = CommitmentTreeState::over(&leaves).unwrap();
+            assert_eq!(replayed.current_depth as usize, depth_for_leaves(n as u64));
+            for (index, leaf) in leaves.iter().enumerate() {
+                let path = merkle_path(&leaves, index);
+                assert_eq!(path.len(), depth_for_leaves(n as u64));
+                assert_eq!(
+                    path_root(leaf, &path),
+                    replayed.root,
+                    "leaf {index} of {n} does not reconstruct the replayed root"
+                );
+            }
+        }
+    }
 
     #[test]
     fn padding_leaf_matches_arm_risc0_empty_hash() {

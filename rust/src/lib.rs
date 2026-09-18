@@ -37,7 +37,10 @@ pub use external_call::{
     encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,
     OP_UNWRAP, OP_WRAP,
 };
-pub use merkle::{hash_two, zero_hashes, CommitmentTreeState, MerkleError, PADDING_LEAF};
+pub use merkle::{
+    depth_for_leaves, hash_two, merkle_path, path_root, zero_hashes, CommitmentTreeState,
+    MerkleError, PADDING_LEAF,
+};
 
 #[cfg(feature = "solana")]
 pub use ata::create_ata_idempotent_ix;
