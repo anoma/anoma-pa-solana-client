@@ -29,3 +29,12 @@
 # which this release does NOT pair with yet: the forwarder interface file, id
 # and segment builders are updated by the forwarder pairing (anoma/dos-pm#76).
 30f13a4800476aac9f87149d0915a6af8fe7e532
+
+# solana-protocol-adapter anthony/anomapay-resource-v2 (the V2 adapter with the
+# V2 SPL token forwarder, program 5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx).
+# The forwarder's wrap input is 122 bytes without the signature, the wrap and
+# unwrap segments are 8 and 7 accounts, and nonce bitmaps are created by the
+# permissionless init_nonce_bitmap instruction. idl/spl_token_forwarder.json
+# is regenerated from this commit; the adapter program is unchanged since
+# 30f13a48, the previous pin.
+6fee32a8503300bac36795e84ff1c86a9c9b6c11

@@ -112,8 +112,9 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.11 Forwarder CPI account assembly
 
-- `build_wrap_cpi_accounts(...)` — assembles the 12-account segment in the correct order for a wrap CPI.
-- `build_unwrap_cpi_accounts(...)` — assembles the 9-account segment in the correct order for an unwrap CPI.
+- `build_wrap_cpi_accounts(...)` — assembles the 8-account segment in the correct order for a wrap CPI.
+- `build_unwrap_cpi_accounts(...)` — assembles the 7-account segment in the correct order for an unwrap CPI.
+- `init_nonce_bitmap_ix(...)` — the forwarder's permissionless instruction that creates a user's nonce bitmap for a word; a wrap whose word has no bitmap yet carries it in the settlement transaction.
 - The integrator passes the relevant pubkeys (mint, user ATA, recipient ATA, etc.); ordering is determined inside the helper.
 
 ### 3.12 Approve helper (frontend-facing)
@@ -136,7 +137,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 - `MIN_COMPUTE_UNIT_LIMIT` — the minimum CU value the settle ix requires (currently 500,000). Source of truth.
 - `MIN_HEAP_FRAME_BYTES` — the minimum heap frame the settle ix requires (currently 262,144). Source of truth.
 - `TXDATA_WRITE_CHUNK_BYTES` — the chunk size for `txdata_write` (currently 900).
-- `FORWARDER_WRAP_NUM_ACCOUNTS = 12`, `FORWARDER_UNWRAP_NUM_ACCOUNTS = 9`.
+- `FORWARDER_WRAP_NUM_ACCOUNTS = 8`, `FORWARDER_UNWRAP_NUM_ACCOUNTS = 7`.
 - These must change here when they change in the PA. The integrator imports them; bumping the PA without bumping this package is a release-process error.
 
 ### 3.16 Forwarder escrow registry (optional but recommended)

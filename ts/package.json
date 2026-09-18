@@ -1,6 +1,6 @@
 {
   "name": "@anoma/pa-solana-client",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder",
   "license": "Apache-2.0",
   "private": true,
