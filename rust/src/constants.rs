@@ -37,6 +37,10 @@ pub const FORWARDER_WRAP_NUM_ACCOUNTS: u8 = 8;
 /// recipient_ata, escrow_pda, token_program]`.
 pub const FORWARDER_UNWRAP_NUM_ACCOUNTS: u8 = 7;
 
+/// Return data of a successful forwarder call: the one byte the SPL token
+/// forwarder returns and the resource's external call expects as output.
+pub const FORWARDER_RESULT_SUCCESS: u8 = 1;
+
 /// Groth16 proof selector for the verifier-router lookup. The first 4 bytes identify
 /// the verifier type; the PA verifier-entry PDA is derived from `["verifier", selector]`.
 pub const GROTH16_VERIFIER_SELECTOR: [u8; 4] = [0x73, 0xc4, 0x57, 0xba];
