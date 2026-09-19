@@ -36,6 +36,12 @@ export const FORWARDER_WRAP_NUM_ACCOUNTS = 12;
  */
 export const FORWARDER_UNWRAP_NUM_ACCOUNTS = 9;
 
+/**
+ * Return data of a successful forwarder call: the one byte the SPL token
+ * forwarder returns and the resource's external call expects as output.
+ */
+export const FORWARDER_RESULT_SUCCESS = 1;
+
 /** Groth16 proof selector for the verifier-router lookup. */
 export const GROTH16_VERIFIER_SELECTOR = new Uint8Array([0x73, 0xc4, 0x57, 0xba]);
 
