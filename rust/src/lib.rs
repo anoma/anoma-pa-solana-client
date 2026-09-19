@@ -37,12 +37,18 @@ pub use external_call::{
     encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,
     OP_UNWRAP, OP_WRAP,
 };
-pub use merkle::{hash_two, zero_hashes, CommitmentTreeState, MerkleError, PADDING_LEAF};
+pub use merkle::{
+    depth_for_leaves, hash_two, merkle_path, path_root, zero_hashes, CommitmentTreeState,
+    MerkleError, PADDING_LEAF,
+};
 
 #[cfg(feature = "solana")]
 pub use ata::create_ata_idempotent_ix;
 #[cfg(feature = "solana")]
-pub use forwarder::{build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts};
+pub use forwarder::{
+    build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, init_nonce_bitmap_ix,
+    nonce_word_index, NONCES_PER_WORD,
+};
 #[cfg(feature = "solana")]
 pub use instructions::{settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix};
 #[cfg(feature = "solana")]

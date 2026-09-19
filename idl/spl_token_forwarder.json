@@ -1,5 +1,5 @@
 {
-  "address": "3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48",
+  "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx",
   "metadata": {
     "name": "spl_token_forwarder",
     "version": "0.1.0",
@@ -10,9 +10,7 @@
     {
       "name": "close_config",
       "docs": [
-        "Close the forwarder config PDA, recovering rent to the authority.",
-        "",
-        "Call LAST, after closing all escrows and nonce bitmaps."
+        "Close the config PDA; its rent goes to the committee. Call last."
       ],
       "discriminator": [
         145,
@@ -28,7 +26,7 @@
         {
           "name": "authority",
           "docs": [
-            "Emergency committee — receives rent from closed config."
+            "Emergency committee, receives the config's rent."
           ],
           "writable": true,
           "signer": true
@@ -58,13 +56,8 @@
     {
       "name": "close_escrow",
       "docs": [
-        "Close the escrow for a specific token mint, draining tokens first.",
-        "",
-        "Transfers ALL remaining tokens to the recipient, then closes the",
-        "escrow token account. Rent lamports are recovered to the authority.",
-        "",
-        "The drain is automatic: if the escrow holds tokens, they are",
-        "transferred out before the account is closed."
+        "Drain a mint's escrow to the recipient and close the escrow token",
+        "account; its rent goes to the committee."
       ],
       "discriminator": [
         139,
@@ -80,7 +73,7 @@
         {
           "name": "authority",
           "docs": [
-            "Emergency committee — receives rent lamports from closed escrow ATA."
+            "Emergency committee, receives the closed escrow ATA's rent."
           ],
           "writable": true,
           "signer": true
@@ -105,16 +98,10 @@
         },
         {
           "name": "escrow_ata",
-          "docs": [
-            "The escrow token account to drain and close."
-          ],
           "writable": true
         },
         {
           "name": "escrow_pda",
-          "docs": [
-            "The escrow PDA authority over the escrow ATA."
-          ],
           "pda": {
             "seeds": [
               {
@@ -137,17 +124,10 @@
         },
         {
           "name": "recipient_ata",
-          "docs": [
-            "Recipient token account for drained tokens."
-          ],
           "writable": true
         },
         {
-          "name": "token_mint",
-          "docs": [
-            "The token mint for this escrow.",
-            "ensures the correct mint is provided."
-          ]
+          "name": "token_mint"
         },
         {
           "name": "token_program",
@@ -159,9 +139,8 @@
     {
       "name": "close_nonce_bitmaps_batch",
       "docs": [
-        "Close nonce bitmap PDAs in a batch, recovering rent to the authority.",
-        "",
-        "Bitmap PDAs are passed as remaining_accounts."
+        "Close the nonce bitmaps passed as remaining accounts; their rent goes",
+        "to the committee."
       ],
       "discriminator": [
         212,
@@ -177,7 +156,7 @@
         {
           "name": "authority",
           "docs": [
-            "Emergency committee — receives rent from closed bitmaps."
+            "Emergency committee, receives the closed bitmaps' rent."
           ],
           "writable": true,
           "signer": true
@@ -208,9 +187,8 @@
       "docs": [
         "Forward a wrap or unwrap call from the Protocol Adapter.",
         "",
-        "Note: Unlike EVM which doesn't check stopped state here (trusting PA won't call if stopped),",
-        "we also don't check here. The PA is responsible for not calling forwarders when stopped.",
-        "This matches the EVM ForwarderBase.forwardCall() pattern exactly."
+        "Like EVM's ForwarderBase.forwardCall(), this does not check the",
+        "adapter's stopped state: the adapter does not call forwarders once stopped."
       ],
       "discriminator": [
         159,
@@ -243,17 +221,7 @@
         },
         {
           "name": "ix_sysvar",
-          "docs": [
-            "Instructions sysvar for CPI caller verification and Ed25519 signature introspection."
-          ],
           "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "clock",
-          "docs": [
-            "Clock sysvar for deadline checking"
-          ],
-          "address": "SysvarC1ock11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -275,10 +243,8 @@
     {
       "name": "forward_emergency_call",
       "docs": [
-        "Forward an emergency call when PA is stopped.",
-        "",
-        "Mirrors EVM's forwardEmergencyCall() which checks _checkEmergencyStopped()",
-        "by querying ProtocolAdapter.isEmergencyStopped()."
+        "Withdraw from escrow while the adapter is stopped, as the emergency",
+        "caller. The operand is an `UnwrapInput`. Mirrors EVM's forwardEmergencyCall()."
       ],
       "discriminator": [
         236,
@@ -315,11 +281,7 @@
           }
         },
         {
-          "name": "pa_state",
-          "docs": [
-            "Protocol Adapter state account for checking paused status.",
-            "Mirrors EVM's _checkEmergencyStopped() which queries ProtocolAdapter.isEmergencyStopped()."
-          ]
+          "name": "pa_state"
         }
       ],
       "args": [
@@ -330,14 +292,86 @@
       ]
     },
     {
+      "name": "init_nonce_bitmap",
+      "docs": [
+        "Create the nonce bitmap for one 256-nonce word of `user`, paid by",
+        "whoever signs. Permissionless: the bitmap holds nothing but used",
+        "bits, and a wrap requires it to exist. The adapter forwards no",
+        "signer to a forwarder, so the account cannot be created during the",
+        "wrap itself; a submitter sends this instruction ahead of settlement",
+        "when the word's bitmap is missing."
+      ],
+      "discriminator": [
+        214,
+        13,
+        125,
+        121,
+        72,
+        220,
+        241,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nonce_bitmap",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  110,
+                  99,
+                  101,
+                  95,
+                  98,
+                  105,
+                  116,
+                  109,
+                  97,
+                  112
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "word_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "_user",
+          "type": "pubkey"
+        },
+        {
+          "name": "_word_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "initialize",
       "docs": [
         "Initialize the forwarder config with emergency committee.",
         "",
-        "Mirrors EVM constructor validation:",
-        "- protocol_adapter must not be zero",
-        "- logic_ref must not be all zeros",
-        "- emergency_committee must not be zero"
+        "Mirrors the EVM constructor validation: no zero adapter, logic ref, or committee."
       ],
       "discriminator": [
         175,
@@ -402,10 +436,8 @@
     {
       "name": "set_emergency_caller",
       "docs": [
-        "Set the emergency caller (one-time, by emergency committee when PA is stopped).",
-        "",
-        "Mirrors EVM's setEmergencyCaller() which checks _checkEmergencyStopped()",
-        "by querying ProtocolAdapter.isEmergencyStopped()."
+        "Set the emergency caller, once, by the committee while the adapter",
+        "is stopped. Mirrors EVM's setEmergencyCaller()."
       ],
       "discriminator": [
         220,
@@ -442,11 +474,7 @@
           }
         },
         {
-          "name": "pa_state",
-          "docs": [
-            "Protocol Adapter state account for checking paused status.",
-            "Mirrors EVM's _checkEmergencyStopped() which queries ProtocolAdapter.isEmergencyStopped()."
-          ]
+          "name": "pa_state"
         }
       ],
       "args": [
@@ -469,6 +497,19 @@
         250,
         204,
         130
+      ]
+    },
+    {
+      "name": "NonceBitmap",
+      "discriminator": [
+        154,
+        14,
+        30,
+        131,
+        149,
+        1,
+        169,
+        146
       ]
     }
   ],
@@ -530,12 +571,12 @@
     {
       "code": 6000,
       "name": "InvalidInput",
-      "msg": "Invalid input data - check logs for expected vs actual length"
+      "msg": "Invalid input data"
     },
     {
       "code": 6001,
       "name": "InvalidWrapInputLength",
-      "msg": "Invalid wrap input length - expected 185 bytes"
+      "msg": "Invalid wrap input length - expected 121 bytes"
     },
     {
       "code": 6002,
@@ -544,143 +585,113 @@
     },
     {
       "code": 6003,
-      "name": "InvalidEmergencyInputLength",
-      "msg": "Invalid emergency withdraw input length - expected 72 bytes"
-    },
-    {
-      "code": 6004,
       "name": "InvalidTokenAccountData",
       "msg": "Invalid token account data - too short or malformed"
     },
     {
-      "code": 6005,
+      "code": 6004,
       "name": "InsufficientRemainingAccounts",
       "msg": "Insufficient remaining accounts - check logs for expected count"
     },
     {
-      "code": 6006,
+      "code": 6005,
       "name": "InvalidTokenProgram",
       "msg": "Invalid token program - expected SPL Token program ID"
     },
     {
-      "code": 6007,
-      "name": "TokenMintMismatch",
-      "msg": "Token mint mismatch - provided mint doesn't match input"
+      "code": 6006,
+      "name": "WrongTokenAccountOwner",
+      "msg": "Token account owner mismatch - the destination is not the escrow's or the recipient's"
     },
     {
-      "code": 6008,
+      "code": 6007,
       "name": "UnknownOperation",
       "msg": "Unknown operation code"
     },
     {
-      "code": 6009,
+      "code": 6008,
       "name": "UnauthorizedCaller",
       "msg": "Unauthorized caller - only Protocol Adapter can call forward_call"
     },
     {
-      "code": 6010,
+      "code": 6009,
       "name": "UnauthorizedLogicRef",
       "msg": "Unauthorized logic_ref - this forwarder doesn't handle this resource type"
     },
     {
-      "code": 6011,
+      "code": 6010,
       "name": "DeadlineExpired",
       "msg": "Signature deadline has expired"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "NonceAlreadyUsed",
       "msg": "Nonce has already been used (replay attack prevented)"
     },
     {
-      "code": 6013,
-      "name": "InvalidSignature",
-      "msg": "Ed25519 signature verification failed"
-    },
-    {
-      "code": 6014,
+      "code": 6012,
       "name": "Ed25519InstructionNotFound",
       "msg": "Ed25519 instruction not found at specified index"
     },
     {
-      "code": 6015,
+      "code": 6013,
       "name": "InvalidEd25519Instruction",
       "msg": "Invalid Ed25519 instruction format"
     },
     {
-      "code": 6016,
+      "code": 6014,
       "name": "Ed25519PubkeyMismatch",
       "msg": "Ed25519 public key mismatch"
     },
     {
-      "code": 6017,
+      "code": 6015,
       "name": "Ed25519MessageMismatch",
       "msg": "Ed25519 message mismatch"
     },
     {
-      "code": 6018,
-      "name": "InsufficientEscrowBalance",
-      "msg": "Insufficient escrow balance for unwrap"
-    },
-    {
-      "code": 6019,
+      "code": 6016,
       "name": "EmergencyCallerAlreadySet",
       "msg": "Emergency caller already set"
     },
     {
-      "code": 6020,
+      "code": 6017,
       "name": "EmergencyCallerNotSet",
       "msg": "Emergency caller not set"
     },
     {
-      "code": 6021,
+      "code": 6018,
       "name": "ProtocolAdapterNotStopped",
       "msg": "Protocol Adapter not stopped - cannot perform emergency operations"
     },
     {
-      "code": 6022,
+      "code": 6019,
       "name": "InvalidPaState",
       "msg": "Invalid PA state account - does not match derived PDA from protocol_adapter"
     },
     {
-      "code": 6023,
+      "code": 6020,
       "name": "ZeroAddressNotAllowed",
       "msg": "Zero address not allowed"
     },
     {
-      "code": 6024,
-      "name": "AccountNotFound",
-      "msg": "Account not found in remaining accounts"
-    },
-    {
-      "code": 6025,
-      "name": "InvalidAccountOwner",
-      "msg": "Invalid account owner"
-    },
-    {
-      "code": 6026,
+      "code": 6021,
       "name": "InvalidEscrowPda",
       "msg": "Invalid escrow PDA"
     },
     {
-      "code": 6027,
+      "code": 6022,
       "name": "InvalidNonceBitmapPda",
       "msg": "Invalid nonce bitmap PDA - doesn't match derived address"
     },
     {
-      "code": 6028,
+      "code": 6023,
+      "name": "NonceBitmapMissing",
+      "msg": "Nonce bitmap account does not exist - create it with init_nonce_bitmap before the wrap"
+    },
+    {
+      "code": 6024,
       "name": "TokenTransferFailed",
-      "msg": "Token transfer failed - ensure user has approved escrow PDA as delegate with sufficient amount"
-    },
-    {
-      "code": 6029,
-      "name": "InsufficientDelegateApproval",
-      "msg": "Insufficient delegate approval - user must approve escrow PDA as delegate before wrap"
-    },
-    {
-      "code": 6030,
-      "name": "BalanceMismatch",
-      "msg": "Balance mismatch - actual transfer amount differs from expected (possible fee-on-transfer token)"
+      "msg": "Token transfer failed - check the SPL Token error in the logs"
     }
   ],
   "types": [
@@ -689,11 +700,7 @@
       "docs": [
         "Configuration account for the forwarder.",
         "",
-        "Mirrors EVM's ForwarderBase + EmergencyMigratableForwarderBase state:",
-        "- protocol_adapter: Only this address can call forward_call",
-        "- logic_ref: Only handle this resource type",
-        "- emergency_committee: Can set emergency_caller when PA stopped",
-        "- emergency_caller: Can call forward_emergency_call when PA stopped"
+        "Mirrors EVM's ForwarderBase + EmergencyMigratableForwarderBase state."
       ],
       "type": {
         "kind": "struct",
@@ -733,9 +740,6 @@
           },
           {
             "name": "bump",
-            "docs": [
-              "PDA bump seed"
-            ],
             "type": "u8"
           }
         ]
@@ -744,8 +748,6 @@
     {
       "name": "EmergencyCallerSet",
       "docs": [
-        "Emitted when emergency caller is set by committee.",
-        "",
         "Mirrors EVM: `event EmergencyCallerSet(address caller);`"
       ],
       "type": {
@@ -753,16 +755,10 @@
         "fields": [
           {
             "name": "emergency_caller",
-            "docs": [
-              "The new emergency caller address"
-            ],
             "type": "pubkey"
           },
           {
             "name": "set_by",
-            "docs": [
-              "The committee that set this caller"
-            ],
             "type": "pubkey"
           }
         ]
@@ -770,39 +766,48 @@
     },
     {
       "name": "EmergencyWithdraw",
-      "docs": [
-        "Emitted when emergency withdrawal is performed."
-      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "token_mint",
-            "docs": [
-              "The SPL token mint that was withdrawn"
-            ],
             "type": "pubkey"
           },
           {
             "name": "to",
-            "docs": [
-              "The recipient who received the tokens"
-            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
-            "docs": [
-              "The amount of tokens withdrawn"
-            ],
             "type": "u64"
           },
           {
             "name": "caller",
-            "docs": [
-              "The emergency caller who performed the withdrawal"
-            ],
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NonceBitmap",
+      "docs": [
+        "One 256-nonce word of a user's wrap nonces (Permit2's bitmap pattern).",
+        "",
+        "Seeds: [\"nonce_bitmap\", user, word_index_le_bytes]. Created by anyone",
+        "through `init_nonce_bitmap`, which pays its rent; a wrap only reads and",
+        "sets bits, so no signer reaches the forwarder through the adapter's CPI."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bits",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -810,8 +815,6 @@
     {
       "name": "Unwrapped",
       "docs": [
-        "Emitted when tokens are unwrapped (released from escrow).",
-        "",
         "Mirrors EVM: `event Unwrapped(address indexed token, address indexed to, uint128 amount);`"
       ],
       "type": {
@@ -819,23 +822,14 @@
         "fields": [
           {
             "name": "token_mint",
-            "docs": [
-              "The SPL token mint that was unwrapped"
-            ],
             "type": "pubkey"
           },
           {
             "name": "to",
-            "docs": [
-              "The recipient who received the tokens"
-            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
-            "docs": [
-              "The amount of tokens unwrapped"
-            ],
             "type": "u64"
           }
         ]
@@ -844,8 +838,6 @@
     {
       "name": "Wrapped",
       "docs": [
-        "Emitted when tokens are wrapped (locked into escrow).",
-        "",
         "Mirrors EVM: `event Wrapped(address indexed token, address indexed from, uint128 amount);`"
       ],
       "type": {
@@ -853,37 +845,22 @@
         "fields": [
           {
             "name": "token_mint",
-            "docs": [
-              "The SPL token mint that was wrapped"
-            ],
             "type": "pubkey"
           },
           {
             "name": "from",
-            "docs": [
-              "The user who wrapped tokens (signed the authorization)"
-            ],
             "type": "pubkey"
           },
           {
             "name": "amount",
-            "docs": [
-              "The amount of tokens wrapped"
-            ],
             "type": "u64"
           },
           {
             "name": "nonce",
-            "docs": [
-              "The nonce used for replay protection"
-            ],
             "type": "u64"
           },
           {
             "name": "action_tree_root",
-            "docs": [
-              "The action tree root this wrap was bound to"
-            ],
             "type": {
               "array": [
                 "u8",

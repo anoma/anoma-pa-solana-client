@@ -15,15 +15,26 @@
 //! `--lookup-table` is the deployment's settlement lookup table (default: the
 //! devnet table `SETTLE_LOOKUP_TABLE`); the settle step is a v0 transaction
 //! against it, the shape every submitter sends.
+//!
+//! A fixture carrying `spl_token_wrap` metadata (the adapter repo's AnomaPay
+//! wrap) is settled as a wrap: the segment comes from the forwarder builders,
+//! the user's signature rides in an ed25519 instruction at index 0, and the
+//! user's nonce bitmap is created in the same transaction when the word has
+//! none yet. The user and mint keypairs are seeded from the fixture's labels;
+//! the user's token account must hold the amount with the escrow PDA as its
+//! delegate, and the forwarder must be initialized for the mint
+//! (`--forwarder`, default `FORWARDER_PROGRAM_ID`).
 
 use std::str::FromStr;
 
 use anoma_pa_solana_client::{
-    decode_event_instruction, decode_pa_state, derive_nullifier_pda, derive_pa_state_pda,
-    derive_root_marker_pda, derive_tx_data_pda, derive_verifier_router_pdas, settle_from_txdata_ix,
-    txdata_close_ix, txdata_init_ix, txdata_write_ix, CommitmentTreeState, PaEvent, EVENT_IX_TAG,
-    PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, SETTLE_LOOKUP_TABLE,
-    TXDATA_CHUNK_SIZE, TXDATA_EXPIRY_SLOTS_DEFAULT,
+    build_wrap_forwarder_accounts, decode_event_instruction, decode_pa_state,
+    derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
+    derive_tx_data_pda, derive_verifier_router_pdas, init_nonce_bitmap_ix, nonce_word_index,
+    settle_from_txdata_ix, sha256, txdata_close_ix, txdata_init_ix, txdata_write_ix,
+    CommitmentTreeState, PaEvent, EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID,
+    SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, SETTLE_LOOKUP_TABLE, TXDATA_CHUNK_SIZE,
+    TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
@@ -31,6 +42,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcTransactionConfig;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::compute_budget::ComputeBudgetInstruction;
+use solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
@@ -44,6 +56,24 @@ struct Fixture {
     tx_b64: String,
     consumed_nullifiers_b64: Vec<String>,
     created_commitments_b64: Vec<String>,
+    spl_token_wrap: Option<SplTokenWrap>,
+}
+
+/// The adapter repo's AnomaPay wrap fixture metadata: the seeded parties, the
+/// wrap terms and the signature the proof is bound to.
+#[derive(serde::Deserialize)]
+struct SplTokenWrap {
+    user_seed_label: String,
+    mint_seed_label: String,
+    nonce: u64,
+    signed_message_b64: String,
+    signature_b64: String,
+}
+
+/// A keypair seeded with sha256 of a label, as the adapter's fixtures and
+/// tests derive their parties.
+fn seeded_pubkey(label: &str) -> Pubkey {
+    Keypair::new_from_array(sha256(label.as_bytes())).pubkey()
 }
 
 struct Args {
@@ -51,6 +81,7 @@ struct Args {
     keypair: String,
     fixture: String,
     pa: Pubkey,
+    forwarder: Pubkey,
     lookup_table: Pubkey,
     call_accounts: Vec<Vec<Pubkey>>,
 }
@@ -60,6 +91,7 @@ fn parse_args() -> Args {
     let mut keypair = None;
     let mut fixture = None;
     let mut pa = PA_PROGRAM_ID;
+    let mut forwarder = FORWARDER_PROGRAM_ID;
     let mut lookup_table = SETTLE_LOOKUP_TABLE;
     let mut call_accounts = Vec::new();
     let mut it = std::env::args().skip(1);
@@ -70,6 +102,9 @@ fn parse_args() -> Args {
             "--keypair" => keypair = Some(value),
             "--fixture" => fixture = Some(value),
             "--pa" => pa = Pubkey::from_str(&value).expect("--pa is a base58 pubkey"),
+            "--forwarder" => {
+                forwarder = Pubkey::from_str(&value).expect("--forwarder is a base58 pubkey")
+            }
             "--lookup-table" => {
                 lookup_table = Pubkey::from_str(&value).expect("--lookup-table is a base58 pubkey")
             }
@@ -87,6 +122,7 @@ fn parse_args() -> Args {
         keypair: keypair.expect("--keypair is required"),
         fixture: fixture.expect("--fixture is required"),
         pa,
+        forwarder,
         lookup_table,
         call_accounts,
     }
@@ -199,7 +235,10 @@ fn main() {
         hex(&tree.root)
     );
 
-    // 3. Remaining accounts: nullifier markers, then the external-call segments.
+    // 3. Remaining accounts: nullifier markers, then the external-call
+    //    segments. A wrap's segment comes from the forwarder builders, and its
+    //    settlement starts with the ed25519 instruction the wrap input names
+    //    (index 0) and the bitmap creation when the nonce's word has none.
     let mut remaining: Vec<AccountMeta> = fixture
         .consumed_nullifiers_b64
         .iter()
@@ -210,6 +249,42 @@ fn main() {
             )
         })
         .collect();
+    let mut pre_instructions: Vec<Instruction> = Vec::new();
+    if let Some(wrap) = &fixture.spl_token_wrap {
+        let user = seeded_pubkey(&wrap.user_seed_label);
+        let mint = seeded_pubkey(&wrap.mint_seed_label);
+        let signature: [u8; 64] = b64(&wrap.signature_b64)
+            .try_into()
+            .expect("64-byte ed25519 signature");
+        pre_instructions.push(new_ed25519_instruction_with_signature(
+            &b64(&wrap.signed_message_b64),
+            &signature,
+            &user.to_bytes(),
+        ));
+        let word = nonce_word_index(wrap.nonce);
+        let (bitmap, _) = derive_nonce_bitmap_pda(&args.forwarder, &user, word);
+        if client.get_account(&bitmap).is_err() {
+            println!(
+                "nonce bitmap {bitmap} for word {word} is missing: creating it in the settlement"
+            );
+            pre_instructions.push(init_nonce_bitmap_ix(
+                &args.forwarder,
+                &payer.pubkey(),
+                &user,
+                word,
+            ));
+        }
+        remaining.extend(build_wrap_forwarder_accounts(
+            &args.forwarder,
+            &user,
+            &mint,
+            wrap.nonce,
+        ));
+        println!(
+            "wrap: user {user} mint {mint} nonce {} forwarder {}",
+            wrap.nonce, args.forwarder
+        );
+    }
     for segment in &args.call_accounts {
         remaining.extend(segment.iter().map(|k| AccountMeta::new_readonly(*k, false)));
     }
@@ -257,26 +332,28 @@ fn main() {
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&Pubkey::from(state.verifier_router));
     let verifier_program = verifier_program_of(&client, &verifier_entry);
+    let mut settle_ixs = pre_instructions;
+    settle_ixs.extend([
+        ComputeBudgetInstruction::set_compute_unit_limit(SETTLE_COMPUTE_UNIT_LIMIT),
+        ComputeBudgetInstruction::request_heap_frame(SETTLE_HEAP_FRAME_BYTES),
+        settle_from_txdata_ix(
+            &args.pa,
+            &pa_state,
+            &tx_data,
+            &payer.pubkey(),
+            upload_id,
+            &new_root_marker,
+            &Pubkey::from(state.verifier_router),
+            &router,
+            &verifier_entry,
+            &verifier_program,
+            remaining,
+        ),
+    ]);
     let settle_sig = send(
         &client,
         &payer,
-        &[
-            ComputeBudgetInstruction::set_compute_unit_limit(SETTLE_COMPUTE_UNIT_LIMIT),
-            ComputeBudgetInstruction::request_heap_frame(SETTLE_HEAP_FRAME_BYTES),
-            settle_from_txdata_ix(
-                &args.pa,
-                &pa_state,
-                &tx_data,
-                &payer.pubkey(),
-                upload_id,
-                &new_root_marker,
-                &Pubkey::from(state.verifier_router),
-                &router,
-                &verifier_entry,
-                &verifier_program,
-                remaining,
-            ),
-        ],
+        &settle_ixs,
         std::slice::from_ref(&table),
         "settle_from_txdata",
     );

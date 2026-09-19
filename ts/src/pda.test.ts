@@ -34,6 +34,13 @@ describe("PDA derivation", () => {
     expect(e1.equals(e2)).toBe(false);
   });
 
+  it("ATA derivation accepts a PDA owner, which the forwarder's escrow is", () => {
+    const mint = Keypair.generate().publicKey;
+    const [escrowPda] = deriveForwarderEscrowPda(FORWARDER_PROGRAM_ID, mint);
+    expect(PublicKey.isOnCurve(escrowPda.toBytes())).toBe(false);
+    expect(deriveAssociatedTokenAddress(escrowPda, mint).equals(getAssociatedTokenAddressSync(mint, escrowPda, true))).toBe(true);
+  });
+
   it("ATA derivation agrees with the SPL token library, owner then mint", () => {
     const owner = Keypair.generate().publicKey;
     const mint = Keypair.generate().publicKey;

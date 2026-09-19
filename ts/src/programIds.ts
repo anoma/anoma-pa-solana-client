@@ -10,9 +10,12 @@ export const PA_PROGRAM_ID = new PublicKey(
   "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT",
 );
 
-/** SPL Token Forwarder program ID (devnet/localnet default). */
+/**
+ * SPL Token Forwarder program ID: the V2 forwarder's declared id, under which
+ * the adapter repository builds and deploys it.
+ */
 export const FORWARDER_PROGRAM_ID = new PublicKey(
-  "3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48",
+  "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx",
 );
 
 /**

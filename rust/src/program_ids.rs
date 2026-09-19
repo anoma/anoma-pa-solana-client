@@ -9,8 +9,9 @@ use solana_program::{pubkey, pubkey::Pubkey};
 /// Anoma Protocol Adapter program ID (devnet/localnet default).
 pub const PA_PROGRAM_ID: Pubkey = pubkey!("28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT");
 
-/// SPL Token Forwarder program ID (devnet/localnet default).
-pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48");
+/// SPL Token Forwarder program ID: the V2 forwarder's declared id, under which
+/// the adapter repository builds and deploys it.
+pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx");
 
 /// The devnet V2 deployment's settlement lookup table: the accounts every
 /// settlement carries that are fixed for the deployment. Settle transactions
@@ -49,5 +50,18 @@ mod tests {
         )))
         .unwrap();
         assert_eq!(idl["address"].as_str().unwrap(), PA_PROGRAM_ID.to_string());
+    }
+
+    #[test]
+    fn forwarder_program_id_matches_the_vendored_idl() {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../idl/spl_token_forwarder.json"
+        )))
+        .unwrap();
+        assert_eq!(
+            idl["address"].as_str().unwrap(),
+            FORWARDER_PROGRAM_ID.to_string()
+        );
     }
 }

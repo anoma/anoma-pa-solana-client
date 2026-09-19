@@ -22,19 +22,26 @@ export const MAX_TREE_DEPTH = 32;
 /**
  * Number of accounts in a wrap forwarder CPI segment.
  *
- * Ordering: `[forwarder_program, config_pda, ix_sysvar, clock_sysvar, user_ata,
- * escrow_ata, escrow_pda, nonce_bitmap_pda, token_program, system_program, payer,
- * token_mint]`.
+ * Ordering: `[forwarder_program, config_pda, ix_sysvar, user_ata, escrow_ata,
+ * escrow_pda, nonce_bitmap_pda, token_program]`. The nonce bitmap must already
+ * exist: the adapter's CPI carries no signer that could pay for creating it, so
+ * a wrap on a word without a bitmap is preceded by `init_nonce_bitmap`.
  */
-export const FORWARDER_WRAP_NUM_ACCOUNTS = 12;
+export const FORWARDER_WRAP_NUM_ACCOUNTS = 8;
 
 /**
  * Number of accounts in an unwrap forwarder CPI segment.
  *
- * Ordering: `[forwarder_program, config_pda, ix_sysvar, clock_sysvar, escrow_ata,
- * recipient_ata, escrow_pda, token_program, token_mint]`.
+ * Ordering: `[forwarder_program, config_pda, ix_sysvar, escrow_ata,
+ * recipient_ata, escrow_pda, token_program]`.
  */
-export const FORWARDER_UNWRAP_NUM_ACCOUNTS = 9;
+export const FORWARDER_UNWRAP_NUM_ACCOUNTS = 7;
+
+/**
+ * Return data of a successful forwarder call: the one byte the SPL token
+ * forwarder returns and the resource's external call expects as output.
+ */
+export const FORWARDER_RESULT_SUCCESS = 1;
 
 /** Groth16 proof selector for the verifier-router lookup. */
 export const GROTH16_VERIFIER_SELECTOR = new Uint8Array([0x73, 0xc4, 0x57, 0xba]);
