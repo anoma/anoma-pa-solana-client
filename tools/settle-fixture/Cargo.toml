@@ -1,0 +1,20 @@
+[package]
+name = "settle-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Settle a protocol-adapter fixture on a cluster using the client crate's builders"
+repository.workspace = true
+publish = false
+
+[dependencies]
+anoma-pa-solana-client = { path = "../../rust" }
+base64 = "0.22"
+bincode = "1.3.3"
+bs58 = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+solana-address-lookup-table-interface = "2.2"
+solana-client = "2.2"
+solana-sdk = "2.2"
+solana-transaction-status = "2.2"

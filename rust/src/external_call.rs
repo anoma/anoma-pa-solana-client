@@ -51,19 +51,16 @@ pub const OP_WRAP: u8 = 0;
 /// Op byte prepended to `UnwrapInput`-shaped instruction data.
 pub const OP_UNWRAP: u8 = 1;
 
-/// Op byte prepended to `MigrateInput`-shaped instruction data.
-///
-/// `OP_WRAP` (0) and `OP_UNWRAP` (1) are the v1 op codes; `OP_MIGRATE` continues
-/// that op space for the v2 forwarder's migrate instruction.
-pub const OP_MIGRATE: u8 = 2;
-
-/// Build the 186-byte forwarder instruction data for a wrap.
+/// Build the 122-byte forwarder instruction data for a wrap.
 ///
 /// Layout: `op(1) + token_mint(32) + amount_le(8) + user(32) + nonce_le(8) +
-/// deadline_le_i64(8) + action_tree_root(32) + signature(64) + ed25519_ix_index(1)`.
+/// deadline_le_i64(8) + action_tree_root(32) + ed25519_ix_index(1)`.
+///
+/// The user's ed25519 signature is not part of the input: it reaches the chain
+/// in the ed25519 program instruction at `ed25519_ix_index`, which the
+/// forwarder verifies through the instructions sysvar.
 ///
 /// `deadline` is signed i64 to match the forwarder's `WrapInput::deadline: i64`.
-#[allow(clippy::too_many_arguments)]
 pub fn encode_wrap_forwarder_input(
     token_mint: &[u8],
     amount: u64,
@@ -71,10 +68,9 @@ pub fn encode_wrap_forwarder_input(
     nonce: u64,
     deadline: i64,
     action_tree_root: &[u8],
-    signature: &[u8],
     ed25519_ix_index: u8,
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(186);
+    let mut buf = Vec::with_capacity(122);
     buf.push(OP_WRAP);
     buf.extend_from_slice(&pad_to_32(token_mint));
     buf.extend_from_slice(&amount.to_le_bytes());
@@ -82,7 +78,6 @@ pub fn encode_wrap_forwarder_input(
     buf.extend_from_slice(&nonce.to_le_bytes());
     buf.extend_from_slice(&deadline.to_le_bytes());
     buf.extend_from_slice(&pad_to_32(action_tree_root));
-    buf.extend_from_slice(&pad_to_64(signature));
     buf.push(ed25519_ix_index);
     buf
 }
@@ -99,37 +94,6 @@ pub fn encode_unwrap_forwarder_input(token_mint: &[u8], amount: u64, recipient: 
     buf
 }
 
-/// Build the 169-byte forwarder instruction data for a migrate.
-///
-/// Layout (mirrors the v1 wrap/unwrap shape — op byte, 32-byte fields, LE
-/// amount): `op(1) + token_mint(32) + amount_le(8) + nullifier(32) +
-/// commitment_tree_root(32) + logic_ref_v1(32) + forwarder_v1(32)`.
-///
-/// - `nullifier` is the nullifier of the v1 resource being migrated.
-/// - `commitment_tree_root` is the v1 commitment-tree root that witnesses the
-///   migrated resource's existence.
-/// - `migrate_resource_logic_ref` is the v1 resource's logic reference.
-/// - `migrate_resource_forwarder_id` is the **v1** forwarder program id encoded
-///   in the migrated resource's label.
-pub fn encode_migrate_forwarder_input(
-    token_mint: &[u8],
-    amount: u64,
-    nullifier: &[u8],
-    commitment_tree_root: &[u8],
-    migrate_resource_logic_ref: &[u8],
-    migrate_resource_forwarder_id: &[u8],
-) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(169);
-    buf.push(OP_MIGRATE);
-    buf.extend_from_slice(&pad_to_32(token_mint));
-    buf.extend_from_slice(&amount.to_le_bytes());
-    buf.extend_from_slice(&pad_to_32(nullifier));
-    buf.extend_from_slice(&pad_to_32(commitment_tree_root));
-    buf.extend_from_slice(&pad_to_32(migrate_resource_logic_ref));
-    buf.extend_from_slice(&pad_to_32(migrate_resource_forwarder_id));
-    buf
-}
-
 fn pad_to_32(input: &[u8]) -> [u8; 32] {
     assert!(
         input.len() <= 32,
@@ -137,17 +101,6 @@ fn pad_to_32(input: &[u8]) -> [u8; 32] {
         input.len()
     );
     let mut out = [0u8; 32];
-    out[..input.len()].copy_from_slice(input);
-    out
-}
-
-fn pad_to_64(input: &[u8]) -> [u8; 64] {
-    assert!(
-        input.len() <= 64,
-        "input too long for 64-byte field: {} bytes",
-        input.len()
-    );
-    let mut out = [0u8; 64];
     out[..input.len()].copy_from_slice(input);
     out
 }
@@ -171,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn wrap_input_length_is_186_bytes() {
+    fn wrap_input_layout_is_122_bytes() {
         let bytes = encode_wrap_forwarder_input(
             &[1u8; 32],
             42,
@@ -179,11 +132,32 @@ mod tests {
             7,
             1_700_000_000,
             &[3u8; 32],
-            &[4u8; 64],
             2,
         );
-        assert_eq!(bytes.len(), 186);
+        // Pin the wire layout field by field: the forwarder's `WrapInput`
+        // parses exactly these bytes after the op byte, and the resource
+        // circuit commits them, so a silent field change must fail here.
+        assert_eq!(bytes.len(), 122);
         assert_eq!(bytes[0], OP_WRAP);
+        assert_eq!(&bytes[1..33], &[1u8; 32], "token_mint");
+        assert_eq!(
+            u64::from_le_bytes(bytes[33..41].try_into().unwrap()),
+            42,
+            "amount (LE)"
+        );
+        assert_eq!(&bytes[41..73], &[2u8; 32], "user");
+        assert_eq!(
+            u64::from_le_bytes(bytes[73..81].try_into().unwrap()),
+            7,
+            "nonce (LE)"
+        );
+        assert_eq!(
+            i64::from_le_bytes(bytes[81..89].try_into().unwrap()),
+            1_700_000_000,
+            "deadline (LE)"
+        );
+        assert_eq!(&bytes[89..121], &[3u8; 32], "action_tree_root");
+        assert_eq!(bytes[121], 2, "ed25519_ix_index");
     }
 
     #[test]
@@ -191,27 +165,5 @@ mod tests {
         let bytes = encode_unwrap_forwarder_input(&[1u8; 32], 100, &[2u8; 32]);
         assert_eq!(bytes.len(), 73);
         assert_eq!(bytes[0], OP_UNWRAP);
-    }
-
-    #[test]
-    fn migrate_input_layout_is_169_bytes() {
-        let bytes = encode_migrate_forwarder_input(
-            &[1u8; 32], 42, &[2u8; 32], &[3u8; 32], &[4u8; 32], &[5u8; 32],
-        );
-        // Pin the wire layout field-by-field: this crate is the sole authority
-        // for the migrate forwarder encoding, so a silent field transposition
-        // must fail here rather than on-chain.
-        assert_eq!(bytes.len(), 169);
-        assert_eq!(bytes[0], OP_MIGRATE);
-        assert_eq!(&bytes[1..33], &[1u8; 32], "token_mint");
-        assert_eq!(
-            u64::from_le_bytes(bytes[33..41].try_into().unwrap()),
-            42,
-            "amount (LE)"
-        );
-        assert_eq!(&bytes[41..73], &[2u8; 32], "nullifier");
-        assert_eq!(&bytes[73..105], &[3u8; 32], "commitment_tree_root");
-        assert_eq!(&bytes[105..137], &[4u8; 32], "logic_ref_v1");
-        assert_eq!(&bytes[137..169], &[5u8; 32], "forwarder_v1");
     }
 }

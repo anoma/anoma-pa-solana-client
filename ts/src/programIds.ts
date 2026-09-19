@@ -7,12 +7,25 @@ import { PublicKey } from "@solana/web3.js";
 
 /** Anoma Protocol Adapter program ID (devnet/localnet default). */
 export const PA_PROGRAM_ID = new PublicKey(
-  "De5uxTic9Ed8dRW8TFDKDk6wWtCZa5BDCnLiVhLEoFyJ",
+  "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT",
 );
 
-/** SPL Token Forwarder program ID (devnet/localnet default). */
+/**
+ * SPL Token Forwarder program ID: the V2 forwarder's declared id, under which
+ * the adapter repository builds and deploys it.
+ */
 export const FORWARDER_PROGRAM_ID = new PublicKey(
-  "3cLKSYBijunpCc2F2gzizUkhYtyFrLr4RVdNiaK79b48",
+  "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx",
+);
+
+/**
+ * The devnet V2 deployment's settlement lookup table: the accounts every
+ * settlement carries that are fixed for the deployment. Settle transactions
+ * are v0 messages compiled against it (`TransactionMessage.compileToV0Message`
+ * with the fetched `AddressLookupTableAccount`).
+ */
+export const SETTLE_LOOKUP_TABLE = new PublicKey(
+  "CKAMrsJSf1SDgsmaM7hsKEwmi2efQsoCAuMNf4msGRSW",
 );
 
 /**
@@ -21,16 +34,6 @@ export const FORWARDER_PROGRAM_ID = new PublicKey(
  */
 export const ED25519_PROGRAM_ID = new PublicKey(
   "Ed25519SigVerify111111111111111111111111111",
-);
-
-/** SPL Token program ID. */
-export const SPL_TOKEN_PROGRAM_ID = new PublicKey(
-  "TokenkegQfeZyiNwAJsyFbPVwwQQUtr5ZWf5rTgvvHe",
-);
-
-/** Associated Token Account program ID. */
-export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
 );
 
 /**

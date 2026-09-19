@@ -36,6 +36,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 
 - `PA_PROGRAM_ID` — the on-chain address of the Protocol Adapter.
 - `FORWARDER_PROGRAM_ID` — the on-chain address of the SPL Token Forwarder.
+- `SETTLE_LOOKUP_TABLE` — the deployment's settlement address lookup table (created per deployment by the adapter repo's `lookup-table` command).
 - `ED25519_PROGRAM_ID` — Solana's native ed25519 verification program (`Ed25519SigVerify111111111111111111111111111`).
 - These are environment-parameterizable (devnet vs mainnet) with sensible defaults shipped per release.
 
@@ -62,6 +63,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.5 Settle transaction orchestration
 
+- The settle transaction is a v0 message compiled against `SETTLE_LOOKUP_TABLE`. The table holds the settlement accounts that are fixed per deployment; signers, invoked programs and per-transaction accounts (upload, markers, token accounts, nonce bitmap) stay static.
 - A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, optional `Ed25519Program` verify ix(es) for wrap authorizations, and the `settle_from_txdata` ix with correct `remaining_accounts`.
 - Computes `ed25519_ix_index` from the actual transaction layout, not from a constant.
 - Chunked upload helper: bincode-serializes the ARM `Transaction`, splits into appropriately-sized chunks, returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions.
@@ -110,8 +112,9 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.11 Forwarder CPI account assembly
 
-- `build_wrap_cpi_accounts(...)` — assembles the 12-account segment in the correct order for a wrap CPI.
-- `build_unwrap_cpi_accounts(...)` — assembles the 9-account segment in the correct order for an unwrap CPI.
+- `build_wrap_cpi_accounts(...)` — assembles the 8-account segment in the correct order for a wrap CPI.
+- `build_unwrap_cpi_accounts(...)` — assembles the 7-account segment in the correct order for an unwrap CPI.
+- `init_nonce_bitmap_ix(...)` — the forwarder's permissionless instruction that creates a user's nonce bitmap for a word; a wrap whose word has no bitmap yet carries it in the settlement transaction.
 - The integrator passes the relevant pubkeys (mint, user ATA, recipient ATA, etc.); ordering is determined inside the helper.
 
 ### 3.12 Approve helper (frontend-facing)
@@ -134,7 +137,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 - `MIN_COMPUTE_UNIT_LIMIT` — the minimum CU value the settle ix requires (currently 500,000). Source of truth.
 - `MIN_HEAP_FRAME_BYTES` — the minimum heap frame the settle ix requires (currently 262,144). Source of truth.
 - `TXDATA_WRITE_CHUNK_BYTES` — the chunk size for `txdata_write` (currently 900).
-- `FORWARDER_WRAP_NUM_ACCOUNTS = 12`, `FORWARDER_UNWRAP_NUM_ACCOUNTS = 9`.
+- `FORWARDER_WRAP_NUM_ACCOUNTS = 8`, `FORWARDER_UNWRAP_NUM_ACCOUNTS = 7`, `FORWARDER_RESULT_SUCCESS = 1`.
 - These must change here when they change in the PA. The integrator imports them; bumping the PA without bumping this package is a release-process error.
 
 ### 3.16 Forwarder escrow registry (optional but recommended)
@@ -219,7 +222,7 @@ These need resolution before implementation begins.
 2. **Auto-generation pipeline.** Anchor's IDL emission gives us instruction discriminators and some types, but the cursor-based `PAStateAccount` decoder, the wrap message layout, and the forwarder CPI account ordering need either custom generators or hand-written code. Decision: which items in §3 are codegen targets vs hand-written?
 3. **Forwarder escrow registry shape.** Static JSON shipped in the package, or derived on-demand? Static is more auditable; on-demand handles new mints without a release. Recommend: ship a static registry of officially-supported mints + the derivation helper for anything else.
 4. **Workspace organization.** Should `rust/` be a single crate or a Cargo workspace with sub-crates (`pa-instructions`, `pa-accounts`, `forwarder`, etc.)? Single crate is simpler; workspace allows the indexer to depend on only the event-decoding subset. Recommend: start as a single crate; split later if a real consumer benefits.
-5. **TS package name.** `@anoma/pa-solana-client` requires an `@anoma` npm scope. Confirm availability and whether to use a scoped name or a flat one.
+5. **TS package name.** Resolved: `@anomaorg/pa-solana-client`, the scope the organization publishes under (`@anomaorg/anoma-app-sdk`, `@anomaorg/arm-bindings`).
 6. **Anchor version compatibility.** Different consumers may want different Anchor versions in their toolchain. Decision: pin to one Anchor version per release, or support multiple?
 7. **Solana SDK major version.** `solana-sdk` 2.x is current; will the package support 1.x backports?
 8. **CI for cross-package consistency.** A test that builds the Rust crate and the TS package against the same PA fixture and confirms every shared constant matches byte-for-byte. Worth setting up as part of v0.1.

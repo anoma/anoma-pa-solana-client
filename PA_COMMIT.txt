@@ -1,5 +1,6 @@
 # The solana-protocol-adapter commit this release pairs with.
-# Update on every release; CI extracts IDLs and source-of-truth values from this commit.
+# Update on every release; the IDL files and hand-written values are regenerated
+# from and reviewed against this commit.
 #
 # Format: full 40-character commit SHA, one per line. Comments allowed.
 
@@ -10,3 +11,30 @@
 # committed there. v0.1 ships against this commit's behavior with the
 # integrator-side migrations applied.
 8519d2dc3d33f97cb5ee70c2463f2d3ae862e932
+
+# solana-protocol-adapter main (beta deployment 2026-08-08; program crate renamed
+# to protocol-adapter 2026-08-11 — the IDL metadata.name is protocol_adapter)
+# Devnet beta PA 9hDoEFv9hyECfruQUxDetE8CiuFrB2fbCiHuD5GUKFeF is deployed and
+# initialized from this commit (production build). Predecessor deployments,
+# including De5uxTic..., are retired; see the PA repo's
+# solana-pa-prototype/docs/DEVNET_DEPLOYMENT.md and docs/INTEGRATION.md.
+9ecaa03c43f1b71b8568b0a9bebba88a0b050efd
+
+# solana-protocol-adapter anthony/arm-v2-port (the V2 adapter). Settle takes the
+# event-CPI accounts, PAState carries schema_version and kind_table_commitment,
+# TransactionExecutedEvent carries is_consumed. Devnet V2 PA
+# 28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT was upgraded to this commit on
+# 2026-09-16 (production build); the adapter program source is unchanged since
+# 2bb6fb5, the previous pin. This commit also carries the V2 SPL token forwarder,
+# which this release does NOT pair with yet: the forwarder interface file, id
+# and segment builders are updated by the forwarder pairing (anoma/dos-pm#76).
+30f13a4800476aac9f87149d0915a6af8fe7e532
+
+# solana-protocol-adapter anthony/anomapay-resource-v2 (the V2 adapter with the
+# V2 SPL token forwarder, program 5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx).
+# The forwarder's wrap input is 122 bytes without the signature, the wrap and
+# unwrap segments are 8 and 7 accounts, and nonce bitmaps are created by the
+# permissionless init_nonce_bitmap instruction. idl/spl_token_forwarder.json
+# is regenerated from this commit; the adapter program is unchanged since
+# 30f13a48, the previous pin.
+6fee32a8503300bac36795e84ff1c86a9c9b6c11

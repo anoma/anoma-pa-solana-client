@@ -12,6 +12,7 @@ use solana_program::{
 use solana_sdk_ids::system_program;
 
 use crate::discriminator::anchor_instruction_disc;
+use crate::pda::derive_event_authority_pda;
 
 /// Build a PA `txdata_init` instruction.
 pub fn txdata_init_ix(
@@ -76,7 +77,15 @@ pub fn txdata_write_ix(
 /// Build a PA `settle_from_txdata` instruction.
 ///
 /// `remaining_accounts` is the caller-assembled slice covering nullifier PDAs,
-/// per-call forwarder CPI segments, root markers, and the new-root marker PDA.
+/// per-call forwarder CPI segments, and historical root markers. The
+/// new-root marker is NOT part of it: it is a required named account, passed
+/// here as `new_root_marker` (writable) — the marker PDA of the
+/// post-settlement root.
+///
+/// The PA emits its events as self-invocations (`#[event_cpi]`), which adds
+/// two named accounts after `verifier_program`: the event authority PDA and
+/// the PA program itself. Both are derived from `pa_program` here, so the
+/// caller never supplies them.
 #[allow(clippy::too_many_arguments)]
 pub fn settle_from_txdata_ix(
     pa_program: &Pubkey,
@@ -84,6 +93,7 @@ pub fn settle_from_txdata_ix(
     tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
+    new_root_marker: &Pubkey,
     verifier_router_program: &Pubkey,
     router: &Pubkey,
     verifier_entry: &Pubkey,
@@ -100,10 +110,13 @@ pub fn settle_from_txdata_ix(
         AccountMeta::new_readonly(*tx_data, false),
         AccountMeta::new(*authority, true),
         AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new(*new_root_marker, false),
         AccountMeta::new_readonly(*verifier_router_program, false),
         AccountMeta::new_readonly(*router, false),
         AccountMeta::new_readonly(*verifier_entry, false),
         AccountMeta::new_readonly(*verifier_program, false),
+        AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
+        AccountMeta::new_readonly(*pa_program, false),
     ];
     accounts.extend(remaining_accounts);
 
@@ -141,6 +154,7 @@ pub fn txdata_close_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::derive_event_authority_pda;
 
     #[test]
     fn txdata_init_disc_is_first_8_bytes() {
@@ -154,6 +168,80 @@ mod tests {
             100,
         );
         assert_eq!(&ix.data[..8], &anchor_instruction_disc("txdata_init"));
+    }
+
+    #[test]
+    fn settle_from_txdata_account_layout_matches_v2_pa() {
+        // The V2 PA's SettleFromTxData accounts struct, in declaration order:
+        // pa_state(w), tx_data, authority(s), system_program,
+        // new_root_marker(w), verifier_router_program, router,
+        // verifier_entry, verifier_program, then the two accounts
+        // `#[event_cpi]` appends: event_authority (PDA of
+        // ["__event_authority"] under the PA) and program (the PA itself).
+        // Remaining accounts follow. A builder missing the last two feeds
+        // the first nullifier PDA where the PA expects the event authority.
+        let keys: Vec<Pubkey> = (0..9).map(|_| Pubkey::new_unique()).collect();
+        let ix = settle_from_txdata_ix(
+            &keys[0],
+            &keys[1],
+            &keys[2],
+            &keys[3],
+            42,
+            &keys[4],
+            &keys[5],
+            &keys[6],
+            &keys[7],
+            &keys[8],
+            vec![],
+        );
+        assert_eq!(ix.accounts.len(), 11);
+        let (event_authority, _) = derive_event_authority_pda(&keys[0]);
+        let expect = [
+            (keys[1], true, false),               // pa_state: writable
+            (keys[2], false, false),              // tx_data
+            (keys[3], true, true),                // authority: writable signer (pays marker rent)
+            (system_program::id(), false, false), // system_program
+            (keys[4], true, false),               // new_root_marker: writable
+            (keys[5], false, false),              // verifier_router_program
+            (keys[6], false, false),              // router
+            (keys[7], false, false),              // verifier_entry
+            (keys[8], false, false),              // verifier_program
+            (event_authority, false, false),      // event_authority
+            (keys[0], false, false),              // program
+        ];
+        for (i, (key, writable, signer)) in expect.iter().enumerate() {
+            assert_eq!(ix.accounts[i].pubkey, *key, "account {i} pubkey");
+            assert_eq!(
+                ix.accounts[i].is_writable, *writable,
+                "account {i} writable"
+            );
+            assert_eq!(ix.accounts[i].is_signer, *signer, "account {i} signer");
+        }
+    }
+
+    #[test]
+    fn remaining_accounts_follow_the_event_cpi_accounts() {
+        let pa = Pubkey::new_unique();
+        let nullifier_pda = Pubkey::new_unique();
+        let ix = settle_from_txdata_ix(
+            &pa,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            1,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            vec![AccountMeta::new(nullifier_pda, false)],
+        );
+        assert_eq!(ix.accounts.len(), 12);
+        assert_eq!(
+            ix.accounts[10].pubkey, pa,
+            "program precedes remaining accounts"
+        );
+        assert_eq!(ix.accounts[11].pubkey, nullifier_pda);
     }
 
     #[test]

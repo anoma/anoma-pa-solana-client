@@ -70,8 +70,11 @@ jobs:
       # module gains a Solana dependency, or solana-program becomes non-optional,
       # this job fails. It runs on the host target; building for the actual risc0
       # guest target is exercised downstream by the transfer circuit build.
-      - name: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
-        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+      # Scoped to the client package: the settle-fixture tool depends on the
+      # crate with its default features, so a workspace-wide build would unify
+      # the `solana` feature back on and check nothing.
+      - name: cargo clippy -p anoma-pa-solana-client --all-targets --no-default-features -- -D warnings
+        run: cargo clippy -p anoma-pa-solana-client --all-targets --no-default-features -- -D warnings
 
   ts:
     name: TS (tsc + vitest)
@@ -92,3 +95,34 @@ jobs:
         run: npm run tsc
       - name: npm run test
         run: npm run test
+
+  release-readiness:
+    name: Release readiness (versions agree, both packages pack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      # The Rust crate and the npm package release together at one version.
+      - name: The crate and the package carry the same version
+        run: |
+          crate=$(grep -E '^version = ' Cargo.toml | head -1 | sed -E 's/version = "(.*)"/\1/')
+          package=$(node -p "require('./ts/package.json').version")
+          echo "crate $crate, package $package"
+          test "$crate" = "$package"
+      - name: cargo publish --dry-run
+        run: cargo publish -p anoma-pa-solana-client --dry-run
+      - name: npm pack --dry-run
+        working-directory: ts
+        run: |
+          npm ci
+          npm run build
+          npm pack --dry-run
+

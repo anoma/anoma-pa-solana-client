@@ -3,13 +3,10 @@
 // These mirror the seed schemas baked into the on-chain programs. They are pure
 // functions: same inputs always produce the same PublicKey + bump.
 
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
 import { GROTH16_VERIFIER_SELECTOR } from "./constants.js";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  SPL_TOKEN_PROGRAM_ID,
-} from "./programIds.js";
 
 const u64Le = (value: bigint): Uint8Array => {
   const buf = new Uint8Array(8);
@@ -63,6 +60,20 @@ export function deriveRootMarkerPda(
   );
 }
 
+/**
+ * Derive the PA's event authority PDA. Seed: `["__event_authority"]`.
+ *
+ * Anchor's `#[event_cpi]` signs each event self-invocation with this PDA and
+ * requires it, followed by the program's own address, as the last two named
+ * accounts of `settle` and `settle_from_txdata`.
+ */
+export function deriveEventAuthorityPda(paProgram: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [new TextEncoder().encode("__event_authority")],
+    paProgram,
+  );
+}
+
 // ---- Forwarder PDAs --------------------------------------------------------
 
 /** Derive the forwarder's global config PDA. */
@@ -112,17 +123,15 @@ export function deriveNonceBitmapPda(
 /**
  * Derive the SPL Associated Token Account address for a wallet and mint.
  *
+ * The owner may be a PDA (the forwarder's escrow is one), so the on-curve
+ * check the SPL library applies by default is off, as in the Rust crate.
  * Returns only the address (bump is unused by the ATA program during creation).
  */
 export function deriveAssociatedTokenAddress(
   wallet: PublicKey,
   tokenMint: PublicKey,
 ): PublicKey {
-  const [ata] = PublicKey.findProgramAddressSync(
-    [wallet.toBuffer(), SPL_TOKEN_PROGRAM_ID.toBuffer(), tokenMint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  );
-  return ata;
+  return getAssociatedTokenAddressSync(tokenMint, wallet, true);
 }
 
 // ---- Verifier router PDAs --------------------------------------------------

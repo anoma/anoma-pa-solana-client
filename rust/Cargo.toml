@@ -6,7 +6,6 @@ license.workspace = true
 description = "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder"
 repository.workspace = true
 readme = "../README.md"
-publish = false
 
 [lib]
 path = "src/lib.rs"
@@ -29,9 +28,20 @@ base64 = "0.22"
 # the guest target and fails to compile there.
 solana-program = { version = "2.1", optional = true }
 solana-sdk-ids = { version = "2.2", optional = true }
+spl-associated-token-account-client = { version = "2.0", optional = true }
+spl-token = { version = "8.0", features = ["no-entrypoint"], optional = true }
+
+[dev-dependencies]
+# Reads the cross-package fixtures under `fixtures/`.
+serde_json = "1.0"
 
 [features]
 default = ["solana"]
 # Enables the modules that depend on the Solana SDK: instruction builders, PDA
 # derivation, program IDs, and ATA helpers.
-solana = ["dep:solana-program", "dep:solana-sdk-ids"]
+solana = [
+  "dep:solana-program",
+  "dep:solana-sdk-ids",
+  "dep:spl-associated-token-account-client",
+  "dep:spl-token",
+]
