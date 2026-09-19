@@ -95,3 +95,34 @@ jobs:
         run: npm run tsc
       - name: npm run test
         run: npm run test
+
+  release-readiness:
+    name: Release readiness (versions agree, both packages pack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      # The Rust crate and the npm package release together at one version.
+      - name: The crate and the package carry the same version
+        run: |
+          crate=$(grep -E '^version = ' Cargo.toml | head -1 | sed -E 's/version = "(.*)"/\1/')
+          package=$(node -p "require('./ts/package.json').version")
+          echo "crate $crate, package $package"
+          test "$crate" = "$package"
+      - name: cargo publish --dry-run
+        run: cargo publish -p anoma-pa-solana-client --dry-run
+      - name: npm pack --dry-run
+        working-directory: ts
+        run: |
+          npm ci
+          npm run build
+          npm pack --dry-run
+

@@ -1,9 +1,8 @@
 {
-  "name": "@anoma/pa-solana-client",
+  "name": "@anomaorg/pa-solana-client",
   "version": "0.4.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder",
   "license": "Apache-2.0",
-  "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/anoma/anoma-pa-solana-client"
@@ -23,10 +22,14 @@
     "src",
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "tsc": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",

@@ -6,7 +6,6 @@ license.workspace = true
 description = "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder"
 repository.workspace = true
 readme = "../README.md"
-publish = false
 
 [lib]
 path = "src/lib.rs"
