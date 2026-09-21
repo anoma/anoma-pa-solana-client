@@ -576,7 +576,7 @@
     {
       "code": 6001,
       "name": "InvalidWrapInputLength",
-      "msg": "Invalid wrap input length - expected 121 bytes"
+      "msg": "Invalid wrap input length"
     },
     {
       "code": 6002,

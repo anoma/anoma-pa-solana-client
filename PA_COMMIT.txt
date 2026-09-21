@@ -38,3 +38,12 @@
 # is regenerated from this commit; the adapter program is unchanged since
 # 30f13a48, the previous pin.
 6fee32a8503300bac36795e84ff1c86a9c9b6c11
+
+# solana-protocol-adapter anthony/arm-v2-port at the arm-risc0 v2.0.0-rc.6
+# pin (crates.io `=2.0.0-rc.6`; anomapay-solana-resource 963d6cb, resource
+# logic ref dc1c0b4a…). The adapter and forwarder program sources are those
+# of the reviewed anthony/anomapay-resource-v2 line as merged (#84); the
+# adapter IDL is unchanged and idl/spl_token_forwarder.json is regenerated
+# (one error message). The devnet adapter 28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT
+# was upgraded to this commit's production build on 2026-09-21.
+a27506015377017d008a25ddd4ef6b6d3b6373ea
