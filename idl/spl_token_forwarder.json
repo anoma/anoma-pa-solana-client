@@ -483,6 +483,77 @@
           "type": "pubkey"
         }
       ]
+    },
+    {
+      "name": "set_logic_ref",
+      "docs": [
+        "Rotate the logic ref in place. Mirrors the EVM forwarder's rotation on",
+        "the upgradeable base (`ERC20ForwarderV2.reinitialize`): the owner who",
+        "authorizes upgrades writes the new ref into the existing storage, and",
+        "escrow, nonce bitmaps and the committee are untouched. That owner is",
+        "the upgrade authority the loader records for this program. Resources",
+        "under the previous ref stay wrapped until a migration path moves them."
+      ],
+      "discriminator": [
+        238,
+        231,
+        99,
+        157,
+        207,
+        102,
+        248,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "docs": [
+            "The program account proves `program_data` is this program's own",
+            "ProgramData address rather than any account shaped like one."
+          ],
+          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here; it is the forwarder's owner."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_logic_ref",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -538,6 +609,19 @@
         129,
         241,
         144
+      ]
+    },
+    {
+      "name": "LogicRefSet",
+      "discriminator": [
+        203,
+        207,
+        46,
+        221,
+        95,
+        101,
+        81,
+        202
       ]
     },
     {
@@ -783,6 +867,39 @@
           },
           {
             "name": "caller",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LogicRefSet",
+      "docs": [
+        "The config's logic ref was rotated in place by the upgrade authority."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previous",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "logic_ref",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "set_by",
             "type": "pubkey"
           }
         ]
