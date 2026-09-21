@@ -47,3 +47,10 @@
 # (one error message). The devnet adapter 28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT
 # was upgraded to this commit's production build on 2026-09-21.
 a27506015377017d008a25ddd4ef6b6d3b6373ea
+
+# solana-protocol-adapter anthony/arm-v2-port with the forwarder's in-place
+# logic-ref rotation: set_logic_ref (upgrade authority) and the LogicRefSet
+# event. idl/spl_token_forwarder.json is regenerated from this commit; the
+# adapter IDL is unchanged. The rotation is an operator instruction driven by
+# the adapter repository's ops script, so this package adds no builder for it.
+e6a64d294ccbccae32f6990227ea1bcb09b0a95d
