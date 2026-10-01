@@ -87,19 +87,15 @@ export function deriveForwarderConfigPda(
 }
 
 /**
- * Derive the forwarder's escrow PDA for a given mint. Seed: `["escrow", mint]`.
+ * Derive the forwarder's escrow authority. Seed: `["escrow"]`.
  *
- * This PDA is both the authority on the escrow's Associated Token Account and the
- * delegate users must name in their SPL `Approve` instruction before a wrap.
+ * One PDA owns every mint's escrow: each escrow is the Associated Token Account
+ * of this authority and the mint, as the EVM forwarder holds every token at its
+ * own address. It is also the delegate users name in their SPL `Approve`
+ * instruction before a wrap.
  */
-export function deriveForwarderEscrowPda(
-  forwarderProgram: PublicKey,
-  tokenMint: PublicKey,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("escrow"), tokenMint.toBuffer()],
-    forwarderProgram,
-  );
+export function deriveForwarderEscrowAuthority(forwarderProgram: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([new TextEncoder().encode("escrow")], forwarderProgram);
 }
 
 /** Derive the forwarder's nonce bitmap PDA. `word_index = nonce / 256`. */

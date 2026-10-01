@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { fromHex, toHex } from "./codecs.js";
+import { keccak_256 } from "@noble/hashes/sha3";
+
+import { toHex } from "./codecs.js";
 import { decodeEventInstruction, EventDecodeError } from "./events.js";
 
 const fixture = JSON.parse(
@@ -14,9 +16,14 @@ const fixture = JSON.parse(
 const b64 = (s: string): Uint8Array => Uint8Array.from(Buffer.from(s, "base64"));
 const hex = (b: Uint8Array): string => toHex(b).slice(2);
 
+const idlEvents = (
+  JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../idl/protocol_adapter.json", import.meta.url)), "utf8"),
+  ) as { events: { name: string }[] }
+).events.map((e) => e.name);
+
 describe("decodeEventInstruction (cross-package fixture)", () => {
   it("decodes every fixture entry to the recorded values", () => {
-    expect(fixture.events).toHaveLength(13);
     const seen = new Set<string>();
     for (const [i, e] of fixture.events.entries()) {
       const entry = `#${i} ${e.name} (${e.source})`;
@@ -35,22 +42,54 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
           break;
         case "ActionExecutedEvent":
           expect(hex(ev.actionTreeRoot), entry).toBe(exp.action_tree_root);
-          expect(ev.actionTagCount, entry).toBe(exp.action_tag_count);
+          expect(ev.nullifiers.map(hex), entry).toEqual(exp.nullifiers);
+          expect(ev.consumedLogicRefs.map(hex), entry).toEqual(exp.consumed_logic_refs);
+          expect(ev.commitments.map(hex), entry).toEqual(exp.commitments);
+          expect(ev.createdLogicRefs.map(hex), entry).toEqual(exp.created_logic_refs);
           break;
         case "TransactionExecutedEvent":
-          expect(ev.tags.map(hex), entry).toEqual(exp.tags);
-          expect(ev.logicRefs.map(hex), entry).toEqual(exp.logic_refs);
-          expect(ev.isConsumed, entry).toEqual(exp.is_consumed);
-          expect(ev.isConsumed.includes(true) && ev.isConsumed.includes(false), entry).toBe(true);
+          expect(hex(ev.transactionId), entry).toBe(exp.transaction_id);
           break;
         case "ForwarderCallExecutedEvent":
           expect(hex(ev.forwarder), entry).toBe(exp.forwarder);
           expect(hex(ev.input), entry).toBe(exp.input);
           expect(hex(ev.output), entry).toBe(exp.output);
           break;
+        case "CommitmentTreeRootAddedEvent":
+          expect(hex(ev.root), entry).toBe(exp.root);
+          break;
+        case "KindTableCommitmentUpdatedEvent":
+          expect(hex(ev.kindTableCommitment), entry).toBe(exp.kind_table_commitment);
+          break;
+        case "LogicRefDeniedEvent":
+          expect(hex(ev.logicRef), entry).toBe(exp.logic_ref);
+          break;
+        case "PausedEvent":
+        case "UnpausedEvent":
+          expect(hex(ev.account), entry).toBe(exp.account);
+          break;
       }
     }
-    expect(seen.size).toBe(7);
+    expect([...seen].sort()).toEqual([...idlEvents].sort());
+  });
+
+  // pa-evm's transaction id: Keccak-256 of the transaction's action tree
+  // roots, concatenated in order. Each recorded settlement's
+  // TransactionExecuted must carry the id of its own ActionExecuted roots.
+  it("carries the Keccak-256 of the settlement's action tree roots as its transaction id", () => {
+    const settlements = new Map<string, { roots: Uint8Array[]; id?: Uint8Array }>();
+    for (const e of fixture.events) {
+      const ev = decodeEventInstruction(b64(e.data_b64));
+      const s = settlements.get(e.source) ?? { roots: [] };
+      if (ev.name === "ActionExecutedEvent") s.roots.push(ev.actionTreeRoot);
+      if (ev.name === "TransactionExecutedEvent") s.id = ev.transactionId;
+      settlements.set(e.source, s);
+    }
+    const checked = [...settlements.values()].filter((s) => s.id);
+    expect(checked.length).toBeGreaterThan(0);
+    for (const s of checked) {
+      expect(hex(s.id!)).toBe(hex(keccak_256(Buffer.concat(s.roots))));
+    }
   });
 
   it("rejects instruction data without the event tag", () => {

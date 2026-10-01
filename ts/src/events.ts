@@ -27,24 +27,61 @@ export interface PayloadEvent {
   blob: Uint8Array;
 }
 
-/** Emitted once per action, after that action's payload events. */
+/**
+ * Emitted once per action, after that action's resources are processed, as
+ * pa-evm's `ActionExecuted`: the nullifiers of its consumed resources and the
+ * commitments of its created ones, each with its resource's logic ref, in
+ * instance order.
+ */
 export interface ActionExecutedEvent {
   name: "ActionExecutedEvent";
   actionTreeRoot: Uint8Array;
-  actionTagCount: number;
+  nullifiers: Uint8Array[];
+  consumedLogicRefs: Uint8Array[];
+  commitments: Uint8Array[];
+  createdLogicRefs: Uint8Array[];
 }
 
 /**
- * Emitted once per settlement, last. The three arrays are index-parallel;
- * `isConsumed[i]` is true when `tags[i]` is a nullifier and false when it is a
- * commitment. Tags are grouped per action (consumed, then created), so index
- * parity does not determine the role.
+ * Emitted once per settlement, last, as pa-evm's `TransactionExecuted`: the
+ * transaction id is the Keccak-256 hash of the concatenated action tree roots.
  */
 export interface TransactionExecutedEvent {
   name: "TransactionExecutedEvent";
-  tags: Uint8Array[];
-  logicRefs: Uint8Array[];
-  isConsumed: boolean[];
+  transactionId: Uint8Array;
+}
+
+/**
+ * A root the commitment tree took on: the empty tree's at initialization, then
+ * the root of each settlement that appends commitments.
+ */
+export interface CommitmentTreeRootAddedEvent {
+  name: "CommitmentTreeRootAddedEvent";
+  root: Uint8Array;
+}
+
+/**
+ * The kind-table commitment the adapter now requires: the empty table's at
+ * initialization, then each `set_kind_table_commitment`.
+ */
+export interface KindTableCommitmentUpdatedEvent {
+  name: "KindTableCommitmentUpdatedEvent";
+  kindTableCommitment: Uint8Array;
+}
+
+/** A logic ref the owner denied for good. */
+export interface LogicRefDeniedEvent {
+  name: "LogicRefDeniedEvent";
+  logicRef: Uint8Array;
+}
+
+/**
+ * The owner (`account`) paused or unpaused settlement, as OpenZeppelin
+ * Pausable's `Paused(account)` / `Unpaused(account)`.
+ */
+export interface PauseEvent {
+  name: "PausedEvent" | "UnpausedEvent";
+  account: Uint8Array;
 }
 
 /** Emitted once per external call, in call order. */
@@ -59,7 +96,11 @@ export type PaEvent =
   | PayloadEvent
   | ActionExecutedEvent
   | TransactionExecutedEvent
-  | ForwarderCallExecutedEvent;
+  | ForwarderCallExecutedEvent
+  | CommitmentTreeRootAddedEvent
+  | KindTableCommitmentUpdatedEvent
+  | LogicRefDeniedEvent
+  | PauseEvent;
 
 export class EventDecodeError extends Error {
   constructor(message: string) {
@@ -110,22 +151,28 @@ function decodeBody(disc: Uint8Array, c: Cursor): PaEvent {
     return {
       name: "ActionExecutedEvent",
       actionTreeRoot: c.array32("action_tree_root"),
-      actionTagCount: c.u32Le("action_tag_count"),
+      nullifiers: c.vecArray32("nullifiers"),
+      consumedLogicRefs: c.vecArray32("consumed_logic_refs"),
+      commitments: c.vecArray32("commitments"),
+      createdLogicRefs: c.vecArray32("created_logic_refs"),
     };
   }
   if (bytesEqual(disc, anchorEventDisc("TransactionExecutedEvent"))) {
-    const tags = c.vecArray32("tags");
-    const logicRefs = c.vecArray32("logic_refs");
-    const len = c.u32Le("is_consumed");
-    const isConsumed: boolean[] = [];
-    for (let i = 0; i < len; i++) {
-      const b = c.u8("is_consumed");
-      if (b !== 0 && b !== 1) {
-        throw new EventDecodeError(`invalid bool byte ${b}`);
-      }
-      isConsumed.push(b === 1);
+    return { name: "TransactionExecutedEvent", transactionId: c.array32("transaction_id") };
+  }
+  if (bytesEqual(disc, anchorEventDisc("CommitmentTreeRootAddedEvent"))) {
+    return { name: "CommitmentTreeRootAddedEvent", root: c.array32("root") };
+  }
+  if (bytesEqual(disc, anchorEventDisc("KindTableCommitmentUpdatedEvent"))) {
+    return { name: "KindTableCommitmentUpdatedEvent", kindTableCommitment: c.array32("kind_table_commitment") };
+  }
+  if (bytesEqual(disc, anchorEventDisc("LogicRefDeniedEvent"))) {
+    return { name: "LogicRefDeniedEvent", logicRef: c.array32("logic_ref") };
+  }
+  for (const name of ["PausedEvent", "UnpausedEvent"] as const) {
+    if (bytesEqual(disc, anchorEventDisc(name))) {
+      return { name, account: c.array32("account") };
     }
-    return { name: "TransactionExecutedEvent", tags, logicRefs, isConsumed };
   }
   if (bytesEqual(disc, anchorEventDisc("ForwarderCallExecutedEvent"))) {
     return {

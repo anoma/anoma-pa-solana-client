@@ -21,9 +21,9 @@
 //! the user's signature rides in an ed25519 instruction at index 0, and the
 //! user's nonce bitmap is created in the same transaction when the word has
 //! none yet. The user and mint keypairs are seeded from the fixture's labels;
-//! the user's token account must hold the amount with the escrow PDA as its
-//! delegate, and the forwarder must be initialized for the mint
-//! (`--forwarder`, default `FORWARDER_PROGRAM_ID`).
+//! the user's token account must hold the amount with the forwarder's escrow
+//! authority as its delegate, and the forwarder must be initialized for the
+//! mint (`--forwarder`, default `FORWARDER_PROGRAM_ID`).
 
 use std::str::FromStr;
 
@@ -204,9 +204,9 @@ fn main() {
         .expect("pa_state account");
     let state = decode_pa_state(&state_data).expect("decode pa_state");
     println!(
-        "pa_state {pa_state}: schema {} lifecycle {} next_index {} depth {} root {} selector {}",
+        "pa_state {pa_state}: schema {} paused {} next_index {} depth {} root {} selector {}",
         state.schema_version,
-        state.lifecycle,
+        state.paused,
         state.next_index,
         state.current_depth,
         hex(&state.root),
@@ -229,9 +229,11 @@ fn main() {
     for c in &fixture.created_commitments_b64 {
         tree.append(b64_32(c)).expect("append commitment");
     }
-    let (new_root_marker, _) = derive_root_marker_pda(&args.pa, &pa_state, &tree.root);
+    // A settlement that creates nothing produces no root and takes no marker.
+    let new_root_marker = (!fixture.created_commitments_b64.is_empty())
+        .then(|| derive_root_marker_pda(&args.pa, &pa_state, &tree.root).0);
     println!(
-        "predicted root {} marker {new_root_marker}",
+        "predicted root {} marker {new_root_marker:?}",
         hex(&tree.root)
     );
 
@@ -342,7 +344,7 @@ fn main() {
             &tx_data,
             &payer.pubkey(),
             upload_id,
-            &new_root_marker,
+            new_root_marker.as_ref(),
             &Pubkey::from(state.verifier_router),
             &router,
             &verifier_entry,
@@ -410,6 +412,10 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
         )
         .expect("fetch settle transaction");
     let meta = tx.transaction.meta.expect("meta");
+    println!(
+        "settlement consumed {:?} compute units",
+        Option::<u64>::from(meta.compute_units_consumed)
+    );
     let inner: Vec<_> = Option::from(meta.inner_instructions).unwrap_or_default();
     let pa = pa.to_string();
     let mut count = 0;
@@ -428,15 +434,18 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
             count += 1;
             match decode_event_instruction(&data).expect("decode event") {
                 PaEvent::TransactionExecuted(e) => println!(
-                    "event TransactionExecuted: {} tags, is_consumed {:?}",
-                    e.tags.len(),
-                    e.is_consumed
+                    "event TransactionExecuted: transaction id {}",
+                    hex(&e.transaction_id)
                 ),
                 PaEvent::ActionExecuted(e) => println!(
-                    "event ActionExecuted: root {} tag_count {}",
+                    "event ActionExecuted: root {} nullifiers {} commitments {}",
                     hex(&e.action_tree_root),
-                    e.action_tag_count
+                    e.nullifiers.len(),
+                    e.commitments.len()
                 ),
+                PaEvent::CommitmentTreeRootAdded(e) => {
+                    println!("event CommitmentTreeRootAdded: root {}", hex(&e.root))
+                }
                 PaEvent::ForwarderCallExecuted(e) => println!(
                     "event ForwarderCallExecuted: forwarder {} input {} B output {} B",
                     Pubkey::from(e.forwarder),

@@ -2,26 +2,28 @@
   "address": "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT",
   "metadata": {
     "name": "protocol_adapter",
-    "version": "0.1.0",
+    "version": "2.0.0-rc.1",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
   },
   "instructions": [
     {
-      "name": "accept_authority",
+      "name": "deny_logic_ref",
       "docs": [
-        "Accept a pending authority transfer. Must be signed by the proposed",
-        "authority. Completes the two-step transfer."
+        "Deny a logic ref: no settlement consumes or creates a resource",
+        "carrying it again. Mirrors pa-evm's `denyLogicRef`: owner-only, the",
+        "zero ref and a ref already denied are rejected, and a denial cannot",
+        "be undone. The authority pays for the entry."
       ],
       "discriminator": [
-        107,
         86,
-        198,
-        91,
-        33,
-        12,
-        107,
-        160
+        156,
+        128,
+        109,
+        77,
+        196,
+        161,
+        79
       ],
       "accounts": [
         {
@@ -46,126 +48,43 @@
           }
         },
         {
-          "name": "new_authority",
+          "name": "authority",
+          "docs": [
+            "The authority, which pays for the denylist's growth."
+          ],
+          "writable": true,
           "signer": true
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "cancel_authority_transfer",
-      "docs": [
-        "Cancel a pending authority transfer. Only callable by the current authority."
-      ],
-      "discriminator": [
-        94,
-        131,
-        125,
-        184,
-        183,
-        24,
-        125,
-        229
-      ],
-      "accounts": [
-        {
-          "name": "pa_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
         },
         {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "pa_state"
-          ]
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "emergency_stop",
-      "docs": [
-        "Emergency stop — terminal. Retires this deployment permanently.",
-        "",
-        "There is no resume instruction: `Running` is set only at initialization",
-        "and this is the only transition out of it. Recovery from a stop is",
-        "migration to a new deployment, matching the EVM adapter, which has no",
-        "unpause and whose contract is not upgradeable.",
-        "",
-        "Solana programs are upgradeable, so the runtime does not enforce",
-        "terminality the way EVM immutability does — that boundary is",
-        "operational, not on-chain. `close_markers_batch` exists only in",
-        "`dev-teardown` builds (never present in production) to reclaim marker",
-        "rent so a *development* deployment can be re-initialized in place; it",
-        "has no production counterpart. Reclaiming marker rent has no",
-        "dependency on the upgrade authority.",
-        "",
-        "A production shutdown of this deployment is a separate, later step:",
-        "setting `program_data.upgrade_authority_address` to `None` makes the",
-        "program immutable. Do that only once the deployment is truly retired,",
-        "because `initialize` requires",
-        "`program_data.upgrade_authority_address == Some(payer.key())` — once",
-        "the authority is `None`, this program ID can never be initialized",
-        "again, even after `close-pa-state`."
-      ],
-      "discriminator": [
-        179,
-        143,
-        200,
-        137,
-        108,
-        245,
-        248,
-        35
-      ],
-      "accounts": [
-        {
-          "name": "pa_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         },
         {
-          "name": "authority",
-          "signer": true,
-          "relations": [
-            "pa_state"
-          ]
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "logic_ref",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "initialize",
@@ -174,7 +93,9 @@
         "",
         "Takes no remaining accounts. The empty-tree root equals `PADDING_LEAF`,",
         "which `is_root_valid` accepts unconditionally, so transactions built",
-        "against the initial tree stay valid without a genesis marker."
+        "against the initial tree stay valid without a genesis marker. Like",
+        "pa-evm's initializer, it starts on the empty kind table and announces",
+        "it; `set_kind_table_commitment` installs any other table."
       ],
       "discriminator": [
         175,
@@ -218,22 +139,24 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "program",
-          "docs": [
-            "The program account is required so `program_data` is proven to be",
-            "*this* program's ProgramData address rather than merely an account",
-            "shaped like one: the constraint reads the programdata address the",
-            "loader recorded inside this very program account and requires it to",
-            "match the supplied `program_data` account."
-          ],
-          "address": "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT"
-        },
-        {
           "name": "program_data",
           "docs": [
-            "The loader records the upgrade authority here at deploy time, which is the",
-            "only trust anchor available before the adapter has any state of its own."
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner, who alone initializes it."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
+        },
+        {
+          "name": "verifier_entry",
+          "docs": [
+            "initialized selector (`verifier_paused`)."
           ]
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -249,33 +172,106 @@
               4
             ]
           }
-        },
-        {
-          "name": "kind_table_commitment",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
         }
       ]
     },
     {
-      "name": "propose_authority",
+      "name": "migrate_state",
       "docs": [
-        "Propose a new authority. The transfer is not effective until the",
-        "proposed authority calls `accept_authority`."
+        "Bring a state account in the previous schema version to this one:",
+        "the previous layout's fields and an empty denylist. The counterpart of",
+        "the call pa-evm's owner passes to `upgradeToAndCall`: the upgrade",
+        "authority runs it once, after upgrading the program in place and",
+        "before any other instruction, which all refuse the previous version.",
+        "It parses the previous layout rather than reinterpreting its bytes,",
+        "and pays for the account's growth."
       ],
       "discriminator": [
-        20,
-        148,
-        236,
-        198,
-        76,
-        119,
-        99,
-        142
+        34,
+        189,
+        226,
+        222,
+        218,
+        156,
+        19,
+        213
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The upgrade authority, which pays for the account's growth."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pa_state",
+          "docs": [
+            "as owner and the previous schema's layout, which the typed account",
+            "cannot read."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "pause",
+      "docs": [
+        "Pause settlement. Mirrors pa-evm's `pause()`: owner-only, refused",
+        "while already paused (`EnforcedPause`), announced with `PausedEvent`.",
+        "While paused, `settle` and `settle_from_txdata` refuse every",
+        "transaction; nothing else is gated.",
+        "",
+        "A permanent shutdown is a pause followed by setting",
+        "`program_data.upgrade_authority_address` to `None`: with no upgrade",
+        "authority, no one can unpause or upgrade. Do that only once the",
+        "deployment is truly retired, because `initialize` requires",
+        "`program_data.upgrade_authority_address == Some(payer.key())`, so this",
+        "program ID can never be initialized again. `close_markers_batch`, which",
+        "requires a paused adapter, exists only in `dev-teardown` builds (never",
+        "present in production) to reclaim marker rent so a *development*",
+        "deployment can be re-initialized in place."
+      ],
+      "discriminator": [
+        211,
+        22,
+        221,
+        251,
+        74,
+        121,
+        193,
+        47
       ],
       "accounts": [
         {
@@ -301,16 +297,141 @@
         },
         {
           "name": "authority",
-          "signer": true,
-          "relations": [
-            "pa_state"
+          "signer": true
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "risc_zero_verifier_paused",
+      "docs": [
+        "Whether the router has paused the verifier this deployment routes to.",
+        "Mirrors pa-evm's `riscZeroVerifierPaused()`: read by simulation."
+      ],
+      "discriminator": [
+        218,
+        3,
+        19,
+        157,
+        160,
+        148,
+        163,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_entry",
+          "docs": [
+            "deployment's selector (`verifier_paused`)."
           ]
+        }
+      ],
+      "args": [],
+      "returns": "bool"
+    },
+    {
+      "name": "set_kind_table_commitment",
+      "docs": [
+        "Replace the kind-table commitment every settled aggregation instance",
+        "must carry. Mirrors pa-evm's `setKindTableCommitment`: authority only,",
+        "zero rejected, the change emitted. A table changes whenever a token or",
+        "a circuit version is listed, and transactions proven against the",
+        "previous table are rejected from this point on."
+      ],
+      "discriminator": [
+        220,
+        91,
+        90,
+        229,
+        116,
+        234,
+        179,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
         {
-          "name": "new_authority",
-          "type": "pubkey"
+          "name": "new_kind_table_commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },
@@ -364,9 +485,11 @@
           "name": "new_root_marker",
           "docs": [
             "Cannot use a seeds constraint: the address depends on the resulting root,",
-            "which is only known after commitments are appended."
+            "which is only known after commitments are appended. Absent when the",
+            "settlement creates nothing and so produces no root."
           ],
-          "writable": true
+          "writable": true,
+          "optional": true
         },
         {
           "name": "verifier_router_program"
@@ -381,33 +504,7 @@
           "name": "verifier_program"
         },
         {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
+          "name": "event_authority"
         },
         {
           "name": "program"
@@ -500,9 +597,11 @@
           "name": "new_root_marker",
           "docs": [
             "Cannot use a seeds constraint: the address depends on the resulting root,",
-            "which is only known after commitments are appended."
+            "which is only known after commitments are appended. Absent when the",
+            "settlement creates nothing and so produces no root."
           ],
-          "writable": true
+          "writable": true,
+          "optional": true
         },
         {
           "name": "verifier_router_program"
@@ -517,33 +616,7 @@
           "name": "verifier_program"
         },
         {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
+          "name": "event_authority"
         },
         {
           "name": "program"
@@ -932,6 +1005,65 @@
       ]
     },
     {
+      "name": "unpause",
+      "docs": [
+        "Resume settlement. Mirrors pa-evm's `unpause()`: owner-only, refused",
+        "while not paused (`ExpectedPause`), announced with `UnpausedEvent`."
+      ],
+      "discriminator": [
+        169,
+        144,
+        4,
+        38,
+        10,
+        141,
+        188,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "update_expiry_config",
       "docs": [
         "Update TxData expiry configuration (authority only)."
@@ -970,10 +1102,15 @@
         },
         {
           "name": "authority",
-          "signer": true,
-          "relations": [
-            "pa_state"
-          ]
+          "signer": true
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the adapter's owner."
+          ],
+          "address": "DQg5ZicjMfmNDmksa5EnwptogofmygR7rCh5B3GhtHnM"
         }
       ],
       "args": [
@@ -986,6 +1123,27 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "version",
+      "docs": [
+        "The release this build is. Mirrors pa-evm's `VERSION`: read from the",
+        "deployed program (by simulation), it names the code an address runs,",
+        "which an in-place upgrade changes."
+      ],
+      "discriminator": [
+        118,
+        65,
+        195,
+        198,
+        129,
+        216,
+        252,
+        192
+      ],
+      "accounts": [],
+      "args": [],
+      "returns": "string"
     }
   ],
   "accounts": [
@@ -1044,6 +1202,19 @@
       ]
     },
     {
+      "name": "CommitmentTreeRootAddedEvent",
+      "discriminator": [
+        131,
+        234,
+        152,
+        54,
+        108,
+        253,
+        223,
+        7
+      ]
+    },
+    {
       "name": "DiscoveryPayloadEvent",
       "discriminator": [
         82,
@@ -1083,6 +1254,45 @@
       ]
     },
     {
+      "name": "KindTableCommitmentUpdatedEvent",
+      "discriminator": [
+        18,
+        93,
+        115,
+        146,
+        39,
+        50,
+        248,
+        248
+      ]
+    },
+    {
+      "name": "LogicRefDeniedEvent",
+      "discriminator": [
+        40,
+        142,
+        105,
+        173,
+        1,
+        144,
+        166,
+        227
+      ]
+    },
+    {
+      "name": "PausedEvent",
+      "discriminator": [
+        43,
+        14,
+        250,
+        236,
+        116,
+        42,
+        177,
+        89
+      ]
+    },
+    {
       "name": "ResourcePayloadEvent",
       "discriminator": [
         216,
@@ -1107,6 +1317,19 @@
         254,
         24
       ]
+    },
+    {
+      "name": "UnpausedEvent",
+      "discriminator": [
+        150,
+        198,
+        191,
+        67,
+        103,
+        86,
+        160,
+        55
+      ]
     }
   ],
   "errors": [
@@ -1128,7 +1351,7 @@
     {
       "code": 6003,
       "name": "RootPdaMismatch",
-      "msg": "Root marker PDA pubkey mismatch"
+      "msg": "Root marker is missing for, does not match, or is passed without a root this settlement produces"
     },
     {
       "code": 6004,
@@ -1198,7 +1421,7 @@
     {
       "code": 6017,
       "name": "UnregisteredForwarder",
-      "msg": "Forwarder is not registered"
+      "msg": "Forwarder account does not match the program the external call names"
     },
     {
       "code": 6018,
@@ -1247,75 +1470,113 @@
     },
     {
       "code": 6027,
+      "name": "ZeroKindTableCommitment",
+      "msg": "Zero kind-table commitment not allowed"
+    },
+    {
+      "code": 6028,
       "name": "NullifierDuplication",
       "msg": "Duplicate nullifier within the aggregation instance"
     },
     {
-      "code": 6028,
-      "name": "Stopped",
-      "msg": "Protocol adapter is stopped"
-    },
-    {
       "code": 6029,
       "name": "Unauthorized",
-      "msg": "Unauthorized: caller is not the authority"
+      "msg": "Unauthorized: the signer does not hold the authority this instruction requires"
     },
     {
       "code": 6030,
-      "name": "AlreadyStopped",
-      "msg": "Protocol adapter is already stopped"
+      "name": "EnforcedPause",
+      "msg": "The protocol adapter is paused"
     },
     {
       "code": 6031,
-      "name": "NoPendingAuthority",
-      "msg": "No pending authority transfer to accept"
+      "name": "ExpectedPause",
+      "msg": "The protocol adapter is not paused"
     },
     {
       "code": 6032,
-      "name": "NotStopped",
-      "msg": "Operation requires the PA to be stopped"
+      "name": "RiscZeroVerifierPaused",
+      "msg": "The RISC Zero verifier for this deployment's selector is paused"
     },
     {
       "code": 6033,
+      "name": "InvalidVerifierEntry",
+      "msg": "Account is not the verifier router's entry for this deployment's selector"
+    },
+    {
+      "code": 6034,
       "name": "TreeMaxDepthReached",
       "msg": "Tree has reached maximum depth (32 levels)"
     },
     {
-      "code": 6034,
+      "code": 6035,
       "name": "InvalidMarker",
       "msg": "Account is not owned by this program"
     },
     {
-      "code": 6035,
+      "code": 6036,
       "name": "EmptyExpectedOutput",
       "msg": "External call expected_output must be non-empty: Solana cannot represent an explicit empty return"
     },
     {
-      "code": 6036,
+      "code": 6037,
       "name": "MarkerUnexpectedOwner",
       "msg": "Marker address is held by an unexpected owner"
     },
     {
-      "code": 6037,
+      "code": 6038,
       "name": "MarkerUnexpectedData",
       "msg": "Marker address already contains data"
     },
     {
-      "code": 6038,
+      "code": 6039,
       "name": "RootMarkerAlreadyExists",
       "msg": "Root marker already exists: the commitment tree produced a repeated root"
     },
     {
-      "code": 6039,
+      "code": 6040,
       "name": "UnsupportedStateSchema",
       "msg": "PAState schema version is not the one this program binary reads; migrate the account first"
+    },
+    {
+      "code": 6041,
+      "name": "NotPreviousSchema",
+      "msg": "PAState is not a state account in the previous schema version"
+    },
+    {
+      "code": 6042,
+      "name": "ZeroLogicRefNotAllowed",
+      "msg": "Zero logic ref not allowed"
+    },
+    {
+      "code": 6043,
+      "name": "LogicRefAlreadyDenied",
+      "msg": "Logic ref is already denied"
+    },
+    {
+      "code": 6044,
+      "name": "DeniedLogicRef",
+      "msg": "A resource carries a denied logic ref"
+    },
+    {
+      "code": 6045,
+      "name": "ZeroVerifierRouterNotAllowed",
+      "msg": "Zero verifier router not allowed"
+    },
+    {
+      "code": 6046,
+      "name": "ZeroProofSelectorNotAllowed",
+      "msg": "Zero proof selector not allowed"
     }
   ],
   "types": [
     {
       "name": "ActionExecutedEvent",
       "docs": [
-        "Matches EVM PA's ActionExecuted event."
+        "Mirrors pa-evm: `event ActionExecuted(bytes32 actionTreeRoot,",
+        "bytes32[] nullifiers, bytes32[] consumedLogicRefs, bytes32[] commitments,",
+        "bytes32[] createdLogicRefs);`. The commitments are appended to the tree in",
+        "the order listed, action after action."
       ],
       "type": {
         "kind": "struct",
@@ -1330,8 +1591,48 @@
             }
           },
           {
-            "name": "action_tag_count",
-            "type": "u32"
+            "name": "nullifiers",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "consumed_logic_refs",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "commitments",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "created_logic_refs",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
           }
         ]
       }
@@ -1357,6 +1658,28 @@
           {
             "name": "blob",
             "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommitmentTreeRootAddedEvent",
+      "docs": [
+        "Mirrors pa-evm: `event CommitmentTreeRootAdded(bytes32 root);`: the",
+        "empty tree's root at initialization, then the root each settlement that",
+        "appends commitments produces."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -1435,18 +1758,41 @@
       }
     },
     {
-      "name": "PALifecycle",
+      "name": "KindTableCommitmentUpdatedEvent",
       "docs": [
-        "PA lifecycle: Running (0) or Stopped (1)."
+        "Mirrors pa-evm: `event KindTableCommitmentUpdated(bytes32 kindTableCommitment);`"
       ],
       "type": {
-        "kind": "enum",
-        "variants": [
+        "kind": "struct",
+        "fields": [
           {
-            "name": "Running"
-          },
+            "name": "kind_table_commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LogicRefDeniedEvent",
+      "docs": [
+        "Mirrors pa-evm: `event LogicRefDenied(bytes32 indexed logicRef);`"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
           {
-            "name": "Stopped"
+            "name": "logic_ref",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -1468,10 +1814,11 @@
               "every layout: a later binary that changes the layout reads this byte",
               "through an unchecked account to decide whether it may migrate. Every",
               "instruction that reads this account — all but `initialize`, which",
-              "creates it, and the development-only `dev_set_schema_version` —",
-              "refuses an account whose version is not `SCHEMA_VERSION`. Layout",
-              "changes append fields and bump the constant; they never reorder or",
-              "remove fields ahead of the frontier."
+              "creates it, `migrate_state`, which requires the previous version, and",
+              "the development-only `dev_set_schema_version` — refuses an account",
+              "whose version is not `SCHEMA_VERSION`. A layout change bumps the",
+              "constant and may add, remove or reorder the other fields:",
+              "`migrate_state` parses the previous layout explicitly."
             ],
             "type": "u8"
           },
@@ -1480,17 +1827,10 @@
             "type": "u8"
           },
           {
-            "name": "authority",
-            "docs": [
-              "Authority that can call emergency_stop."
-            ],
-            "type": "pubkey"
-          },
-          {
             "name": "verifier_router",
             "docs": [
               "Verifier router program ID, set at initialization.",
-              "Mirrors EVM's immutable `_TRUSTED_RISC_ZERO_VERIFIER_ROUTER`."
+              "Mirrors pa-evm's immutable `RISC_ZERO_VERIFIER_ROUTER`."
             ],
             "type": "pubkey"
           },
@@ -1510,8 +1850,9 @@
           {
             "name": "kind_table_commitment",
             "docs": [
-              "Kind-table commitment every settled aggregation instance must carry,",
-              "set at initialization. The aggregation circuit binds each transaction",
+              "Kind-table commitment every settled aggregation instance must carry:",
+              "the empty table's at initialization, replaced by",
+              "`set_kind_table_commitment`. The aggregation circuit binds each transaction",
               "to one kind table; this pin decides which table this deployment",
               "accepts (sha256 of the concatenated entries; the empty table hashes",
               "to sha256 of zero bytes)."
@@ -1524,24 +1865,12 @@
             }
           },
           {
-            "name": "pending_authority",
+            "name": "paused",
             "docs": [
-              "Pending authority for two-step transfer (propose + accept)."
+              "Whether settlement is paused, as pa-evm's `paused()`: `pause` sets it",
+              "and `unpause` clears it, both owner-only."
             ],
-            "type": {
-              "option": "pubkey"
-            }
-          },
-          {
-            "name": "lifecycle",
-            "docs": [
-              "Lifecycle state. One-way transition: Running → Stopped."
-            ],
-            "type": {
-              "defined": {
-                "name": "PALifecycle"
-              }
-            }
+            "type": "bool"
           },
           {
             "name": "root",
@@ -1587,6 +1916,38 @@
           {
             "name": "max_expiry_slots",
             "type": "u64"
+          },
+          {
+            "name": "denied_logic_refs",
+            "docs": [
+              "Logic refs the authority denied (`deny_logic_ref`), as pa-evm's",
+              "logic-ref denylist: no settlement consumes or creates a resource",
+              "carrying one. Only ever grows; the account grows by one entry per",
+              "denial."
+            ],
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PausedEvent",
+      "docs": [
+        "Mirrors OpenZeppelin Pausable: `event Paused(address account);`"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
           }
         ]
       }
@@ -1619,39 +1980,21 @@
     {
       "name": "TransactionExecutedEvent",
       "docs": [
-        "Matches EVM PA's TransactionExecuted event, with each tag's role stated",
-        "explicitly: `is_consumed[i]` is true when `tags[i]` is a nullifier and",
-        "false when it is a commitment."
+        "Mirrors pa-evm: `event TransactionExecuted(bytes32 indexed transactionId);`,",
+        "the Keccak-256 hash of the concatenated action tree roots: the message the",
+        "delta proof signs, unique per transaction and known to the sender before",
+        "submission."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "tags",
+            "name": "transaction_id",
             "type": {
-              "vec": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          },
-          {
-            "name": "logic_refs",
-            "type": {
-              "vec": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          },
-          {
-            "name": "is_consumed",
-            "type": {
-              "vec": "bool"
+              "array": [
+                "u8",
+                32
+              ]
             }
           }
         ]
@@ -1690,10 +2033,120 @@
           },
           {
             "name": "payload",
+            "docs": [
+              "Sized per upload by `space`; `INIT_SPACE` counts it empty."
+            ],
             "type": "bytes"
           }
         ]
       }
+    },
+    {
+      "name": "UnpausedEvent",
+      "docs": [
+        "Mirrors OpenZeppelin Pausable: `event Unpaused(address account);`"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "EMPTY_KIND_TABLE_COMMITMENT",
+      "docs": [
+        "The commitment of the empty kind table, under which every resource",
+        "kind is derived via hash-to-curve: the table every deployment starts",
+        "on, as pa-evm's `_EMPTY_KIND_TABLE_COMMITMENT`."
+      ],
+      "type": {
+        "array": [
+          "u8",
+          32
+        ]
+      },
+      "value": "[227, 176, 196, 66, 152, 252, 28, 20, 154, 251, 244, 200, 153, 111, 185, 36, 39, 174, 65, 228, 100, 155, 147, 76, 164, 149, 153, 27, 120, 82, 184, 85]"
+    },
+    {
+      "name": "MAX_EXPIRY_SLOTS",
+      "docs": [
+        "Default maximum expiry (~24 hours at 400ms/slot)."
+      ],
+      "type": "u64",
+      "value": "216000"
+    },
+    {
+      "name": "MIN_ALLOWED_EXPIRY",
+      "docs": [
+        "Hard floor for `min_expiry_slots` configuration (~4 seconds at 400ms/slot)."
+      ],
+      "type": "u64",
+      "value": "10"
+    },
+    {
+      "name": "MIN_EXPIRY_SLOTS",
+      "docs": [
+        "Default minimum expiry (~40 seconds at 400ms/slot)."
+      ],
+      "type": "u64",
+      "value": "100"
+    },
+    {
+      "name": "NULLIFIER_SEED",
+      "docs": [
+        "Seeds prefix for nullifier PDA derivation."
+      ],
+      "type": "bytes",
+      "value": "[110, 117, 108, 108, 105, 102, 105, 101, 114]"
+    },
+    {
+      "name": "PA_STATE_SEED",
+      "type": "bytes",
+      "value": "[112, 97, 95, 115, 116, 97, 116, 101]"
+    },
+    {
+      "name": "PREVIOUS_SCHEMA_VERSION",
+      "docs": [
+        "The schema version `migrate_state` migrates from."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "ROOT_SEED",
+      "docs": [
+        "Seeds prefix for root marker PDA derivation."
+      ],
+      "type": "bytes",
+      "value": "[114, 111, 111, 116]"
+    },
+    {
+      "name": "SCHEMA_VERSION",
+      "docs": [
+        "The layout number of `PAStateAccount` this binary reads and writes.",
+        "Bumped on every change to the account layout; unrelated to release names."
+      ],
+      "type": "u8",
+      "value": "2"
+    },
+    {
+      "name": "SEVEN_DAYS_SLOTS",
+      "docs": [
+        "Hard ceiling for `max_expiry_slots` configuration (~7 days at 400ms/slot)."
+      ],
+      "type": "u64",
+      "value": "1512000"
+    },
+    {
+      "name": "TX_DATA_SEED",
+      "type": "bytes",
+      "value": "[116, 120, 95, 100, 97, 116, 97]"
     }
   ]
 }

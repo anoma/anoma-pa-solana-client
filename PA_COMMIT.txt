@@ -54,3 +54,15 @@ a27506015377017d008a25ddd4ef6b6d3b6373ea
 # adapter IDL is unchanged. The rotation is an operator instruction driven by
 # the adapter repository's ops script, so this package adds no builder for it.
 91b72c840112fe67d079e91926cf477848086282
+
+# solana-protocol-adapter anthony/arm-v2-port after #98-#105 (adapter and
+# forwarder 2.0.0-rc.1). The adapter: pa-evm's settlement order and event
+# shapes (ActionExecuted with nullifiers/commitments and their logic refs,
+# TransactionExecuted { transaction_id }, CommitmentTreeRootAdded), the
+# logic-ref denylist, the upgrade authority as owner, pause/unpause, PAState
+# schema 2 (paused, denied_logic_refs; no stored authority), an optional
+# new_root_marker. The forwarder: one escrow authority ["escrow"] for every
+# mint, reinitialize gated by CONFIG_VERSION, the migrate_* instructions.
+# All four IDL files are regenerated from it; settle-fixture settled the
+# block-time and SPL wrap fixtures through this package on a local validator.
+cea162c65474302550361d29a95977236ca843d7

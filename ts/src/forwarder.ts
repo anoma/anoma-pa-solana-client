@@ -17,7 +17,7 @@ import { anchorInstructionDisc } from "./discriminator.js";
 import {
   deriveAssociatedTokenAddress,
   deriveForwarderConfigPda,
-  deriveForwarderEscrowPda,
+  deriveForwarderEscrowAuthority,
   deriveNonceBitmapPda,
 } from "./pda.js";
 
@@ -68,7 +68,7 @@ export function initNonceBitmapIx(
  * Build the wrap forwarder CPI segment.
  *
  * Order: `[forwarder_program, config, ix_sysvar, user_ata, escrow_ata,
- * escrow_pda, nonce_bitmap_pda, token_program]`.
+ * escrow_authority, nonce_bitmap_pda, token_program]`.
  */
 export function buildWrapForwarderAccounts(
   forwarderProgram: PublicKey,
@@ -77,15 +77,15 @@ export function buildWrapForwarderAccounts(
   nonce: bigint,
 ): AccountMeta[] {
   const [configPda] = deriveForwarderConfigPda(forwarderProgram);
-  const [escrowPda] = deriveForwarderEscrowPda(forwarderProgram, tokenMint);
+  const [escrowAuthority] = deriveForwarderEscrowAuthority(forwarderProgram);
   const [nonceBitmapPda] = deriveNonceBitmapPda(forwarderProgram, user, nonceWordIndex(nonce));
   const accounts: AccountMeta[] = [
     { pubkey: forwarderProgram, isSigner: false, isWritable: false },
     { pubkey: configPda, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
     { pubkey: deriveAssociatedTokenAddress(user, tokenMint), isSigner: false, isWritable: true },
-    { pubkey: deriveAssociatedTokenAddress(escrowPda, tokenMint), isSigner: false, isWritable: true },
-    { pubkey: escrowPda, isSigner: false, isWritable: false },
+    { pubkey: deriveAssociatedTokenAddress(escrowAuthority, tokenMint), isSigner: false, isWritable: true },
+    { pubkey: escrowAuthority, isSigner: false, isWritable: false },
     { pubkey: nonceBitmapPda, isSigner: false, isWritable: true },
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
   ];
@@ -99,7 +99,7 @@ export function buildWrapForwarderAccounts(
  * Build the unwrap forwarder CPI segment.
  *
  * Order: `[forwarder_program, config, ix_sysvar, escrow_ata, recipient_ata,
- * escrow_pda, token_program]`.
+ * escrow_authority, token_program]`.
  */
 export function buildUnwrapForwarderAccounts(
   forwarderProgram: PublicKey,
@@ -107,14 +107,14 @@ export function buildUnwrapForwarderAccounts(
   tokenMint: PublicKey,
 ): AccountMeta[] {
   const [configPda] = deriveForwarderConfigPda(forwarderProgram);
-  const [escrowPda] = deriveForwarderEscrowPda(forwarderProgram, tokenMint);
+  const [escrowAuthority] = deriveForwarderEscrowAuthority(forwarderProgram);
   const accounts: AccountMeta[] = [
     { pubkey: forwarderProgram, isSigner: false, isWritable: false },
     { pubkey: configPda, isSigner: false, isWritable: false },
     { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
-    { pubkey: deriveAssociatedTokenAddress(escrowPda, tokenMint), isSigner: false, isWritable: true },
+    { pubkey: deriveAssociatedTokenAddress(escrowAuthority, tokenMint), isSigner: false, isWritable: true },
     { pubkey: deriveAssociatedTokenAddress(recipient, tokenMint), isSigner: false, isWritable: true },
-    { pubkey: escrowPda, isSigner: false, isWritable: false },
+    { pubkey: escrowAuthority, isSigner: false, isWritable: false },
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
   ];
   if (accounts.length !== FORWARDER_UNWRAP_NUM_ACCOUNTS) {

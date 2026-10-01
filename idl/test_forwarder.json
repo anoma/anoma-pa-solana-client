@@ -48,8 +48,13 @@
     },
     {
       "code": 6001,
-      "name": "NoWritableAccount",
-      "msg": "No writable account provided"
+      "name": "RelayMissingTarget",
+      "msg": "Relay needs the target program as its first account"
+    },
+    {
+      "code": 6002,
+      "name": "RelayPayloadTooShort",
+      "msg": "Relay payload must start with a 32-byte logic ref"
     }
   ]
 }
