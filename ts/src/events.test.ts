@@ -88,9 +88,7 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
     const checked = [...settlements.values()].filter((s) => s.id);
     expect(checked.length).toBeGreaterThan(0);
     for (const s of checked) {
-      const concat = new Uint8Array(s.roots.length * 32);
-      s.roots.forEach((r, i) => concat.set(r, i * 32));
-      expect(hex(s.id!)).toBe(hex(keccak_256(concat)));
+      expect(hex(s.id!)).toBe(hex(keccak_256(Buffer.concat(s.roots))));
     }
   });
 

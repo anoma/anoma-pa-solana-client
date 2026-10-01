@@ -22,9 +22,8 @@
 //! user's nonce bitmap is created in the same transaction when the word has
 //! none yet. The user and mint keypairs are seeded from the fixture's labels;
 //! the user's token account must hold the amount with the forwarder's escrow
-//! authority as its
-//! delegate, and the forwarder must be initialized for the mint
-//! (`--forwarder`, default `FORWARDER_PROGRAM_ID`).
+//! authority as its delegate, and the forwarder must be initialized for the
+//! mint (`--forwarder`, default `FORWARDER_PROGRAM_ID`).
 
 use std::str::FromStr;
 
@@ -415,7 +414,7 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
     let meta = tx.transaction.meta.expect("meta");
     println!(
         "settlement consumed {:?} compute units",
-        Option::<u64>::from(meta.compute_units_consumed.clone())
+        Option::<u64>::from(meta.compute_units_consumed)
     );
     let inner: Vec<_> = Option::from(meta.inner_instructions).unwrap_or_default();
     let pa = pa.to_string();

@@ -49,8 +49,7 @@ function entry(source, data) {
   const fields = idl.types.find((t) => t.name === decoded.name).type.fields.map((f) => f.name);
   const expected = Object.fromEntries(
     fields.map((f) => {
-      const camel = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-      const v = decoded.data[f] ?? decoded.data[camel];
+      const v = decoded.data[f];
       if (v === undefined) throw new Error(`${source}: ${decoded.name} has no field ${f}`);
       return [f, plain(v)];
     }),
@@ -75,12 +74,11 @@ for (const signature of signatures) {
 }
 
 // Fixed values for the event types no transaction emitted.
-const filler = { pubkey: new PublicKey(Buffer.alloc(32, 0x11)), bytes32: Array(32).fill(0x22), bytes: Buffer.from([1, 2, 3]) };
 function sample(type) {
-  if (type === "pubkey") return filler.pubkey;
+  if (type === "pubkey") return new PublicKey(Buffer.alloc(32, 0x11));
   if (type === "u32") return 7;
-  if (type === "bytes") return filler.bytes;
-  if (type.array) return filler.bytes32;
+  if (type === "bytes") return Buffer.from([1, 2, 3]);
+  if (type.array) return Array(32).fill(0x22);
   if (type.vec) return [sample(type.vec)];
   throw new Error(`no sample for ${JSON.stringify(type)}`);
 }
