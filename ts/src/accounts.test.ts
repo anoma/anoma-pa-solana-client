@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { decodePaState, PA_STATE_SCHEMA_VERSION, PAStateDecodeError } from "./accounts.js";
 
-// V2 `PAStateAccount` layout (state.rs): schema_version first, then bump,
-// authority, verifier_router, proof_selector, kind_table_commitment,
-// pending_authority, lifecycle, root, next_index, current_depth, frontier,
-// min/max expiry. Byte-identical to the Rust crate's test fixture.
-function buildFixture(pendingSome: boolean, schemaVersion = PA_STATE_SCHEMA_VERSION): Uint8Array {
+// The schema-2 `PAStateAccount` layout (state.rs): schema_version, bump,
+// verifier_router, proof_selector, kind_table_commitment, paused, root,
+// next_index, current_depth, frontier, min/max expiry, denied_logic_refs.
+// Byte-identical to the Rust crate's test fixture.
+function buildFixture(schemaVersion: number, paused: number, denied: number[][]): Uint8Array {
   const parts: number[] = [];
   const push = (...bytes: number[]) => parts.push(...bytes);
   const u64le = (v: bigint) => {
@@ -15,18 +15,12 @@ function buildFixture(pendingSome: boolean, schemaVersion = PA_STATE_SCHEMA_VERS
     push(...b);
   };
   push(...new Array(8).fill(9)); // discriminator
-  push(schemaVersion); // schema_version
+  push(schemaVersion);
   push(255); // bump
-  push(...new Array(32).fill(1)); // authority
   push(...new Array(32).fill(2)); // verifier_router
   push(0xab, 0xcd, 0xef, 0x12); // proof_selector
   push(...new Array(32).fill(8)); // kind_table_commitment
-  if (pendingSome) {
-    push(1, ...new Array(32).fill(3));
-  } else {
-    push(0);
-  }
-  push(0); // lifecycle = Running
+  push(paused);
   push(...new Array(32).fill(4)); // root
   u64le(100n); // next_index
   push(3); // current_depth
@@ -34,46 +28,52 @@ function buildFixture(pendingSome: boolean, schemaVersion = PA_STATE_SCHEMA_VERS
   push(...new Array(32).fill(5), ...new Array(32).fill(6), ...new Array(32).fill(7));
   u64le(100n); // min_expiry_slots
   u64le(216_000n); // max_expiry_slots
+  push(denied.length, 0, 0, 0);
+  for (const r of denied) push(...r);
   return Uint8Array.from(parts);
 }
 
-describe("decodePaState (V2 layout)", () => {
-  it("decodes every field with no pending authority", () => {
-    const s = decodePaState(buildFixture(false));
+const filled = (n: number) => Uint8Array.from(new Array(32).fill(n));
+
+describe("decodePaState (schema 2)", () => {
+  it("decodes every field", () => {
+    const s = decodePaState(buildFixture(PA_STATE_SCHEMA_VERSION, 1, [new Array(32).fill(0xdd)]));
     expect(s.schemaVersion).toBe(PA_STATE_SCHEMA_VERSION);
     expect(s.bump).toBe(255);
-    expect(s.authority).toEqual(Uint8Array.from(new Array(32).fill(1)));
+    expect(s.verifierRouter).toEqual(filled(2));
     expect(s.proofSelector).toEqual(Uint8Array.from([0xab, 0xcd, 0xef, 0x12]));
-    expect(s.kindTableCommitment).toEqual(Uint8Array.from(new Array(32).fill(8)));
-    expect(s.pendingAuthority).toBeNull();
-    expect(s.root).toEqual(Uint8Array.from(new Array(32).fill(4)));
+    expect(s.kindTableCommitment).toEqual(filled(8));
+    expect(s.paused).toBe(true);
+    expect(s.root).toEqual(filled(4));
     expect(s.nextIndex).toBe(100n);
     expect(s.currentDepth).toBe(3);
-    expect(s.frontier).toHaveLength(3);
+    expect(s.frontier).toEqual([filled(5), filled(6), filled(7)]);
+    expect(s.minExpirySlots).toBe(100n);
     expect(s.maxExpirySlots).toBe(216_000n);
+    expect(s.deniedLogicRefs).toEqual([filled(0xdd)]);
   });
 
-  it("decodes a pending authority", () => {
-    const s = decodePaState(buildFixture(true));
-    expect(s.pendingAuthority).toEqual(Uint8Array.from(new Array(32).fill(3)));
+  it("decodes an unpaused state with no denied refs", () => {
+    const s = decodePaState(buildFixture(PA_STATE_SCHEMA_VERSION, 0, []));
+    expect(s.paused).toBe(false);
+    expect(s.deniedLogicRefs).toEqual([]);
   });
 
-  it("rejects an invalid Option tag", () => {
-    const data = buildFixture(false);
-    // pending_authority tag at offset 8+1+1+32+32+4+32 = 110
-    data[110] = 2;
+  it("rejects an invalid paused byte", () => {
+    const data = buildFixture(PA_STATE_SCHEMA_VERSION, 2, []);
     expect(() => decodePaState(data)).toThrow(PAStateDecodeError);
-    expect(() => decodePaState(data)).toThrow(/invalid Option tag 2/);
+    expect(() => decodePaState(data)).toThrow(/invalid bool byte 2 for field paused/);
   });
 
   it("rejects an unsupported schema version", () => {
     // The PA refuses every instruction on an account whose layout number is
     // not its own; a client reading another layout would misparse every field
     // after byte 8, so it must refuse too.
-    expect(() => decodePaState(buildFixture(false, 2))).toThrow(/schema version 2/);
+    expect(() => decodePaState(buildFixture(1, 0, []))).toThrow(/schema version 1/);
   });
 
   it("rejects truncated data", () => {
-    expect(() => decodePaState(buildFixture(false).slice(0, 50))).toThrow(/truncated/);
+    const data = buildFixture(PA_STATE_SCHEMA_VERSION, 0, [new Array(32).fill(0xdd)]);
+    expect(() => decodePaState(data.slice(0, data.length - 1))).toThrow(/truncated/);
   });
 });

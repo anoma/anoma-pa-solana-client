@@ -24,22 +24,52 @@ pub struct PayloadEvent {
     pub blob: Vec<u8>,
 }
 
-/// Emitted once per action, after that action's payload events.
+/// Emitted once per action, after that action's resources are processed, as
+/// pa-evm's `ActionExecuted`: the nullifiers of its consumed resources and the
+/// commitments of its created ones, each with its resource's logic ref, in
+/// instance order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActionExecutedEvent {
     pub action_tree_root: [u8; 32],
-    pub action_tag_count: u32,
+    pub nullifiers: Vec<[u8; 32]>,
+    pub consumed_logic_refs: Vec<[u8; 32]>,
+    pub commitments: Vec<[u8; 32]>,
+    pub created_logic_refs: Vec<[u8; 32]>,
 }
 
-/// Emitted once per settlement, last. The three vectors are index-parallel;
-/// `is_consumed[i]` is true when `tags[i]` is a nullifier and false when it is
-/// a commitment. Tags are grouped per action (consumed, then created), so
-/// index parity does not determine the role.
+/// Emitted once per settlement, last, as pa-evm's `TransactionExecuted`:
+/// the transaction id is the Keccak-256 hash of the concatenated action tree
+/// roots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransactionExecutedEvent {
-    pub tags: Vec<[u8; 32]>,
-    pub logic_refs: Vec<[u8; 32]>,
-    pub is_consumed: Vec<bool>,
+    pub transaction_id: [u8; 32],
+}
+
+/// A root the commitment tree took on: the empty tree's at initialization,
+/// then the root of each settlement that appends commitments.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitmentTreeRootAddedEvent {
+    pub root: [u8; 32],
+}
+
+/// The kind-table commitment the adapter now requires: the empty table's at
+/// initialization, then each `set_kind_table_commitment`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KindTableCommitmentUpdatedEvent {
+    pub kind_table_commitment: [u8; 32],
+}
+
+/// A logic ref the owner denied for good.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogicRefDeniedEvent {
+    pub logic_ref: [u8; 32],
+}
+
+/// The owner (`account`) paused or unpaused settlement, as OpenZeppelin
+/// Pausable's `Paused(account)` / `Unpaused(account)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PauseEvent {
+    pub account: [u8; 32],
 }
 
 /// Emitted once per external call, in call order.
@@ -60,6 +90,11 @@ pub enum PaEvent {
     ActionExecuted(ActionExecutedEvent),
     TransactionExecuted(TransactionExecutedEvent),
     ForwarderCallExecuted(ForwarderCallExecutedEvent),
+    CommitmentTreeRootAdded(CommitmentTreeRootAddedEvent),
+    KindTableCommitmentUpdated(KindTableCommitmentUpdatedEvent),
+    LogicRefDenied(LogicRefDeniedEvent),
+    Paused(PauseEvent),
+    Unpaused(PauseEvent),
 }
 
 /// Errors produced by [`decode_event_instruction`].
@@ -71,8 +106,6 @@ pub enum EventDecodeError {
     UnknownDiscriminator([u8; ANCHOR_DISCRIMINATOR_LEN]),
     /// The body ran out while reading the named field.
     Truncated { field: &'static str },
-    /// A Borsh `bool` byte other than 0 or 1.
-    InvalidBool(u8),
     /// Bytes remain after the event body.
     TrailingBytes(usize),
 }
@@ -92,7 +125,6 @@ impl core::fmt::Display for EventDecodeError {
             EventDecodeError::Truncated { field } => {
                 write!(f, "event truncated while reading {field}")
             }
-            EventDecodeError::InvalidBool(b) => write!(f, "invalid bool byte {b}"),
             EventDecodeError::TrailingBytes(n) => {
                 write!(f, "{n} trailing byte(s) after the event body")
             }
@@ -135,23 +167,34 @@ pub fn decode_event_instruction(data: &[u8]) -> Result<PaEvent, EventDecodeError
     } else if disc == anchor_event_disc("ActionExecutedEvent") {
         PaEvent::ActionExecuted(ActionExecutedEvent {
             action_tree_root: c.array_32("action_tree_root")?,
-            action_tag_count: c.u32_le("action_tag_count")?,
+            nullifiers: c.vec_array_32("nullifiers")?,
+            consumed_logic_refs: c.vec_array_32("consumed_logic_refs")?,
+            commitments: c.vec_array_32("commitments")?,
+            created_logic_refs: c.vec_array_32("created_logic_refs")?,
         })
     } else if disc == anchor_event_disc("TransactionExecutedEvent") {
-        let tags = c.vec_array_32("tags")?;
-        let logic_refs = c.vec_array_32("logic_refs")?;
-        let len = c.u32_le("is_consumed")? as usize;
-        let is_consumed = (0..len)
-            .map(|_| match c.u8("is_consumed")? {
-                0 => Ok(false),
-                1 => Ok(true),
-                b => Err(EventDecodeError::InvalidBool(b)),
-            })
-            .collect::<Result<Vec<bool>, EventDecodeError>>()?;
         PaEvent::TransactionExecuted(TransactionExecutedEvent {
-            tags,
-            logic_refs,
-            is_consumed,
+            transaction_id: c.array_32("transaction_id")?,
+        })
+    } else if disc == anchor_event_disc("CommitmentTreeRootAddedEvent") {
+        PaEvent::CommitmentTreeRootAdded(CommitmentTreeRootAddedEvent {
+            root: c.array_32("root")?,
+        })
+    } else if disc == anchor_event_disc("KindTableCommitmentUpdatedEvent") {
+        PaEvent::KindTableCommitmentUpdated(KindTableCommitmentUpdatedEvent {
+            kind_table_commitment: c.array_32("kind_table_commitment")?,
+        })
+    } else if disc == anchor_event_disc("LogicRefDeniedEvent") {
+        PaEvent::LogicRefDenied(LogicRefDeniedEvent {
+            logic_ref: c.array_32("logic_ref")?,
+        })
+    } else if disc == anchor_event_disc("PausedEvent") {
+        PaEvent::Paused(PauseEvent {
+            account: c.array_32("account")?,
+        })
+    } else if disc == anchor_event_disc("UnpausedEvent") {
+        PaEvent::Unpaused(PauseEvent {
+            account: c.array_32("account")?,
         })
     } else if disc == anchor_event_disc("ForwarderCallExecutedEvent") {
         PaEvent::ForwarderCallExecuted(ForwarderCallExecutedEvent {

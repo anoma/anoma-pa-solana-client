@@ -34,11 +34,31 @@ fn check_payload(ev: &PayloadEvent, exp: &serde_json::Value, entry: &str) {
     assert_eq!(ev.blob, hex(exp["blob"].as_str().unwrap()), "{entry}: blob");
 }
 
+fn hex32s(v: &serde_json::Value) -> Vec<[u8; 32]> {
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|t| hex32(t.as_str().unwrap()))
+        .collect()
+}
+
+/// Every event the adapter IDL declares.
+fn idl_event_names() -> std::collections::BTreeSet<String> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../idl/protocol_adapter.json");
+    let idl: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("read idl")).expect("json");
+    idl["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
 #[test]
 fn every_fixture_event_decodes_to_the_recorded_values() {
     let doc = fixture();
     let events = doc["events"].as_array().unwrap();
-    assert_eq!(events.len(), 13);
     let mut seen = std::collections::BTreeSet::new();
     for (i, e) in events.iter().enumerate() {
         let name = e["name"].as_str().unwrap();
@@ -50,6 +70,7 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
         let decoded =
             decode_event_instruction(&data).unwrap_or_else(|err| panic!("{entry}: {err}"));
         seen.insert(name.to_string());
+        let h32 = |field: &str| hex32(exp[field].as_str().unwrap());
         match (name, &decoded) {
             ("ResourcePayloadEvent", PaEvent::ResourcePayload(ev))
             | ("DiscoveryPayloadEvent", PaEvent::DiscoveryPayload(ev))
@@ -58,51 +79,52 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
                 check_payload(ev, exp, &entry)
             }
             ("ActionExecutedEvent", PaEvent::ActionExecuted(ev)) => {
+                assert_eq!(ev.action_tree_root, h32("action_tree_root"), "{entry}");
+                assert_eq!(ev.nullifiers, hex32s(&exp["nullifiers"]), "{entry}");
                 assert_eq!(
-                    ev.action_tree_root,
-                    hex32(exp["action_tree_root"].as_str().unwrap())
+                    ev.consumed_logic_refs,
+                    hex32s(&exp["consumed_logic_refs"]),
+                    "{entry}"
                 );
+                assert_eq!(ev.commitments, hex32s(&exp["commitments"]), "{entry}");
                 assert_eq!(
-                    ev.action_tag_count,
-                    exp["action_tag_count"].as_u64().unwrap() as u32
+                    ev.created_logic_refs,
+                    hex32s(&exp["created_logic_refs"]),
+                    "{entry}"
                 );
             }
             ("TransactionExecutedEvent", PaEvent::TransactionExecuted(ev)) => {
-                let tags: Vec<[u8; 32]> = exp["tags"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|t| hex32(t.as_str().unwrap()))
-                    .collect();
-                let refs: Vec<[u8; 32]> = exp["logic_refs"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|t| hex32(t.as_str().unwrap()))
-                    .collect();
-                let consumed: Vec<bool> = exp["is_consumed"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|b| b.as_bool().unwrap())
-                    .collect();
-                assert_eq!(ev.tags, tags, "{entry}: tags");
-                assert_eq!(ev.logic_refs, refs, "{entry}: logic_refs");
-                assert_eq!(ev.is_consumed, consumed, "{entry}: is_consumed");
-                assert!(
-                    consumed.iter().any(|c| *c) && consumed.iter().any(|c| !*c),
-                    "{entry}: fixture must exercise both roles"
-                );
+                assert_eq!(ev.transaction_id, h32("transaction_id"), "{entry}");
             }
             ("ForwarderCallExecutedEvent", PaEvent::ForwarderCallExecuted(ev)) => {
-                assert_eq!(ev.forwarder, hex32(exp["forwarder"].as_str().unwrap()));
-                assert_eq!(ev.input, hex(exp["input"].as_str().unwrap()));
-                assert_eq!(ev.output, hex(exp["output"].as_str().unwrap()));
+                assert_eq!(ev.forwarder, h32("forwarder"), "{entry}");
+                assert_eq!(ev.input, hex(exp["input"].as_str().unwrap()), "{entry}");
+                assert_eq!(ev.output, hex(exp["output"].as_str().unwrap()), "{entry}");
+            }
+            ("CommitmentTreeRootAddedEvent", PaEvent::CommitmentTreeRootAdded(ev)) => {
+                assert_eq!(ev.root, h32("root"), "{entry}");
+            }
+            ("KindTableCommitmentUpdatedEvent", PaEvent::KindTableCommitmentUpdated(ev)) => {
+                assert_eq!(
+                    ev.kind_table_commitment,
+                    h32("kind_table_commitment"),
+                    "{entry}"
+                );
+            }
+            ("LogicRefDeniedEvent", PaEvent::LogicRefDenied(ev)) => {
+                assert_eq!(ev.logic_ref, h32("logic_ref"), "{entry}");
+            }
+            ("PausedEvent", PaEvent::Paused(ev)) | ("UnpausedEvent", PaEvent::Unpaused(ev)) => {
+                assert_eq!(ev.account, h32("account"), "{entry}");
             }
             (name, other) => panic!("{entry}: decoded as {other:?}, fixture says {name}"),
         }
     }
-    assert_eq!(seen.len(), 7, "fixture covers every event type: {seen:?}");
+    assert_eq!(
+        seen,
+        idl_event_names(),
+        "the fixture covers every IDL event"
+    );
 }
 
 #[test]

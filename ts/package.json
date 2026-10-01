@@ -38,6 +38,7 @@
     "bs58": "^6.0.0"
   },
   "devDependencies": {
+    "@anchor-lang/core": "^1.2.0",
     "typescript": "~5.9.3",
     "vitest": "^4.0.0"
   }

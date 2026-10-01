@@ -78,9 +78,11 @@ pub fn txdata_write_ix(
 ///
 /// `remaining_accounts` is the caller-assembled slice covering nullifier PDAs,
 /// per-call forwarder CPI segments, and historical root markers. The
-/// new-root marker is NOT part of it: it is a required named account, passed
-/// here as `new_root_marker` (writable) — the marker PDA of the
-/// post-settlement root.
+/// new-root marker is NOT part of it: it is an optional named account,
+/// `new_root_marker` — the marker PDA of the post-settlement root for a
+/// settlement that creates commitments, and `None` for one that creates
+/// nothing (it produces no root). Anchor marks an absent optional account by
+/// the program's own address in its slot.
 ///
 /// The PA emits its events as self-invocations (`#[event_cpi]`), which adds
 /// two named accounts after `verifier_program`: the event authority PDA and
@@ -93,7 +95,7 @@ pub fn settle_from_txdata_ix(
     tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
-    new_root_marker: &Pubkey,
+    new_root_marker: Option<&Pubkey>,
     verifier_router_program: &Pubkey,
     router: &Pubkey,
     verifier_entry: &Pubkey,
@@ -110,7 +112,10 @@ pub fn settle_from_txdata_ix(
         AccountMeta::new_readonly(*tx_data, false),
         AccountMeta::new(*authority, true),
         AccountMeta::new_readonly(system_program::id(), false),
-        AccountMeta::new(*new_root_marker, false),
+        match new_root_marker {
+            Some(marker) => AccountMeta::new(*marker, false),
+            None => AccountMeta::new_readonly(*pa_program, false),
+        },
         AccountMeta::new_readonly(*verifier_router_program, false),
         AccountMeta::new_readonly(*router, false),
         AccountMeta::new_readonly(*verifier_entry, false),
@@ -187,7 +192,7 @@ mod tests {
             &keys[2],
             &keys[3],
             42,
-            &keys[4],
+            Some(&keys[4]),
             &keys[5],
             &keys[6],
             &keys[7],
@@ -229,7 +234,7 @@ mod tests {
             &Pubkey::new_unique(),
             &Pubkey::new_unique(),
             1,
-            &Pubkey::new_unique(),
+            Some(&Pubkey::new_unique()),
             &Pubkey::new_unique(),
             &Pubkey::new_unique(),
             &Pubkey::new_unique(),
@@ -242,6 +247,27 @@ mod tests {
             "program precedes remaining accounts"
         );
         assert_eq!(ix.accounts[11].pubkey, nullifier_pda);
+    }
+
+    #[test]
+    fn an_absent_new_root_marker_is_the_program_address() {
+        // A settlement that creates nothing omits the optional marker;
+        // Anchor reads the program's own address in its slot as "absent".
+        let pa = Pubkey::new_unique();
+        let ix = settle_from_txdata_ix(
+            &pa,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            1,
+            None,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            vec![],
+        );
+        assert_eq!(ix.accounts[4], AccountMeta::new_readonly(pa, false));
     }
 
     #[test]

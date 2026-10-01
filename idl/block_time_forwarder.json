@@ -52,5 +52,12 @@
       "name": "InvalidInput",
       "msg": "Invalid input: expected 8 bytes for timestamp"
     }
+  ],
+  "constants": [
+    {
+      "name": "RESULT_LT",
+      "type": "u8",
+      "value": "0"
+    }
   ]
 }

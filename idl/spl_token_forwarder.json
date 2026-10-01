@@ -2,7 +2,7 @@
   "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx",
   "metadata": {
     "name": "spl_token_forwarder",
-    "version": "0.1.0",
+    "version": "2.0.0-rc.1",
     "spec": "0.1.0",
     "description": "SPL Token forwarder for wrap/unwrap operations with Ed25519 signature verification"
   },
@@ -10,7 +10,8 @@
     {
       "name": "close_config",
       "docs": [
-        "Close the config PDA; its rent goes to the committee. Call last."
+        "Close the config PDA; its rent goes to the committee. Call last.",
+        "Requires the adapter to be paused."
       ],
       "discriminator": [
         145,
@@ -34,21 +35,10 @@
         {
           "name": "config",
           "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+        },
+        {
+          "name": "pa_state"
         }
       ],
       "args": []
@@ -57,7 +47,8 @@
       "name": "close_escrow",
       "docs": [
         "Drain a mint's escrow to the recipient and close the escrow token",
-        "account; its rent goes to the committee."
+        "account; its rent goes to the committee. Requires the adapter to be",
+        "paused."
       ],
       "discriminator": [
         139,
@@ -80,47 +71,15 @@
         },
         {
           "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
         },
         {
           "name": "escrow_ata",
           "writable": true
         },
         {
-          "name": "escrow_pda",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "token_mint"
-              }
-            ]
-          }
+          "name": "escrow_authority",
+          "address": "8NRg7Wvk5MKGmGoXUjb9DsuPVfYixpgdXPZvkh2XDS95"
         },
         {
           "name": "recipient_ata",
@@ -132,6 +91,9 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "pa_state"
         }
       ],
       "args": []
@@ -140,7 +102,7 @@
       "name": "close_nonce_bitmaps_batch",
       "docs": [
         "Close the nonce bitmaps passed as remaining accounts; their rent goes",
-        "to the committee."
+        "to the committee. Requires the adapter to be paused."
       ],
       "discriminator": [
         212,
@@ -163,21 +125,10 @@
         },
         {
           "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+        },
+        {
+          "name": "pa_state"
         }
       ],
       "args": []
@@ -187,8 +138,8 @@
       "docs": [
         "Forward a wrap or unwrap call from the Protocol Adapter.",
         "",
-        "Like EVM's ForwarderBase.forwardCall(), this does not check the",
-        "adapter's stopped state: the adapter does not call forwarders once stopped."
+        "Like the EVM V2 `ForwarderBaseUpgradeable.forwardCall()`, this does not check the",
+        "adapter's paused state: the adapter does not call forwarders while paused."
       ],
       "discriminator": [
         159,
@@ -203,21 +154,7 @@
       "accounts": [
         {
           "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
         },
         {
           "name": "ix_sysvar",
@@ -243,8 +180,9 @@
     {
       "name": "forward_emergency_call",
       "docs": [
-        "Withdraw from escrow while the adapter is stopped, as the emergency",
-        "caller. The operand is an `UnwrapInput`. Mirrors EVM's forwardEmergencyCall()."
+        "Withdraw from escrow while the adapter is paused, as the emergency",
+        "caller. The operand is an `UnwrapInput`. The EVM V1 forwarder's",
+        "forwardEmergencyCall(); V2 has no emergency path (anoma/dos-pm#86)."
       ],
       "discriminator": [
         236,
@@ -264,21 +202,7 @@
         },
         {
           "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
         },
         {
           "name": "pa_state"
@@ -371,7 +295,8 @@
       "docs": [
         "Initialize the forwarder config with emergency committee.",
         "",
-        "Mirrors the EVM constructor validation: no zero adapter, logic ref, or committee."
+        "As the EVM V2 forwarder's initializer: no zero adapter or logic ref.",
+        "The committee, which has no V2 counterpart, must also be nonzero."
       ],
       "discriminator": [
         175,
@@ -409,6 +334,20 @@
           }
         },
         {
+          "name": "program",
+          "docs": [
+            "The program account proves `program_data` is this program's own",
+            "ProgramData address rather than any account shaped like one."
+          ],
+          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here; it is the forwarder's owner."
+          ]
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -434,10 +373,303 @@
       ]
     },
     {
+      "name": "migrate_config",
+      "docs": [
+        "Bring the config the previous build created to this build's layout:",
+        "the bump it stored after the fields gives way to the version, 1, the",
+        "previous build having initialized it once and never reinitialized it;",
+        "the owner pays the added bytes' rent. The migrations are the",
+        "counterpart of the call the EVM owner passes to `upgradeToAndCall`:",
+        "the upgrade authority runs them once, after upgrading the program in",
+        "place."
+      ],
+      "discriminator": [
+        92,
+        131,
+        58,
+        105,
+        210,
+        154,
+        224,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "docs": [
+            "previous build's config layout, owned by this program."
+          ],
+          "writable": true,
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+        },
+        {
+          "name": "program",
+          "docs": [
+            "The program account proves `program_data` is this program's own",
+            "ProgramData address rather than any account shaped like one."
+          ],
+          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here; it is the forwarder's owner."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "migrate_escrow",
+      "docs": [
+        "Move a mint's escrowed tokens from the previous build's escrow, held",
+        "by that mint's own authority `[\"escrow\", mint]`, to the escrow of the",
+        "one authority this build holds every mint under, and close the",
+        "previous escrow account; its rent goes to the owner."
+      ],
+      "discriminator": [
+        65,
+        111,
+        186,
+        119,
+        58,
+        11,
+        81,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Receives the closed previous escrow account's rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "accounts to hold it."
+          ]
+        },
+        {
+          "name": "previous_escrow_authority",
+          "docs": [
+            "its seeds; it signs the move and the close."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "previous_escrow_ata",
+          "writable": true
+        },
+        {
+          "name": "escrow_ata",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "program",
+          "docs": [
+            "The program account proves `program_data` is this program's own",
+            "ProgramData address rather than any account shaped like one."
+          ],
+          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here; it is the forwarder's owner."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "migrate_nonce_bitmap",
+      "docs": [
+        "Bring a nonce bitmap the previous build created to this build's",
+        "layout: its used bits are kept and its canonical bump is appended,",
+        "the owner paying the added byte's rent."
+      ],
+      "discriminator": [
+        182,
+        186,
+        191,
+        20,
+        81,
+        236,
+        57,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nonce_bitmap",
+          "docs": [
+            "handler requires the previous build's bitmap layout, owned by this program."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  110,
+                  99,
+                  101,
+                  95,
+                  98,
+                  105,
+                  116,
+                  109,
+                  97,
+                  112
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "word_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "docs": [
+            "The program account proves `program_data` is this program's own",
+            "ProgramData address rather than any account shaped like one."
+          ],
+          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here; it is the forwarder's owner."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "_user",
+          "type": "pubkey"
+        },
+        {
+          "name": "_word_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "reinitialize",
+      "docs": [
+        "Rotate the logic ref, once per build that raises CONFIG_VERSION.",
+        "Mirrors the EVM forwarder's rotation: the owner upgrades the proxy to",
+        "an implementation whose `reinitializer(n)` writes the new ref",
+        "(`upgradeToAndCall`), and escrow and nonces stay. Here",
+        "the upgrade authority upgrades the program in place and then calls",
+        "this; it runs only while the config's version is below this build's.",
+        "Resources under the previous ref leave through the new one once the",
+        "kind table lists the previous version as its alias: a transaction",
+        "converts them, and the new resource unwraps."
+      ],
+      "discriminator": [
+        135,
+        255,
+        205,
+        161,
+        223,
+        162,
+        94,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+        },
+        {
+          "name": "program",
+          "docs": [
+            "The program account proves `program_data` is this program's own",
+            "ProgramData address rather than any account shaped like one."
+          ],
+          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The loader records the upgrade authority here; it is the forwarder's owner."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "logic_ref",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "set_emergency_caller",
       "docs": [
         "Set the emergency caller, once, by the committee while the adapter",
-        "is stopped. Mirrors EVM's setEmergencyCaller()."
+        "is paused. The EVM V1 forwarder's setEmergencyCaller(); V2 has no",
+        "emergency path (anoma/dos-pm#86)."
       ],
       "discriminator": [
         220,
@@ -457,21 +689,7 @@
         {
           "name": "config",
           "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
+          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
         },
         {
           "name": "pa_state"
@@ -485,75 +703,25 @@
       ]
     },
     {
-      "name": "set_logic_ref",
+      "name": "version",
       "docs": [
-        "Rotate the logic ref in place. Mirrors the EVM forwarder's rotation on",
-        "the upgradeable base (`ERC20ForwarderV2.reinitialize`): the owner who",
-        "authorizes upgrades writes the new ref into the existing storage, and",
-        "escrow, nonce bitmaps and the committee are untouched. That owner is",
-        "the upgrade authority the loader records for this program. Resources",
-        "under the previous ref stay wrapped until a migration path moves them."
+        "The release this build is. Mirrors the EVM forwarder's `VERSION`:",
+        "read from the deployed program (by simulation), it names the code an",
+        "address runs, which an in-place upgrade changes."
       ],
       "discriminator": [
-        238,
-        231,
-        99,
-        157,
-        207,
-        102,
-        248,
-        165
+        118,
+        65,
+        195,
+        198,
+        129,
+        216,
+        252,
+        192
       ],
-      "accounts": [
-        {
-          "name": "authority",
-          "signer": true
-        },
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program",
-          "docs": [
-            "The program account proves `program_data` is this program's own",
-            "ProgramData address rather than any account shaped like one."
-          ],
-          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "The loader records the upgrade authority here; it is the forwarder's owner."
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "new_logic_ref",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        }
-      ]
+      "accounts": [],
+      "args": [],
+      "returns": "string"
     }
   ],
   "accounts": [
@@ -612,16 +780,16 @@
       ]
     },
     {
-      "name": "LogicRefSet",
+      "name": "Initialized",
       "discriminator": [
-        203,
-        207,
-        46,
-        221,
-        95,
-        101,
-        81,
-        202
+        208,
+        213,
+        115,
+        98,
+        115,
+        82,
+        201,
+        209
       ]
     },
     {
@@ -685,97 +853,117 @@
     {
       "code": 6006,
       "name": "WrongTokenAccountOwner",
-      "msg": "Token account owner mismatch - the destination is not the escrow's or the recipient's"
+      "msg": "Token account owner mismatch - the account does not belong to the party the transfer names"
     },
     {
       "code": 6007,
+      "name": "WrongTokenAccountMint",
+      "msg": "Token account mint mismatch - the account does not hold the mint the transfer names"
+    },
+    {
+      "code": 6008,
       "name": "UnknownOperation",
       "msg": "Unknown operation code"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "UnauthorizedCaller",
       "msg": "Unauthorized caller - only Protocol Adapter can call forward_call"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "UnauthorizedLogicRef",
       "msg": "Unauthorized logic_ref - this forwarder doesn't handle this resource type"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "DeadlineExpired",
       "msg": "Signature deadline has expired"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "NonceAlreadyUsed",
       "msg": "Nonce has already been used (replay attack prevented)"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "Ed25519InstructionNotFound",
       "msg": "Ed25519 instruction not found at specified index"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "InvalidEd25519Instruction",
       "msg": "Invalid Ed25519 instruction format"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "Ed25519PubkeyMismatch",
       "msg": "Ed25519 public key mismatch"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "Ed25519MessageMismatch",
       "msg": "Ed25519 message mismatch"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "EmergencyCallerAlreadySet",
       "msg": "Emergency caller already set"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "EmergencyCallerNotSet",
       "msg": "Emergency caller not set"
     },
     {
-      "code": 6018,
-      "name": "ProtocolAdapterNotStopped",
-      "msg": "Protocol Adapter not stopped - cannot perform emergency operations"
+      "code": 6019,
+      "name": "ProtocolAdapterNotPaused",
+      "msg": "Protocol Adapter not paused - cannot perform emergency operations"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "InvalidPaState",
       "msg": "Invalid PA state account - does not match derived PDA from protocol_adapter"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "ZeroAddressNotAllowed",
       "msg": "Zero address not allowed"
     },
     {
-      "code": 6021,
-      "name": "InvalidEscrowPda",
-      "msg": "Invalid escrow PDA"
+      "code": 6022,
+      "name": "InvalidEscrowAuthority",
+      "msg": "Invalid escrow authority"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "InvalidNonceBitmapPda",
       "msg": "Invalid nonce bitmap PDA - doesn't match derived address"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "NonceBitmapMissing",
       "msg": "Nonce bitmap account does not exist - create it with init_nonce_bitmap before the wrap"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "TokenTransferFailed",
       "msg": "Token transfer failed - check the SPL Token error in the logs"
+    },
+    {
+      "code": 6026,
+      "name": "NotPreviousLayout",
+      "msg": "Account is not in the previous build's layout - it was migrated already, or never existed"
+    },
+    {
+      "code": 6027,
+      "name": "UnwrapToEscrow",
+      "msg": "Unwrap recipient is the escrow authority - the tokens would never leave escrow"
+    },
+    {
+      "code": 6028,
+      "name": "InvalidInitialization",
+      "msg": "The config is already at this build's CONFIG_VERSION - rotating the logic ref takes a build that raises it"
     }
   ],
   "types": [
@@ -784,7 +972,10 @@
       "docs": [
         "Configuration account for the forwarder.",
         "",
-        "Mirrors EVM's ForwarderBase + EmergencyMigratableForwarderBase state."
+        "The adapter and logic ref mirror the EVM V2 forwarder's",
+        "`ForwarderBaseUpgradeable` state, and `version` its `Initializable`",
+        "version. The emergency committee and caller are the EVM V1 forwarder's",
+        "emergency mechanism, which V2 dropped (anoma/dos-pm#86)."
       ],
       "type": {
         "kind": "struct",
@@ -823,8 +1014,13 @@
             "type": "pubkey"
           },
           {
-            "name": "bump",
-            "type": "u8"
+            "name": "version",
+            "docs": [
+              "The version the config was last initialized at, as OpenZeppelin",
+              "Initializable's `_initialized`: `initialize` records CONFIG_VERSION,",
+              "and `reinitialize` raises it to CONFIG_VERSION once."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -832,7 +1028,7 @@
     {
       "name": "EmergencyCallerSet",
       "docs": [
-        "Mirrors EVM: `event EmergencyCallerSet(address caller);`"
+        "The EVM V1 forwarder's `event EmergencyCallerSet(address caller);` (V1 emergency mechanism, anoma/dos-pm#86)."
       ],
       "type": {
         "kind": "struct",
@@ -873,34 +1069,16 @@
       }
     },
     {
-      "name": "LogicRefSet",
+      "name": "Initialized",
       "docs": [
-        "The config's logic ref was rotated in place by the upgrade authority."
+        "Mirrors OpenZeppelin Initializable: `event Initialized(uint64 version);`"
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "previous",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "logic_ref",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "set_by",
-            "type": "pubkey"
+            "name": "version",
+            "type": "u64"
           }
         ]
       }
@@ -925,6 +1103,13 @@
                 32
               ]
             }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "The canonical bump of the bitmap's address, stored by `init_nonce_bitmap`."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -987,6 +1172,68 @@
           }
         ]
       }
+    }
+  ],
+  "constants": [
+    {
+      "name": "CONFIG_SEED",
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "CONFIG_VERSION",
+      "docs": [
+        "The config version this build initializes to and reinitializes to, as",
+        "the `n` of an OpenZeppelin `reinitializer(n)`. A build that rotates the",
+        "logic ref raises it by one, so its `reinitialize` runs once."
+      ],
+      "type": "u64",
+      "value": "2"
+    },
+    {
+      "name": "ESCROW_SEED",
+      "docs": [
+        "Seed of the escrow authority."
+      ],
+      "type": "bytes",
+      "value": "[101, 115, 99, 114, 111, 119]"
+    },
+    {
+      "name": "NONCES_PER_WORD",
+      "type": "u64",
+      "value": "256"
+    },
+    {
+      "name": "NONCE_BITMAP_SEED",
+      "docs": [
+        "Nonce bitmap PDA, one per user per 256-nonce word."
+      ],
+      "type": "bytes",
+      "value": "[110, 111, 110, 99, 101, 95, 98, 105, 116, 109, 97, 112]"
+    },
+    {
+      "name": "OP_UNWRAP",
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "PREVIOUS_CONFIG_SIZE",
+      "docs": [
+        "Size of a config the previous build created: the discriminator, the",
+        "four 32-byte fields, then the config's bump, which this build derives at",
+        "compile time (CONFIG_PDA), and no version."
+      ],
+      "type": "u64",
+      "value": "137"
+    },
+    {
+      "name": "PREVIOUS_NONCE_BITMAP_SIZE",
+      "docs": [
+        "Size of a nonce bitmap the previous build created: the word, without the",
+        "bump this build stores."
+      ],
+      "type": "u64",
+      "value": "40"
     }
   ]
 }

@@ -5,7 +5,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   deriveAssociatedTokenAddress,
   deriveEventAuthorityPda,
-  deriveForwarderEscrowPda,
+  deriveForwarderEscrowAuthority,
   derivePaStatePda,
 } from "./pda.js";
 import { FORWARDER_PROGRAM_ID, PA_PROGRAM_ID } from "./programIds.js";
@@ -26,19 +26,21 @@ describe("PDA derivation", () => {
     expect(bump).toBe(255);
   });
 
-  it("forwarder escrow PDA differs per mint", () => {
-    const mint1 = Keypair.generate().publicKey;
-    const mint2 = Keypair.generate().publicKey;
-    const [e1] = deriveForwarderEscrowPda(FORWARDER_PROGRAM_ID, mint1);
-    const [e2] = deriveForwarderEscrowPda(FORWARDER_PROGRAM_ID, mint2);
-    expect(e1.equals(e2)).toBe(false);
+  it("forwarder escrow authority matches the one the adapter repo derives", () => {
+    // Independent pin: the adapter repo's deriveEscrowAuthority (seed "escrow")
+    // for the V2 forwarder; the Rust crate pins the same value.
+    const [authority, bump] = deriveForwarderEscrowAuthority(FORWARDER_PROGRAM_ID);
+    expect(authority.toBase58()).toBe("8NRg7Wvk5MKGmGoXUjb9DsuPVfYixpgdXPZvkh2XDS95");
+    expect(bump).toBe(255);
   });
 
-  it("ATA derivation accepts a PDA owner, which the forwarder's escrow is", () => {
+  it("ATA derivation accepts a PDA owner, which the forwarder's escrow authority is", () => {
     const mint = Keypair.generate().publicKey;
-    const [escrowPda] = deriveForwarderEscrowPda(FORWARDER_PROGRAM_ID, mint);
-    expect(PublicKey.isOnCurve(escrowPda.toBytes())).toBe(false);
-    expect(deriveAssociatedTokenAddress(escrowPda, mint).equals(getAssociatedTokenAddressSync(mint, escrowPda, true))).toBe(true);
+    const [escrowAuthority] = deriveForwarderEscrowAuthority(FORWARDER_PROGRAM_ID);
+    expect(PublicKey.isOnCurve(escrowAuthority.toBytes())).toBe(false);
+    expect(
+      deriveAssociatedTokenAddress(escrowAuthority, mint).equals(getAssociatedTokenAddressSync(mint, escrowAuthority, true)),
+    ).toBe(true);
   });
 
   it("ATA derivation agrees with the SPL token library, owner then mint", () => {

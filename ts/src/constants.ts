@@ -23,7 +23,7 @@ export const MAX_TREE_DEPTH = 32;
  * Number of accounts in a wrap forwarder CPI segment.
  *
  * Ordering: `[forwarder_program, config_pda, ix_sysvar, user_ata, escrow_ata,
- * escrow_pda, nonce_bitmap_pda, token_program]`. The nonce bitmap must already
+ * escrow_authority, nonce_bitmap_pda, token_program]`. The nonce bitmap must already
  * exist: the adapter's CPI carries no signer that could pay for creating it, so
  * a wrap on a word without a bitmap is preceded by `init_nonce_bitmap`.
  */
@@ -33,7 +33,7 @@ export const FORWARDER_WRAP_NUM_ACCOUNTS = 8;
  * Number of accounts in an unwrap forwarder CPI segment.
  *
  * Ordering: `[forwarder_program, config_pda, ix_sysvar, escrow_ata,
- * recipient_ata, escrow_pda, token_program]`.
+ * recipient_ata, escrow_authority, token_program]`.
  */
 export const FORWARDER_UNWRAP_NUM_ACCOUNTS = 7;
 

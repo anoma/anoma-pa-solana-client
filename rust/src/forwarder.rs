@@ -13,8 +13,8 @@ use solana_sdk_ids::system_program;
 use crate::constants::{FORWARDER_UNWRAP_NUM_ACCOUNTS, FORWARDER_WRAP_NUM_ACCOUNTS};
 use crate::discriminator::anchor_instruction_disc;
 use crate::pda::{
-    derive_associated_token_address, derive_forwarder_config_pda, derive_forwarder_escrow_pda,
-    derive_nonce_bitmap_pda,
+    derive_associated_token_address, derive_forwarder_config_pda,
+    derive_forwarder_escrow_authority, derive_nonce_bitmap_pda,
 };
 
 /// Nonces per nonce-bitmap account. The bitmap for `nonce` is the one for
@@ -59,7 +59,7 @@ pub fn init_nonce_bitmap_ix(
 /// Build the wrap forwarder CPI segment.
 ///
 /// Order: `[forwarder_program, config, ix_sysvar, user_ata, escrow_ata,
-/// escrow_pda, nonce_bitmap_pda, token_program]`.
+/// escrow_authority, nonce_bitmap_pda, token_program]`.
 pub fn build_wrap_forwarder_accounts(
     forwarder_program: &Pubkey,
     user: &Pubkey,
@@ -67,9 +67,9 @@ pub fn build_wrap_forwarder_accounts(
     nonce: u64,
 ) -> Vec<AccountMeta> {
     let (config_pda, _) = derive_forwarder_config_pda(forwarder_program);
-    let (escrow_pda, _) = derive_forwarder_escrow_pda(forwarder_program, token_mint);
+    let (escrow_authority, _) = derive_forwarder_escrow_authority(forwarder_program);
     let user_ata = derive_associated_token_address(user, token_mint);
-    let escrow_ata = derive_associated_token_address(&escrow_pda, token_mint);
+    let escrow_ata = derive_associated_token_address(&escrow_authority, token_mint);
     let (nonce_bitmap_pda, _) =
         derive_nonce_bitmap_pda(forwarder_program, user, nonce_word_index(nonce));
 
@@ -79,7 +79,7 @@ pub fn build_wrap_forwarder_accounts(
         AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
         AccountMeta::new(user_ata, false),                    // user ATA
         AccountMeta::new(escrow_ata, false),                  // escrow ATA
-        AccountMeta::new_readonly(escrow_pda, false),         // escrow PDA
+        AccountMeta::new_readonly(escrow_authority, false),   // escrow authority
         AccountMeta::new(nonce_bitmap_pda, false),            // nonce bitmap
         AccountMeta::new_readonly(spl_token::id(), false),    // token program
     ];
@@ -90,15 +90,15 @@ pub fn build_wrap_forwarder_accounts(
 /// Build the unwrap forwarder CPI segment.
 ///
 /// Order: `[forwarder_program, config, ix_sysvar, escrow_ata, recipient_ata,
-/// escrow_pda, token_program]`.
+/// escrow_authority, token_program]`.
 pub fn build_unwrap_forwarder_accounts(
     forwarder_program: &Pubkey,
     recipient: &Pubkey,
     token_mint: &Pubkey,
 ) -> Vec<AccountMeta> {
     let (config_pda, _) = derive_forwarder_config_pda(forwarder_program);
-    let (escrow_pda, _) = derive_forwarder_escrow_pda(forwarder_program, token_mint);
-    let escrow_ata = derive_associated_token_address(&escrow_pda, token_mint);
+    let (escrow_authority, _) = derive_forwarder_escrow_authority(forwarder_program);
+    let escrow_ata = derive_associated_token_address(&escrow_authority, token_mint);
     let recipient_ata = derive_associated_token_address(recipient, token_mint);
 
     let accounts = vec![
@@ -107,7 +107,7 @@ pub fn build_unwrap_forwarder_accounts(
         AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
         AccountMeta::new(escrow_ata, false),                  // escrow ATA
         AccountMeta::new(recipient_ata, false),               // recipient ATA
-        AccountMeta::new_readonly(escrow_pda, false),         // escrow PDA
+        AccountMeta::new_readonly(escrow_authority, false),   // escrow authority
         AccountMeta::new_readonly(spl_token::id(), false),    // token program
     ];
     debug_assert_eq!(accounts.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);
@@ -136,7 +136,7 @@ mod tests {
         let accs = build_wrap_forwarder_accounts(&forwarder, &user, &mint, nonce);
         assert_eq!(accs.len(), FORWARDER_WRAP_NUM_ACCOUNTS as usize);
 
-        let escrow_pda = derive_forwarder_escrow_pda(&forwarder, &mint).0;
+        let escrow_authority = derive_forwarder_escrow_authority(&forwarder).0;
         assert_eq!(
             keys(&accs),
             vec![
@@ -144,8 +144,8 @@ mod tests {
                 derive_forwarder_config_pda(&forwarder).0,
                 sysvar::instructions::id(),
                 derive_associated_token_address(&user, &mint),
-                derive_associated_token_address(&escrow_pda, &mint),
-                escrow_pda,
+                derive_associated_token_address(&escrow_authority, &mint),
+                escrow_authority,
                 derive_nonce_bitmap_pda(&forwarder, &user, 1).0, // nonce 300 is in word 1
                 canonical_spl_token_program_id(),
             ]
@@ -167,16 +167,16 @@ mod tests {
         let accs = build_unwrap_forwarder_accounts(&forwarder, &recipient, &mint);
         assert_eq!(accs.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);
 
-        let escrow_pda = derive_forwarder_escrow_pda(&forwarder, &mint).0;
+        let escrow_authority = derive_forwarder_escrow_authority(&forwarder).0;
         assert_eq!(
             keys(&accs),
             vec![
                 forwarder,
                 derive_forwarder_config_pda(&forwarder).0,
                 sysvar::instructions::id(),
-                derive_associated_token_address(&escrow_pda, &mint),
+                derive_associated_token_address(&escrow_authority, &mint),
                 derive_associated_token_address(&recipient, &mint),
-                escrow_pda,
+                escrow_authority,
                 canonical_spl_token_program_id(),
             ]
         );

@@ -12,7 +12,7 @@ import {
 import {
   deriveAssociatedTokenAddress,
   deriveForwarderConfigPda,
-  deriveForwarderEscrowPda,
+  deriveForwarderEscrowAuthority,
   deriveNonceBitmapPda,
 } from "./pda.js";
 
@@ -25,15 +25,15 @@ describe("forwarder segment builders", () => {
     const accounts = buildWrapForwarderAccounts(forwarder, user, mint, 300n);
     expect(accounts).toHaveLength(FORWARDER_WRAP_NUM_ACCOUNTS);
 
-    const [escrowPda] = deriveForwarderEscrowPda(forwarder, mint);
+    const [escrowAuthority] = deriveForwarderEscrowAuthority(forwarder);
     expect(accounts.map((a) => a.pubkey.toBase58())).toEqual(
       [
         forwarder,
         deriveForwarderConfigPda(forwarder)[0],
         SYSVAR_INSTRUCTIONS_PUBKEY,
         deriveAssociatedTokenAddress(user, mint),
-        deriveAssociatedTokenAddress(escrowPda, mint),
-        escrowPda,
+        deriveAssociatedTokenAddress(escrowAuthority, mint),
+        escrowAuthority,
         deriveNonceBitmapPda(forwarder, user, 1n)[0], // nonce 300 is in word 1
         TOKEN_PROGRAM_ID,
       ].map((k) => k.toBase58()),
@@ -47,15 +47,15 @@ describe("forwarder segment builders", () => {
     const accounts = buildUnwrapForwarderAccounts(forwarder, recipient, mint);
     expect(accounts).toHaveLength(FORWARDER_UNWRAP_NUM_ACCOUNTS);
 
-    const [escrowPda] = deriveForwarderEscrowPda(forwarder, mint);
+    const [escrowAuthority] = deriveForwarderEscrowAuthority(forwarder);
     expect(accounts.map((a) => a.pubkey.toBase58())).toEqual(
       [
         forwarder,
         deriveForwarderConfigPda(forwarder)[0],
         SYSVAR_INSTRUCTIONS_PUBKEY,
-        deriveAssociatedTokenAddress(escrowPda, mint),
+        deriveAssociatedTokenAddress(escrowAuthority, mint),
         deriveAssociatedTokenAddress(recipient, mint),
-        escrowPda,
+        escrowAuthority,
         TOKEN_PROGRAM_ID,
       ].map((k) => k.toBase58()),
     );

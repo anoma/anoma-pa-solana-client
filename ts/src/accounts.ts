@@ -12,25 +12,26 @@ import { Cursor, TruncatedError } from "./cursor.js";
  * layout, and refuses every instruction on an account whose number is not its
  * own; a mismatch seen by a client is a deployment mid-migration.
  */
-export const PA_STATE_SCHEMA_VERSION = 1;
+export const PA_STATE_SCHEMA_VERSION = 2;
 
 /** Decoded PA state account. */
 export interface PAStateAccount {
   schemaVersion: number;
   bump: number;
-  authority: Uint8Array;
   verifierRouter: Uint8Array;
   proofSelector: Uint8Array;
   /** Kind-table commitment every settled aggregation instance must carry. */
   kindTableCommitment: Uint8Array;
-  pendingAuthority: Uint8Array | null;
-  lifecycle: number;
+  /** Whether settlement is paused (the owner's `pause` / `unpause`). */
+  paused: boolean;
   root: Uint8Array;
   nextIndex: bigint;
   currentDepth: number;
   frontier: Uint8Array[];
   minExpirySlots: bigint;
   maxExpirySlots: bigint;
+  /** Logic refs the owner denied: no settlement consumes or creates a resource carrying one. */
+  deniedLogicRefs: Uint8Array[];
 }
 
 export class PAStateDecodeError extends Error {
@@ -65,27 +66,13 @@ function decode(c: Cursor): PAStateAccount {
     );
   }
   const bump = c.u8("bump");
-  const authority = c.array32("authority");
   const verifierRouter = c.array32("verifier_router");
   const proofSelector = c.take(4, "proof_selector");
   const kindTableCommitment = c.array32("kind_table_commitment");
-
-  const pendingTag = c.u8("pending_authority tag");
-  let pendingAuthority: Uint8Array | null;
-  switch (pendingTag) {
-    case 0:
-      pendingAuthority = null;
-      break;
-    case 1:
-      pendingAuthority = c.array32("pending_authority");
-      break;
-    default:
-      throw new PAStateDecodeError(
-        `invalid Option tag ${pendingTag} for field pending_authority`,
-      );
+  const pausedByte = c.u8("paused");
+  if (pausedByte !== 0 && pausedByte !== 1) {
+    throw new PAStateDecodeError(`invalid bool byte ${pausedByte} for field paused`);
   }
-
-  const lifecycle = c.u8("lifecycle");
   const root = c.array32("root");
   const nextIndex = c.u64Le("next_index");
   const currentDepth = c.u8("current_depth");
@@ -105,21 +92,21 @@ function decode(c: Cursor): PAStateAccount {
 
   const minExpirySlots = c.u64Le("min_expiry_slots");
   const maxExpirySlots = c.u64Le("max_expiry_slots");
+  const deniedLogicRefs = c.vecArray32("denied_logic_refs");
 
   return {
     schemaVersion,
     bump,
-    authority,
     verifierRouter,
     proofSelector,
     kindTableCommitment,
-    pendingAuthority,
-    lifecycle,
+    paused: pausedByte === 1,
     root,
     nextIndex,
     currentDepth,
     frontier,
     minExpirySlots,
     maxExpirySlots,
+    deniedLogicRefs,
   };
 }

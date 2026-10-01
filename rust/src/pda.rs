@@ -57,15 +57,14 @@ pub fn derive_forwarder_config_pda(forwarder_program: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[b"config"], forwarder_program)
 }
 
-/// Derive the forwarder's escrow PDA for a given mint. Seed: `["escrow", mint]`.
+/// Derive the forwarder's escrow authority. Seed: `["escrow"]`.
 ///
-/// This PDA is both the authority on the escrow's Associated Token Account and the
-/// delegate users must name in their SPL `Approve` instruction before a wrap.
-pub fn derive_forwarder_escrow_pda(
-    forwarder_program: &Pubkey,
-    token_mint: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[b"escrow", token_mint.as_ref()], forwarder_program)
+/// One PDA owns every mint's escrow: each escrow is the Associated Token
+/// Account of this authority and the mint, as the EVM forwarder holds every
+/// token at its own address. It is also the delegate users name in their SPL
+/// `Approve` instruction before a wrap.
+pub fn derive_forwarder_escrow_authority(forwarder_program: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"escrow"], forwarder_program)
 }
 
 /// Derive the forwarder's nonce bitmap PDA for a (user, word_index) pair.
@@ -133,11 +132,15 @@ mod tests {
     }
 
     #[test]
-    fn forwarder_escrow_pda_is_per_mint() {
-        let mint1 = Pubkey::new_unique();
-        let mint2 = Pubkey::new_unique();
-        let (e1, _) = derive_forwarder_escrow_pda(&FORWARDER_PROGRAM_ID, &mint1);
-        let (e2, _) = derive_forwarder_escrow_pda(&FORWARDER_PROGRAM_ID, &mint2);
-        assert_ne!(e1, e2);
+    fn forwarder_escrow_authority_matches_the_devnet_forwarder() {
+        // Independent pin: the escrow authority the adapter repo's
+        // settlement lookup table derives for the V2 forwarder
+        // (client/pda.ts deriveEscrowAuthority, seed "escrow").
+        let (authority, bump) = derive_forwarder_escrow_authority(&FORWARDER_PROGRAM_ID);
+        assert_eq!(
+            authority.to_string(),
+            "8NRg7Wvk5MKGmGoXUjb9DsuPVfYixpgdXPZvkh2XDS95"
+        );
+        assert_eq!(bump, 255);
     }
 }

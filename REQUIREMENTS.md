@@ -74,26 +74,26 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 - `derive_tx_data_pda(authority, upload_id)`
 - `derive_nullifier_pda(pa_state, nullifier_bytes)`
 - `derive_root_marker_pda(pa_state, root_bytes)`
-- `derive_forwarder_escrow_pda(mint)` — `[b"escrow", mint]` seed schema
+- `derive_forwarder_escrow_authority()` — `[b"escrow"]` seed schema: the one PDA that owns every mint's escrow ATA
 - `derive_associated_token_address(mint, owner)` — convenience wrapper
 
 Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.7 Account decoders
 
-- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly: `bump`, `authority`, `verifier_router`, `proof_selector: [u8; 4]`, `pending_authority: Option<Pubkey>`, `lifecycle`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`.
+- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly (schema version 2): `schema_version: u8`, `bump`, `verifier_router`, `proof_selector: [u8; 4]`, `kind_table_commitment: [u8; 32]`, `paused: bool`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`, `denied_logic_refs: Vec<[u8; 32]>`. The decoder refuses any other schema version.
 - The schema is sourced from the PA repository at the commit tagged by this package's version. When the PA's struct changes, the new struct shape ships in the next release.
 
 ### 3.8 Event decoders
 
 - Decoders for every Anchor event emitted by the PA:
-  - `TransactionExecutedEvent { tags: Vec<[u8; 32]>, logic_refs: Vec<[u8; 32]> }`
-  - `ResourcePayloadEvent { index: u32, blob: Vec<u8>, ... }`
-  - `DiscoveryPayloadEvent { index: u32, blob: Vec<u8>, ... }`
-  - `ExternalPayloadEvent { index: u32, blob: Vec<u8>, ... }`
-  - `ApplicationPayloadEvent { index: u32, blob: Vec<u8>, ... }`
-  - `ActionExecutedEvent { ... }`
-- A high-level helper that takes a transaction's log lines, identifies `Program data: <base64>` entries, dispatches on the 8-byte discriminator, and returns typed event values.
+  - `ResourcePayloadEvent`, `DiscoveryPayloadEvent`, `ExternalPayloadEvent`, `ApplicationPayloadEvent` — `{ tag: [u8; 32], index: u32, blob: Vec<u8> }`
+  - `ActionExecutedEvent { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
+  - `TransactionExecutedEvent { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
+  - `ForwarderCallExecutedEvent { forwarder, input, output }`
+  - `CommitmentTreeRootAddedEvent { root }`, `KindTableCommitmentUpdatedEvent { kind_table_commitment }`, `LogicRefDeniedEvent { logic_ref }`
+  - `PausedEvent { account }`, `UnpausedEvent { account }`
+- The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: a helper takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.
 - The indexer consumes the IDL files (`idl/protocol_adapter.json`) for the same decoding in non-Rust/TS contexts.
 
 ### 3.9 Wrap message construction
@@ -119,7 +119,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.12 Approve helper (frontend-facing)
 
-- `build_approve_ix(user_ata, mint, owner, amount) -> Instruction` — constructs the SPL `Approve` instruction naming the forwarder's escrow PDA as delegate. The user's wallet signs the transaction containing this; the helper does not sign.
+- `build_approve_ix(user_ata, mint, owner, amount) -> Instruction` — constructs the SPL `Approve` instruction naming the forwarder's escrow authority as delegate. The user's wallet signs the transaction containing this; the helper does not sign.
 
 ### 3.13 ATA helpers
 
@@ -142,7 +142,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.16 Forwarder escrow registry (optional but recommended)
 
-- A per-mint mapping `{ mint, escrow_pda, escrow_ata }` for supported SPL mints (e.g. USDC devnet/mainnet).
+- A per-mint mapping `{ mint, escrow_ata }` for supported SPL mints (e.g. USDC devnet/mainnet); every escrow ATA belongs to the one escrow authority.
 - Either precomputed and shipped as static data, or derived on-demand via §3.6 helpers.
 - Allows integrators to avoid re-deriving and gives a single audit point for "where wrapped USDC lives."
 
