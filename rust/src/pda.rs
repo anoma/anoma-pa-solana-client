@@ -122,11 +122,11 @@ mod tests {
         // Independent pin: @solana/web3.js findProgramAddressSync with seed
         // "__event_authority" under the devnet V2 adapter. The same program's
         // pa_state PDA from that derivation matches docs/DEVNET_DEPLOYMENT.md.
-        let pa = Pubkey::from_str("28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT").unwrap();
+        let pa = Pubkey::from_str("5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc").unwrap();
         let (event_authority, bump) = derive_event_authority_pda(&pa);
         assert_eq!(
             event_authority.to_string(),
-            "9G3rrSgAHcJCW75RFGXnZme7hNZNXmgiphDLFGbxpSbv"
+            "5ZycgCWUwuJzmVnvxtsTcb4C7Zjh8y66XcpPpwreZDRM"
         );
         assert_eq!(bump, 255);
     }
@@ -139,7 +139,7 @@ mod tests {
         let (authority, bump) = derive_forwarder_escrow_authority(&FORWARDER_PROGRAM_ID);
         assert_eq!(
             authority.to_string(),
-            "8NRg7Wvk5MKGmGoXUjb9DsuPVfYixpgdXPZvkh2XDS95"
+            "G78SQtzYuo4YKDEECzh25rckXeJFjLMXy44iWKKG5rDG"
         );
         assert_eq!(bump, 255);
     }

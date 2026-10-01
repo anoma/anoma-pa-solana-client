@@ -7,7 +7,7 @@ import { PublicKey } from "@solana/web3.js";
 
 /** Anoma Protocol Adapter program ID (devnet/localnet default). */
 export const PA_PROGRAM_ID = new PublicKey(
-  "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT",
+  "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc",
 );
 
 /**
@@ -15,7 +15,7 @@ export const PA_PROGRAM_ID = new PublicKey(
  * the adapter repository builds and deploys it.
  */
 export const FORWARDER_PROGRAM_ID = new PublicKey(
-  "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx",
+  "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7",
 );
 
 /**
@@ -25,7 +25,7 @@ export const FORWARDER_PROGRAM_ID = new PublicKey(
  * with the fetched `AddressLookupTableAccount`).
  */
 export const SETTLE_LOOKUP_TABLE = new PublicKey(
-  "CKAMrsJSf1SDgsmaM7hsKEwmi2efQsoCAuMNf4msGRSW",
+  "4UFsq2ks2DcC29ErmEeHxqXWKLRWo26vs4W65S89bpWn",
 );
 
 /**

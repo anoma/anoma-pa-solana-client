@@ -7,18 +7,18 @@
 use solana_program::{pubkey, pubkey::Pubkey};
 
 /// Anoma Protocol Adapter program ID (devnet/localnet default).
-pub const PA_PROGRAM_ID: Pubkey = pubkey!("28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT");
+pub const PA_PROGRAM_ID: Pubkey = pubkey!("5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc");
 
 /// SPL Token Forwarder program ID: the V2 forwarder's declared id, under which
 /// the adapter repository builds and deploys it.
-pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx");
+pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7");
 
 /// The devnet V2 deployment's settlement lookup table: the accounts every
 /// settlement carries that are fixed for the deployment. Settle transactions
 /// are v0 messages compiled against it. The adapter repo's `lookup-table`
 /// command creates one per deployment; its operations runbook lists the keys
 /// and its deployment record names the table.
-pub const SETTLE_LOOKUP_TABLE: Pubkey = pubkey!("CKAMrsJSf1SDgsmaM7hsKEwmi2efQsoCAuMNf4msGRSW");
+pub const SETTLE_LOOKUP_TABLE: Pubkey = pubkey!("4UFsq2ks2DcC29ErmEeHxqXWKLRWo26vs4W65S89bpWn");
 
 /// Solana's native ed25519 signature-verification program. Used to carry verified
 /// wrap-authorization signatures into the settle transaction.
@@ -36,7 +36,7 @@ mod tests {
     fn pa_program_id_is_the_devnet_v2_adapter() {
         assert_eq!(
             PA_PROGRAM_ID.to_string(),
-            "28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT"
+            "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc"
         );
     }
 

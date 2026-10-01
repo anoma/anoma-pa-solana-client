@@ -66,3 +66,12 @@ a27506015377017d008a25ddd4ef6b6d3b6373ea
 # All four IDL files are regenerated from it; settle-fixture settled the
 # block-time and SPL wrap fixtures through this package on a local validator.
 cea162c65474302550361d29a95977236ca843d7
+
+# solana-protocol-adapter anthony/devnet-v2-redeploy 83ad6a7: the devnet
+# redeployment under new program IDs (adapter
+# 5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc, forwarder
+# BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7, settlement lookup table
+# 4UFsq2ks2DcC29ErmEeHxqXWKLRWo26vs4W65S89bpWn), and without the schema-1
+# and previous-build migrations (migrate_state, migrate_*), which no
+# deployment needs. The four IDL files are regenerated from it.
+83ad6a7d81bea6a5c7e2c54c5bc8fdf410965aae
