@@ -24,17 +24,22 @@
 //! the user's token account must hold the amount with the forwarder's escrow
 //! authority as its delegate, and the forwarder must be initialized for the
 //! mint (`--forwarder`, default `FORWARDER_PROGRAM_ID`).
+//!
+//! A fixture carrying `spl_token_unwrap` metadata is settled as an unwrap to
+//! its seeded recipient: the segment comes from the forwarder builders, and
+//! the recipient's token account is created in the same transaction when it
+//! does not exist yet.
 
 use std::str::FromStr;
 
 use anoma_pa_solana_client::{
-    build_wrap_forwarder_accounts, decode_event_instruction, decode_pa_state,
-    derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
-    derive_tx_data_pda, derive_verifier_router_pdas, init_nonce_bitmap_ix, nonce_word_index,
-    settle_from_txdata_ix, sha256, txdata_close_ix, txdata_init_ix, txdata_write_ix,
-    CommitmentTreeState, PaEvent, EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID,
-    SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, SETTLE_LOOKUP_TABLE, TXDATA_CHUNK_SIZE,
-    TXDATA_EXPIRY_SLOTS_DEFAULT,
+    build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, create_ata_idempotent_ix,
+    decode_event_instruction, decode_pa_state, derive_nonce_bitmap_pda, derive_nullifier_pda,
+    derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda, derive_verifier_router_pdas,
+    init_nonce_bitmap_ix, nonce_word_index, settle_from_txdata_ix, sha256, txdata_close_ix,
+    txdata_init_ix, txdata_write_ix, CommitmentTreeState, PaEvent, EVENT_IX_TAG,
+    FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES,
+    SETTLE_LOOKUP_TABLE, TXDATA_CHUNK_SIZE, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
@@ -57,6 +62,15 @@ struct Fixture {
     consumed_nullifiers_b64: Vec<String>,
     created_commitments_b64: Vec<String>,
     spl_token_wrap: Option<SplTokenWrap>,
+    spl_token_unwrap: Option<SplTokenUnwrap>,
+}
+
+/// The adapter repo's AnomaPay unwrap fixture metadata: the seeded mint and
+/// recipient the proof releases the tokens to.
+#[derive(serde::Deserialize)]
+struct SplTokenUnwrap {
+    mint_seed_label: String,
+    recipient_seed_label: String,
 }
 
 /// The adapter repo's AnomaPay wrap fixture metadata: the seeded parties, the
@@ -285,6 +299,20 @@ fn main() {
         println!(
             "wrap: user {user} mint {mint} nonce {} forwarder {}",
             wrap.nonce, args.forwarder
+        );
+    }
+    if let Some(unwrap) = &fixture.spl_token_unwrap {
+        let recipient = seeded_pubkey(&unwrap.recipient_seed_label);
+        let mint = seeded_pubkey(&unwrap.mint_seed_label);
+        pre_instructions.push(create_ata_idempotent_ix(&payer.pubkey(), &recipient, &mint));
+        remaining.extend(build_unwrap_forwarder_accounts(
+            &args.forwarder,
+            &recipient,
+            &mint,
+        ));
+        println!(
+            "unwrap: recipient {recipient} mint {mint} forwarder {}",
+            args.forwarder
         );
     }
     for segment in &args.call_accounts {
