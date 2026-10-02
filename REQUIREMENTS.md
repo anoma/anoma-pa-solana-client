@@ -112,8 +112,9 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.11 Forwarder CPI account assembly
 
-- `build_wrap_cpi_accounts(...)` — assembles the 8-account segment in the correct order for a wrap CPI.
-- `build_unwrap_cpi_accounts(...)` — assembles the 7-account segment in the correct order for an unwrap CPI.
+- `build_wrap_cpi_accounts(...)` — assembles the 10-account segment in the correct order for a wrap CPI.
+- `build_unwrap_cpi_accounts(...)` — assembles the 9-account segment in the correct order for an unwrap CPI.
+- Both segments carry the forwarder's event authority and the forwarder itself, which its CPI events need.
 - `init_nonce_bitmap_ix(...)` — the forwarder's permissionless instruction that creates a user's nonce bitmap for a word; a wrap whose word has no bitmap yet carries it in the settlement transaction.
 - The integrator passes the relevant pubkeys (mint, user ATA, recipient ATA, etc.); ordering is determined inside the helper.
 

@@ -13,7 +13,7 @@ use solana_sdk_ids::system_program;
 use crate::constants::{FORWARDER_UNWRAP_NUM_ACCOUNTS, FORWARDER_WRAP_NUM_ACCOUNTS};
 use crate::discriminator::anchor_instruction_disc;
 use crate::pda::{
-    derive_associated_token_address, derive_forwarder_config_pda,
+    derive_associated_token_address, derive_event_authority_pda, derive_forwarder_config_pda,
     derive_forwarder_escrow_authority, derive_nonce_bitmap_pda,
 };
 
@@ -58,8 +58,9 @@ pub fn init_nonce_bitmap_ix(
 
 /// Build the wrap forwarder CPI segment.
 ///
-/// Order: `[forwarder_program, config, ix_sysvar, user_ata, escrow_ata,
-/// escrow_authority, nonce_bitmap_pda, token_program]`.
+/// Order: `[forwarder_program, config, ix_sysvar, event_authority,
+/// forwarder_program, user_ata, escrow_ata, escrow_authority,
+/// nonce_bitmap_pda, token_program]`.
 pub fn build_wrap_forwarder_accounts(
     forwarder_program: &Pubkey,
     user: &Pubkey,
@@ -68,6 +69,7 @@ pub fn build_wrap_forwarder_accounts(
 ) -> Vec<AccountMeta> {
     let (config_pda, _) = derive_forwarder_config_pda(forwarder_program);
     let (escrow_authority, _) = derive_forwarder_escrow_authority(forwarder_program);
+    let (event_authority, _) = derive_event_authority_pda(forwarder_program);
     let user_ata = derive_associated_token_address(user, token_mint);
     let escrow_ata = derive_associated_token_address(&escrow_authority, token_mint);
     let (nonce_bitmap_pda, _) =
@@ -77,6 +79,8 @@ pub fn build_wrap_forwarder_accounts(
         AccountMeta::new_readonly(*forwarder_program, false), // segment marker
         AccountMeta::new_readonly(config_pda, false),         // config
         AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
+        AccountMeta::new_readonly(event_authority, false),    // event authority
+        AccountMeta::new_readonly(*forwarder_program, false), // program (CPI events)
         AccountMeta::new(user_ata, false),                    // user ATA
         AccountMeta::new(escrow_ata, false),                  // escrow ATA
         AccountMeta::new_readonly(escrow_authority, false),   // escrow authority
@@ -89,8 +93,9 @@ pub fn build_wrap_forwarder_accounts(
 
 /// Build the unwrap forwarder CPI segment.
 ///
-/// Order: `[forwarder_program, config, ix_sysvar, escrow_ata, recipient_ata,
-/// escrow_authority, token_program]`.
+/// Order: `[forwarder_program, config, ix_sysvar, event_authority,
+/// forwarder_program, escrow_ata, recipient_ata, escrow_authority,
+/// token_program]`.
 pub fn build_unwrap_forwarder_accounts(
     forwarder_program: &Pubkey,
     recipient: &Pubkey,
@@ -98,6 +103,7 @@ pub fn build_unwrap_forwarder_accounts(
 ) -> Vec<AccountMeta> {
     let (config_pda, _) = derive_forwarder_config_pda(forwarder_program);
     let (escrow_authority, _) = derive_forwarder_escrow_authority(forwarder_program);
+    let (event_authority, _) = derive_event_authority_pda(forwarder_program);
     let escrow_ata = derive_associated_token_address(&escrow_authority, token_mint);
     let recipient_ata = derive_associated_token_address(recipient, token_mint);
 
@@ -105,6 +111,8 @@ pub fn build_unwrap_forwarder_accounts(
         AccountMeta::new_readonly(*forwarder_program, false), // segment marker
         AccountMeta::new_readonly(config_pda, false),         // config
         AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
+        AccountMeta::new_readonly(event_authority, false),    // event authority
+        AccountMeta::new_readonly(*forwarder_program, false), // program (CPI events)
         AccountMeta::new(escrow_ata, false),                  // escrow ATA
         AccountMeta::new(recipient_ata, false),               // recipient ATA
         AccountMeta::new_readonly(escrow_authority, false),   // escrow authority
@@ -143,6 +151,8 @@ mod tests {
                 forwarder,
                 derive_forwarder_config_pda(&forwarder).0,
                 sysvar::instructions::id(),
+                derive_event_authority_pda(&forwarder).0,
+                forwarder,
                 derive_associated_token_address(&user, &mint),
                 derive_associated_token_address(&escrow_authority, &mint),
                 escrow_authority,
@@ -153,7 +163,7 @@ mod tests {
         let writable: Vec<bool> = accs.iter().map(|a| a.is_writable).collect();
         assert_eq!(
             writable,
-            [false, false, false, true, true, false, true, false],
+            [false, false, false, false, false, true, true, false, true, false],
             "the user ATA, escrow ATA and nonce bitmap are written"
         );
         assert!(accs.iter().all(|a| !a.is_signer));
@@ -174,6 +184,8 @@ mod tests {
                 forwarder,
                 derive_forwarder_config_pda(&forwarder).0,
                 sysvar::instructions::id(),
+                derive_event_authority_pda(&forwarder).0,
+                forwarder,
                 derive_associated_token_address(&escrow_authority, &mint),
                 derive_associated_token_address(&recipient, &mint),
                 escrow_authority,
@@ -183,7 +195,7 @@ mod tests {
         let writable: Vec<bool> = accs.iter().map(|a| a.is_writable).collect();
         assert_eq!(
             writable,
-            [false, false, false, true, true, false, false],
+            [false, false, false, false, false, true, true, false, false],
             "the escrow ATA and recipient ATA are written"
         );
         assert!(accs.iter().all(|a| !a.is_signer));
