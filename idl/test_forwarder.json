@@ -55,6 +55,21 @@
       "code": 6002,
       "name": "RelayPayloadTooShort",
       "msg": "Relay payload must start with a 32-byte logic ref"
+    },
+    {
+      "code": 6003,
+      "name": "LogLineCountMissing",
+      "msg": "Log mode needs the number of lines to log"
+    }
+  ],
+  "constants": [
+    {
+      "name": "MODE_LOG",
+      "docs": [
+        "Called directly by the integration suite, which reads it from the IDL."
+      ],
+      "type": "u8",
+      "value": "3"
     }
   ]
 }
