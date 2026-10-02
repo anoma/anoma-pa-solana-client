@@ -353,19 +353,19 @@
         {
           "name": "program",
           "docs": [
-            "The program account proves `program_data` is this program's own",
-            "ProgramData address rather than any account shaped like one."
+            "This program, which the `Initialized` event's self-invocation needs."
           ],
           "address": "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7"
         },
         {
           "name": "program_data",
           "docs": [
-            "The loader records the upgrade authority here: the deployer, who",
-            "alone initializes the forwarder and hands the authority to",
-            "`upgrade_authority`."
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority: the deployer, who alone initializes the forwarder and",
+            "hands the authority to `upgrade_authority`."
           ],
-          "writable": true
+          "writable": true,
+          "address": "DuBUDTZJvomWyQ757HzdKaG4F7gXtaEzJaMEoRfkcX2b"
         },
         {
           "name": "system_program",
@@ -506,18 +506,19 @@
         {
           "name": "program",
           "docs": [
-            "The program account proves `program_data` is this program's own",
-            "ProgramData address rather than any account shaped like one."
+            "This program, which the `OwnershipTransferred` event's",
+            "self-invocation needs."
           ],
           "address": "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7"
         },
         {
           "name": "program_data",
           "docs": [
-            "The loader records the upgrade authority here, which the handler",
-            "hands to `upgrade_authority`."
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority, which the handler hands to `upgrade_authority`."
           ],
-          "writable": true
+          "writable": true,
+          "address": "DuBUDTZJvomWyQ757HzdKaG4F7gXtaEzJaMEoRfkcX2b"
         },
         {
           "name": "system_program",
@@ -648,7 +649,8 @@
       "docs": [
         "Give up the ownership for good. Mirrors OwnableUpgradeable's",
         "`renounceOwnership`: owner only; the owner becomes the zero key, so",
-        "neither `upgrade` nor `reinitialize` can run again."
+        "no owner-only instruction, `upgrade` and `reinitialize` included, can",
+        "run again."
       ],
       "discriminator": [
         19,
@@ -1178,6 +1180,11 @@
       "code": 6031,
       "name": "InvalidUpgradeBuffer",
       "msg": "Buffer is not a loader buffer holding a program"
+    },
+    {
+      "code": 6032,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: the signer does not hold the authority this instruction requires"
     }
   ],
   "types": [
@@ -1188,8 +1195,9 @@
         "",
         "The adapter and logic ref mirror the EVM V2 forwarder's",
         "`ForwarderBaseUpgradeable` state, `version` its `Initializable` version,",
-        "and `owner` its `OwnableUpgradeable` owner. The emergency committee and caller are the EVM V1 forwarder's",
-        "emergency mechanism, which V2 dropped (anoma/dos-pm#86)."
+        "and `owner` its `OwnableUpgradeable` owner. The emergency committee and",
+        "caller are the EVM V1 forwarder's emergency mechanism, which V2 dropped",
+        "(anoma/dos-pm#86)."
       ],
       "type": {
         "kind": "struct",
