@@ -1,5 +1,5 @@
 {
-  "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx",
+  "address": "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7",
   "metadata": {
     "name": "spl_token_forwarder",
     "version": "2.0.0-rc.1",
@@ -35,7 +35,7 @@
         {
           "name": "config",
           "writable": true,
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "pa_state"
@@ -71,7 +71,7 @@
         },
         {
           "name": "config",
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "escrow_ata",
@@ -79,7 +79,7 @@
         },
         {
           "name": "escrow_authority",
-          "address": "8NRg7Wvk5MKGmGoXUjb9DsuPVfYixpgdXPZvkh2XDS95"
+          "address": "G78SQtzYuo4YKDEECzh25rckXeJFjLMXy44iWKKG5rDG"
         },
         {
           "name": "recipient_ata",
@@ -125,7 +125,7 @@
         },
         {
           "name": "config",
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "pa_state"
@@ -154,7 +154,7 @@
       "accounts": [
         {
           "name": "config",
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "ix_sysvar",
@@ -202,7 +202,7 @@
         },
         {
           "name": "config",
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "pa_state"
@@ -339,7 +339,7 @@
             "The program account proves `program_data` is this program's own",
             "ProgramData address rather than any account shaped like one."
           ],
-          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+          "address": "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7"
         },
         {
           "name": "program_data",
@@ -369,238 +369,6 @@
         {
           "name": "emergency_committee",
           "type": "pubkey"
-        }
-      ]
-    },
-    {
-      "name": "migrate_config",
-      "docs": [
-        "Bring the config the previous build created to this build's layout:",
-        "the bump it stored after the fields gives way to the version, 1, the",
-        "previous build having initialized it once and never reinitialized it;",
-        "the owner pays the added bytes' rent. The migrations are the",
-        "counterpart of the call the EVM owner passes to `upgradeToAndCall`:",
-        "the upgrade authority runs them once, after upgrading the program in",
-        "place."
-      ],
-      "discriminator": [
-        92,
-        131,
-        58,
-        105,
-        210,
-        154,
-        224,
-        193
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "docs": [
-            "previous build's config layout, owned by this program."
-          ],
-          "writable": true,
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
-        },
-        {
-          "name": "program",
-          "docs": [
-            "The program account proves `program_data` is this program's own",
-            "ProgramData address rather than any account shaped like one."
-          ],
-          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "The loader records the upgrade authority here; it is the forwarder's owner."
-          ]
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "migrate_escrow",
-      "docs": [
-        "Move a mint's escrowed tokens from the previous build's escrow, held",
-        "by that mint's own authority `[\"escrow\", mint]`, to the escrow of the",
-        "one authority this build holds every mint under, and close the",
-        "previous escrow account; its rent goes to the owner."
-      ],
-      "discriminator": [
-        65,
-        111,
-        186,
-        119,
-        58,
-        11,
-        81,
-        209
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "docs": [
-            "Receives the closed previous escrow account's rent."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "token_mint",
-          "docs": [
-            "accounts to hold it."
-          ]
-        },
-        {
-          "name": "previous_escrow_authority",
-          "docs": [
-            "its seeds; it signs the move and the close."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "token_mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "previous_escrow_ata",
-          "writable": true
-        },
-        {
-          "name": "escrow_ata",
-          "writable": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "program",
-          "docs": [
-            "The program account proves `program_data` is this program's own",
-            "ProgramData address rather than any account shaped like one."
-          ],
-          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "The loader records the upgrade authority here; it is the forwarder's owner."
-          ]
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "migrate_nonce_bitmap",
-      "docs": [
-        "Bring a nonce bitmap the previous build created to this build's",
-        "layout: its used bits are kept and its canonical bump is appended,",
-        "the owner paying the added byte's rent."
-      ],
-      "discriminator": [
-        182,
-        186,
-        191,
-        20,
-        81,
-        236,
-        57,
-        247
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "nonce_bitmap",
-          "docs": [
-            "handler requires the previous build's bitmap layout, owned by this program."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  111,
-                  110,
-                  99,
-                  101,
-                  95,
-                  98,
-                  105,
-                  116,
-                  109,
-                  97,
-                  112
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "user"
-              },
-              {
-                "kind": "arg",
-                "path": "word_index"
-              }
-            ]
-          }
-        },
-        {
-          "name": "program",
-          "docs": [
-            "The program account proves `program_data` is this program's own",
-            "ProgramData address rather than any account shaped like one."
-          ],
-          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "The loader records the upgrade authority here; it is the forwarder's owner."
-          ]
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "_user",
-          "type": "pubkey"
-        },
-        {
-          "name": "_word_index",
-          "type": "u64"
         }
       ]
     },
@@ -635,7 +403,7 @@
         {
           "name": "config",
           "writable": true,
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "program",
@@ -643,7 +411,7 @@
             "The program account proves `program_data` is this program's own",
             "ProgramData address rather than any account shaped like one."
           ],
-          "address": "5CrHbBeHjg53UyL3Htn9dCYYTy68fMcrbDoeAdo4yQrx"
+          "address": "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7"
         },
         {
           "name": "program_data",
@@ -689,7 +457,7 @@
         {
           "name": "config",
           "writable": true,
-          "address": "8woJSGScukiScQsygq1boUZeuSriio748RrwNa8x7L5D"
+          "address": "6wu5mRw8RN1euy4AUsQoHTU5HraEGGXYhmrucG41bMdq"
         },
         {
           "name": "pa_state"
@@ -952,16 +720,11 @@
     },
     {
       "code": 6026,
-      "name": "NotPreviousLayout",
-      "msg": "Account is not in the previous build's layout - it was migrated already, or never existed"
-    },
-    {
-      "code": 6027,
       "name": "UnwrapToEscrow",
       "msg": "Unwrap recipient is the escrow authority - the tokens would never leave escrow"
     },
     {
-      "code": 6028,
+      "code": 6027,
       "name": "InvalidInitialization",
       "msg": "The config is already at this build's CONFIG_VERSION - rotating the logic ref takes a build that raises it"
     }
@@ -1215,25 +978,6 @@
       "name": "OP_UNWRAP",
       "type": "u8",
       "value": "1"
-    },
-    {
-      "name": "PREVIOUS_CONFIG_SIZE",
-      "docs": [
-        "Size of a config the previous build created: the discriminator, the",
-        "four 32-byte fields, then the config's bump, which this build derives at",
-        "compile time (CONFIG_PDA), and no version."
-      ],
-      "type": "u64",
-      "value": "137"
-    },
-    {
-      "name": "PREVIOUS_NONCE_BITMAP_SIZE",
-      "docs": [
-        "Size of a nonce bitmap the previous build created: the word, without the",
-        "bump this build stores."
-      ],
-      "type": "u64",
-      "value": "40"
     }
   ]
 }

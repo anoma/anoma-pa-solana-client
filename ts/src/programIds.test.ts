@@ -6,7 +6,7 @@ import { FORWARDER_PROGRAM_ID, PA_PROGRAM_ID } from "./programIds.js";
 
 describe("program ids", () => {
   it("PA_PROGRAM_ID is the devnet V2 adapter", () => {
-    expect(PA_PROGRAM_ID.toBase58()).toBe("28Hvr1YFv2ouGN2fS99aF3ZzYXzkncJVVaHcZNhquLFT");
+    expect(PA_PROGRAM_ID.toBase58()).toBe("5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc");
   });
 
   it("PA_PROGRAM_ID matches the vendored IDL", () => {
