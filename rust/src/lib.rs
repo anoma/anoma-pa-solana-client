@@ -33,8 +33,9 @@ pub use events::{
     decode_event_instruction, decode_forwarder_event_instruction, ActionExecutedEvent,
     CommitmentTreeRootAddedEvent, EmergencyCallerSetEvent, EmergencyWithdrawEvent,
     EventDecodeError, ForwarderCallExecutedEvent, ForwarderEvent, InitializedEvent,
-    KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent, PaEvent, PauseEvent, PayloadEvent,
-    TransactionExecutedEvent, UnwrappedEvent, WrappedEvent, EVENT_IX_TAG,
+    KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent, OwnershipTransferredEvent, PaEvent,
+    PauseEvent, PayloadEvent, TransactionExecutedEvent, UnwrappedEvent, UpgradedEvent,
+    WrappedEvent, EVENT_IX_TAG,
 };
 pub use external_call::{
     encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,

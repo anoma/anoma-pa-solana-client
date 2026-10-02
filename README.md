@@ -29,9 +29,9 @@ PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder.
 
 ```bash
 ./scripts/dev.sh validator-deploy                                    # every program loaded at genesis; keeps running
-PA_VERIFIER_ROUTER=BetEAE4npinksQBxvqUN1KkCVjYFJywWao45MSWtp5yg PA_PROOF_SELECTOR=73c457ba \
+PA_OWNER=<pubkey> PA_VERIFIER_ROUTER=BetEAE4npinksQBxvqUN1KkCVjYFJywWao45MSWtp5yg PA_PROOF_SELECTOR=73c457ba \
   ./scripts/dev.sh init --cluster localnet
-STF_LOGIC_REF=<logic ref hex> STF_EMERGENCY_COMMITTEE=<pubkey> STF_TOKEN_MINT=<mint> \
+STF_LOGIC_REF=<logic ref hex> STF_EMERGENCY_COMMITTEE=<pubkey> STF_OWNER=<pubkey> STF_TOKEN_MINT=<mint> \
   ./scripts/dev.sh forwarder init --cluster localnet                 # for a wrap fixture
 STF_TOKEN_MINTS=<mint> ./scripts/dev.sh lookup-table --cluster localnet
 ```

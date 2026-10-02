@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { decodePaState, PA_STATE_SCHEMA_VERSION, PAStateDecodeError } from "./accounts.js";
 
-// The schema-2 `PAStateAccount` layout (state.rs): schema_version, bump,
-// verifier_router, proof_selector, kind_table_commitment, paused, root,
+// The schema-3 `PAStateAccount` layout (state.rs): schema_version, bump,
+// owner, verifier_router, proof_selector, kind_table_commitment, paused, root,
 // next_index, current_depth, frontier, min/max expiry, denied_logic_refs.
 // Byte-identical to the Rust crate's test fixture.
 function buildFixture(schemaVersion: number, paused: number, denied: number[][]): Uint8Array {
@@ -17,6 +17,7 @@ function buildFixture(schemaVersion: number, paused: number, denied: number[][])
   push(...new Array(8).fill(9)); // discriminator
   push(schemaVersion);
   push(255); // bump
+  push(...new Array(32).fill(1)); // owner
   push(...new Array(32).fill(2)); // verifier_router
   push(0xab, 0xcd, 0xef, 0x12); // proof_selector
   push(...new Array(32).fill(8)); // kind_table_commitment
@@ -35,11 +36,12 @@ function buildFixture(schemaVersion: number, paused: number, denied: number[][])
 
 const filled = (n: number) => Uint8Array.from(new Array(32).fill(n));
 
-describe("decodePaState (schema 2)", () => {
+describe("decodePaState (schema 3)", () => {
   it("decodes every field", () => {
     const s = decodePaState(buildFixture(PA_STATE_SCHEMA_VERSION, 1, [new Array(32).fill(0xdd)]));
     expect(s.schemaVersion).toBe(PA_STATE_SCHEMA_VERSION);
     expect(s.bump).toBe(255);
+    expect(s.owner).toEqual(filled(1));
     expect(s.verifierRouter).toEqual(filled(2));
     expect(s.proofSelector).toEqual(Uint8Array.from([0xab, 0xcd, 0xef, 0x12]));
     expect(s.kindTableCommitment).toEqual(filled(8));
@@ -69,7 +71,7 @@ describe("decodePaState (schema 2)", () => {
     // The PA refuses every instruction on an account whose layout number is
     // not its own; a client reading another layout would misparse every field
     // after byte 8, so it must refuse too.
-    expect(() => decodePaState(buildFixture(1, 0, []))).toThrow(/schema version 1/);
+    expect(() => decodePaState(buildFixture(2, 0, []))).toThrow(/schema version 2/);
   });
 
   it("rejects truncated data", () => {

@@ -77,6 +77,13 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
         case "UnpausedEvent":
           expect(hex(ev.account), entry).toBe(exp.account);
           break;
+        case "OwnershipTransferredEvent":
+          expect(hex(ev.previousOwner), entry).toBe(exp.previous_owner);
+          expect(hex(ev.newOwner), entry).toBe(exp.new_owner);
+          break;
+        case "UpgradedEvent":
+          expect(hex(ev.executableHash), entry).toBe(exp.executable_hash);
+          break;
       }
     }
     expect([...seen].sort()).toEqual([...idlEvents].sort());
@@ -159,6 +166,12 @@ const forwarderCases: [ForwarderEvent["name"], Uint8Array, ForwarderEvent][] = [
     { name: "EmergencyWithdraw", tokenMint: MINT, to: USER, amount: 42n, caller: OTHER },
   ],
   ["Initialized", eventIx("Initialized", [u64Le(2n)]), { name: "Initialized", version: 2n }],
+  [
+    "OwnershipTransferred",
+    eventIx("OwnershipTransferred", [USER, OTHER]),
+    { name: "OwnershipTransferred", previousOwner: USER, newOwner: OTHER },
+  ],
+  ["Upgraded", eventIx("Upgraded", [ROOT]), { name: "Upgraded", executableHash: ROOT }],
 ];
 
 const forwarderIdl = JSON.parse(

@@ -74,6 +74,26 @@ pub struct PauseEvent {
     pub account: [u8; 32],
 }
 
+/// The ownership moved from `previous_owner` to `new_owner`, as OpenZeppelin
+/// Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
+/// previous owner at `initialize` or a migration, the new owner once
+/// renounced). Both programs emit it: the PA as `OwnershipTransferredEvent`,
+/// the forwarder as `OwnershipTransferred`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnershipTransferredEvent {
+    pub previous_owner: [u8; 32],
+    pub new_owner: [u8; 32],
+}
+
+/// The owner upgraded the program to the code whose executable hash is
+/// `executable_hash` (sha256 of the code without trailing zero bytes, what
+/// `solana-verify get-program-hash` reports), as ERC1967's `Upgraded`. The PA
+/// emits it as `UpgradedEvent`, the forwarder as `Upgraded`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpgradedEvent {
+    pub executable_hash: [u8; 32],
+}
+
 /// Emitted once per external call, in call order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForwarderCallExecutedEvent {
@@ -97,6 +117,8 @@ pub enum PaEvent {
     LogicRefDenied(LogicRefDeniedEvent),
     Paused(PauseEvent),
     Unpaused(PauseEvent),
+    OwnershipTransferred(OwnershipTransferredEvent),
+    Upgraded(UpgradedEvent),
 }
 
 /// The forwarder escrowed `amount` of `token_mint` from `from` for the wrap
@@ -154,6 +176,8 @@ pub enum ForwarderEvent {
     EmergencyCallerSet(EmergencyCallerSetEvent),
     EmergencyWithdraw(EmergencyWithdrawEvent),
     Initialized(InitializedEvent),
+    OwnershipTransferred(OwnershipTransferredEvent),
+    Upgraded(UpgradedEvent),
 }
 
 /// Errors produced by [`decode_event_instruction`] and
@@ -270,6 +294,10 @@ fn forwarder_event_body(
         ForwarderEvent::Initialized(InitializedEvent {
             version: c.u64_le("version")?,
         })
+    } else if disc == anchor_event_disc("OwnershipTransferred") {
+        ForwarderEvent::OwnershipTransferred(ownership_transferred(c)?)
+    } else if disc == anchor_event_disc("Upgraded") {
+        ForwarderEvent::Upgraded(upgraded(c)?)
     } else {
         return Err(EventDecodeError::UnknownDiscriminator(disc));
     })
@@ -319,6 +347,10 @@ fn pa_event_body(
         PaEvent::Unpaused(PauseEvent {
             account: c.array_32("account")?,
         })
+    } else if disc == anchor_event_disc("OwnershipTransferredEvent") {
+        PaEvent::OwnershipTransferred(ownership_transferred(c)?)
+    } else if disc == anchor_event_disc("UpgradedEvent") {
+        PaEvent::Upgraded(upgraded(c)?)
     } else if disc == anchor_event_disc("ForwarderCallExecutedEvent") {
         PaEvent::ForwarderCallExecuted(ForwarderCallExecutedEvent {
             forwarder: c.array_32("forwarder")?,
@@ -327,6 +359,21 @@ fn pa_event_body(
         })
     } else {
         return Err(EventDecodeError::UnknownDiscriminator(disc));
+    })
+}
+
+fn ownership_transferred(
+    c: &mut Cursor<'_>,
+) -> Result<OwnershipTransferredEvent, EventDecodeError> {
+    Ok(OwnershipTransferredEvent {
+        previous_owner: c.array_32("previous_owner")?,
+        new_owner: c.array_32("new_owner")?,
+    })
+}
+
+fn upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeError> {
+    Ok(UpgradedEvent {
+        executable_hash: c.array_32("executable_hash")?,
     })
 }
 

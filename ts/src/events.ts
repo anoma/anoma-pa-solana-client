@@ -85,6 +85,30 @@ export interface PauseEvent {
   account: Uint8Array;
 }
 
+/**
+ * The ownership moved from `previousOwner` to `newOwner`, as OpenZeppelin
+ * Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
+ * previous owner at `initialize` or a migration, the new owner once
+ * renounced). The PA names it `OwnershipTransferredEvent`, the forwarder
+ * `OwnershipTransferred`.
+ */
+export interface OwnershipTransferredEvent<N extends "OwnershipTransferredEvent" | "OwnershipTransferred"> {
+  name: N;
+  previousOwner: Uint8Array;
+  newOwner: Uint8Array;
+}
+
+/**
+ * The owner upgraded the program to the code whose executable hash is
+ * `executableHash` (sha256 of the code without trailing zero bytes, what
+ * `solana-verify get-program-hash` reports), as ERC1967's `Upgraded`. The PA
+ * names it `UpgradedEvent`, the forwarder `Upgraded`.
+ */
+export interface UpgradedEvent<N extends "UpgradedEvent" | "Upgraded"> {
+  name: N;
+  executableHash: Uint8Array;
+}
+
 /** Emitted once per external call, in call order. */
 export interface ForwarderCallExecutedEvent {
   name: "ForwarderCallExecutedEvent";
@@ -101,7 +125,9 @@ export type PaEvent =
   | CommitmentTreeRootAddedEvent
   | KindTableCommitmentUpdatedEvent
   | LogicRefDeniedEvent
-  | PauseEvent;
+  | PauseEvent
+  | OwnershipTransferredEvent<"OwnershipTransferredEvent">
+  | UpgradedEvent<"UpgradedEvent">;
 
 /**
  * The forwarder escrowed `amount` of `tokenMint` from `from` for the wrap with
@@ -158,7 +184,9 @@ export type ForwarderEvent =
   | UnwrappedEvent
   | EmergencyCallerSetEvent
   | EmergencyWithdrawEvent
-  | InitializedEvent;
+  | InitializedEvent
+  | OwnershipTransferredEvent<"OwnershipTransferred">
+  | UpgradedEvent<"Upgraded">;
 
 export class EventDecodeError extends Error {
   constructor(message: string) {
@@ -242,7 +270,20 @@ function forwarderEventBody(disc: Uint8Array, c: Cursor): ForwarderEvent {
   if (bytesEqual(disc, anchorEventDisc("Initialized"))) {
     return { name: "Initialized", version: c.u64Le("version") };
   }
+  if (bytesEqual(disc, anchorEventDisc("OwnershipTransferred"))) {
+    return ownershipTransferred("OwnershipTransferred", c);
+  }
+  if (bytesEqual(disc, anchorEventDisc("Upgraded"))) {
+    return { name: "Upgraded", executableHash: c.array32("executable_hash") };
+  }
   throw unknownDiscriminator(disc);
+}
+
+function ownershipTransferred<N extends "OwnershipTransferredEvent" | "OwnershipTransferred">(
+  name: N,
+  c: Cursor,
+): OwnershipTransferredEvent<N> {
+  return { name, previousOwner: c.array32("previous_owner"), newOwner: c.array32("new_owner") };
 }
 
 function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
@@ -277,6 +318,12 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
     if (bytesEqual(disc, anchorEventDisc(name))) {
       return { name, account: c.array32("account") };
     }
+  }
+  if (bytesEqual(disc, anchorEventDisc("OwnershipTransferredEvent"))) {
+    return ownershipTransferred("OwnershipTransferredEvent", c);
+  }
+  if (bytesEqual(disc, anchorEventDisc("UpgradedEvent"))) {
+    return { name: "UpgradedEvent", executableHash: c.array32("executable_hash") };
   }
   if (bytesEqual(disc, anchorEventDisc("ForwarderCallExecutedEvent"))) {
     return {

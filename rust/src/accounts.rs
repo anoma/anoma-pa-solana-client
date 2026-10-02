@@ -10,13 +10,16 @@ use crate::cursor::{Cursor, Truncated};
 /// byte 8 of the account data, right after the Anchor discriminator, in every
 /// layout, and refuses every instruction on an account whose number is not its
 /// own; a mismatch seen by a client is a deployment mid-migration.
-pub const PA_STATE_SCHEMA_VERSION: u8 = 2;
+pub const PA_STATE_SCHEMA_VERSION: u8 = 3;
 
 /// Decoded PA state account. Mirrors the on-chain `PAStateAccount` field by field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PAStateAccount {
     pub schema_version: u8,
     pub bump: u8,
+    /// The adapter's owner, who signs every owner-only instruction and
+    /// upgrades the program; all zeros once renounced.
+    pub owner: [u8; 32],
     pub verifier_router: [u8; 32],
     pub proof_selector: [u8; 4],
     /// Kind-table commitment every settled aggregation instance must carry.
@@ -84,6 +87,7 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
         });
     }
     let bump = c.u8("bump")?;
+    let owner = c.array_32("owner")?;
     let verifier_router = c.array_32("verifier_router")?;
     let proof_selector: [u8; 4] = c.take(4, "proof_selector")?.try_into().expect("4 bytes");
     let kind_table_commitment = c.array_32("kind_table_commitment")?;
@@ -123,6 +127,7 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
     Ok(PAStateAccount {
         schema_version,
         bump,
+        owner,
         verifier_router,
         proof_selector,
         kind_table_commitment,
@@ -147,14 +152,15 @@ impl From<Truncated> for DecodeError {
 mod tests {
     use super::*;
 
-    /// The schema-2 `PAStateAccount` layout (state.rs): schema_version, bump,
-    /// verifier_router, proof_selector, kind_table_commitment, paused, root,
+    /// The schema-3 `PAStateAccount` layout (state.rs): schema_version, bump,
+    /// owner, verifier_router, proof_selector, kind_table_commitment, paused, root,
     /// next_index, current_depth, frontier, min/max expiry, denied_logic_refs.
     fn build_fixture(schema_version: u8, paused: u8, denied: &[[u8; 32]]) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&[9u8; 8]); // discriminator
         data.push(schema_version);
         data.push(255); // bump
+        data.extend_from_slice(&[1u8; 32]); // owner
         data.extend_from_slice(&[2u8; 32]); // verifier_router
         data.extend_from_slice(&[0xAB, 0xCD, 0xEF, 0x12]); // proof_selector
         data.extend_from_slice(&[8u8; 32]); // kind_table_commitment
@@ -181,6 +187,7 @@ mod tests {
         let s = decode_pa_state(&data).expect("decode");
         assert_eq!(s.schema_version, PA_STATE_SCHEMA_VERSION);
         assert_eq!(s.bump, 255);
+        assert_eq!(s.owner, [1u8; 32]);
         assert_eq!(s.verifier_router, [2u8; 32]);
         assert_eq!(s.proof_selector, [0xAB, 0xCD, 0xEF, 0x12]);
         assert_eq!(s.kind_table_commitment, [8u8; 32]);
@@ -219,9 +226,9 @@ mod tests {
         // The PA refuses every instruction on an account whose layout number
         // is not its own; a client reading another layout would misparse
         // every field after byte 8, so it must refuse too.
-        let data = build_fixture(1, 0, &[]);
+        let data = build_fixture(2, 0, &[]);
         let err = decode_pa_state(&data).expect_err("must reject");
-        assert_eq!(err, DecodeError::UnsupportedSchemaVersion { found: 1 });
+        assert_eq!(err, DecodeError::UnsupportedSchemaVersion { found: 2 });
     }
 
     #[test]

@@ -117,6 +117,13 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
             ("PausedEvent", PaEvent::Paused(ev)) | ("UnpausedEvent", PaEvent::Unpaused(ev)) => {
                 assert_eq!(ev.account, h32("account"), "{entry}");
             }
+            ("OwnershipTransferredEvent", PaEvent::OwnershipTransferred(ev)) => {
+                assert_eq!(ev.previous_owner, h32("previous_owner"), "{entry}");
+                assert_eq!(ev.new_owner, h32("new_owner"), "{entry}");
+            }
+            ("UpgradedEvent", PaEvent::Upgraded(ev)) => {
+                assert_eq!(ev.executable_hash, h32("executable_hash"), "{entry}");
+            }
             (name, other) => panic!("{entry}: decoded as {other:?}, fixture says {name}"),
         }
     }

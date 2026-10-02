@@ -6,7 +6,8 @@
 
 use anoma_pa_solana_client::events::{
     decode_forwarder_event_instruction, EmergencyCallerSetEvent, EmergencyWithdrawEvent,
-    EventDecodeError, ForwarderEvent, InitializedEvent, UnwrappedEvent, WrappedEvent, EVENT_IX_TAG,
+    EventDecodeError, ForwarderEvent, InitializedEvent, OwnershipTransferredEvent, UnwrappedEvent,
+    UpgradedEvent, WrappedEvent, EVENT_IX_TAG,
 };
 use anoma_pa_solana_client::{anchor_event_disc, ANCHOR_DISCRIMINATOR_LEN};
 
@@ -82,6 +83,21 @@ fn cases() -> Vec<(&'static str, Vec<u8>, ForwarderEvent)> {
             "Initialized",
             event_ix("Initialized", &[&2u64.to_le_bytes()]),
             ForwarderEvent::Initialized(InitializedEvent { version: 2 }),
+        ),
+        (
+            "OwnershipTransferred",
+            event_ix("OwnershipTransferred", &[&USER, &OTHER]),
+            ForwarderEvent::OwnershipTransferred(OwnershipTransferredEvent {
+                previous_owner: USER,
+                new_owner: OTHER,
+            }),
+        ),
+        (
+            "Upgraded",
+            event_ix("Upgraded", &[&ROOT]),
+            ForwarderEvent::Upgraded(UpgradedEvent {
+                executable_hash: ROOT,
+            }),
         ),
     ]
 }
