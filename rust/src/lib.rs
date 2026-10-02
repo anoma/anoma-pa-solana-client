@@ -30,9 +30,11 @@ pub use accounts::{decode_pa_state, DecodeError, PAStateAccount, PA_STATE_SCHEMA
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
 pub use events::{
-    decode_event_instruction, ActionExecutedEvent, CommitmentTreeRootAddedEvent, EventDecodeError,
-    ForwarderCallExecutedEvent, KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent, PaEvent,
-    PauseEvent, PayloadEvent, TransactionExecutedEvent, EVENT_IX_TAG,
+    decode_event_instruction, decode_forwarder_event_instruction, ActionExecutedEvent,
+    CommitmentTreeRootAddedEvent, EmergencyCallerSetEvent, EmergencyWithdrawEvent,
+    EventDecodeError, ForwarderCallExecutedEvent, ForwarderEvent, InitializedEvent,
+    KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent, PaEvent, PauseEvent, PayloadEvent,
+    TransactionExecutedEvent, UnwrappedEvent, WrappedEvent, EVENT_IX_TAG,
 };
 pub use external_call::{
     encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,

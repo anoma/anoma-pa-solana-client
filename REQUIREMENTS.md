@@ -93,8 +93,14 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
   - `ForwarderCallExecutedEvent { forwarder, input, output }`
   - `CommitmentTreeRootAddedEvent { root }`, `KindTableCommitmentUpdatedEvent { kind_table_commitment }`, `LogicRefDeniedEvent { logic_ref }`
   - `PausedEvent { account }`, `UnpausedEvent { account }`
-- The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: a helper takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.
-- The indexer consumes the IDL files (`idl/protocol_adapter.json`) for the same decoding in non-Rust/TS contexts.
+- Decoders for every Anchor event emitted by the SPL Token Forwarder:
+  - `Wrapped { token_mint, from, amount: u64, nonce: u64, action_tree_root: [u8; 32] }`
+  - `Unwrapped { token_mint, to, amount: u64 }`
+  - `EmergencyCallerSet { emergency_caller, set_by }`
+  - `EmergencyWithdraw { token_mint, to, amount: u64, caller }`
+  - `Initialized { version: u64 }`
+- Both programs emit every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: one helper per program takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.
+- The indexer consumes the IDL files (`idl/protocol_adapter.json`, `idl/spl_token_forwarder.json`) for the same decoding in non-Rust/TS contexts.
 
 ### 3.9 Wrap message construction
 
