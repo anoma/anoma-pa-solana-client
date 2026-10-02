@@ -175,6 +175,17 @@ fn send(
     tables: &[AddressLookupTableAccount],
     label: &str,
 ) -> Signature {
+    try_send(client, payer, ixs, tables, label).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// `send`, returning the failure instead of panicking on it.
+fn try_send(
+    client: &RpcClient,
+    payer: &Keypair,
+    ixs: &[Instruction],
+    tables: &[AddressLookupTableAccount],
+    label: &str,
+) -> Result<Signature, String> {
     let blockhash = client.get_latest_blockhash().expect("blockhash");
     let message = v0::Message::try_compile(&payer.pubkey(), ixs, tables, blockhash)
         .expect("compile v0 message");
@@ -188,9 +199,9 @@ fn send(
     let size = bincode::serialized_size(&tx).expect("serialize");
     let sig = client
         .send_and_confirm_transaction(&tx)
-        .unwrap_or_else(|e| panic!("{label} failed: {e}"));
+        .map_err(|e| format!("{label} failed: {e}"))?;
     println!("{label}: {sig} ({size} bytes, {static_keys} static keys, {looked_up} looked up)");
-    sig
+    Ok(sig)
 }
 
 fn main() {
@@ -326,40 +337,6 @@ fn main() {
         .unwrap()
         .as_secs();
     let (tx_data, _) = derive_tx_data_pda(&args.pa, &payer.pubkey(), upload_id);
-    let expires_slot = client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT;
-    send(
-        &client,
-        &payer,
-        &[txdata_init_ix(
-            &args.pa,
-            &pa_state,
-            &tx_data,
-            &payer.pubkey(),
-            upload_id,
-            tx_bytes.len() as u32,
-            expires_slot,
-        )],
-        &[],
-        "txdata_init",
-    );
-    for (i, chunk) in tx_bytes.chunks(TXDATA_CHUNK_SIZE).enumerate() {
-        send(
-            &client,
-            &payer,
-            &[txdata_write_ix(
-                &args.pa,
-                &tx_data,
-                &payer.pubkey(),
-                upload_id,
-                (i * TXDATA_CHUNK_SIZE) as u32,
-                chunk,
-            )],
-            &[],
-            &format!("txdata_write[{i}]"),
-        );
-    }
-
-    // 5. Settle.
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&Pubkey::from(state.verifier_router));
     let verifier_program = verifier_program_of(&client, &verifier_entry);
@@ -381,13 +358,50 @@ fn main() {
             remaining,
         ),
     ]);
-    let settle_sig = send(
+    let expires_slot = client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT;
+    send(
         &client,
         &payer,
-        &settle_ixs,
-        std::slice::from_ref(&table),
-        "settle_from_txdata",
+        &[txdata_init_ix(
+            &args.pa,
+            &pa_state,
+            &tx_data,
+            &payer.pubkey(),
+            upload_id,
+            tx_bytes.len() as u32,
+            expires_slot,
+        )],
+        &[],
+        "txdata_init",
     );
+
+    // 5. Write the chunks and settle, then close the upload whatever the
+    // outcome, so a refused settlement does not strand its rent.
+    let settled = (|| {
+        for (i, chunk) in tx_bytes.chunks(TXDATA_CHUNK_SIZE).enumerate() {
+            try_send(
+                &client,
+                &payer,
+                &[txdata_write_ix(
+                    &args.pa,
+                    &tx_data,
+                    &payer.pubkey(),
+                    upload_id,
+                    (i * TXDATA_CHUNK_SIZE) as u32,
+                    chunk,
+                )],
+                &[],
+                &format!("txdata_write[{i}]"),
+            )?;
+        }
+        try_send(
+            &client,
+            &payer,
+            &settle_ixs,
+            std::slice::from_ref(&table),
+            "settle_from_txdata",
+        )
+    })();
     send(
         &client,
         &payer,
@@ -401,6 +415,7 @@ fn main() {
         &[],
         "txdata_close",
     );
+    let settle_sig = settled.unwrap_or_else(|e| panic!("{e}"));
 
     // 6. Read back: the root moved to the prediction, and the events decode.
     let after = decode_pa_state(&client.get_account_data(&pa_state).expect("pa_state")).unwrap();
