@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { BN, BorshCoder, type Idl } from "@anchor-lang/core";
 import { keccak_256 } from "@noble/hashes/sha3";
+import { PublicKey } from "@solana/web3.js";
 
 import { toHex } from "./codecs.js";
 import { anchorEventDisc } from "./discriminator.js";
@@ -159,16 +161,43 @@ const forwarderCases: [ForwarderEvent["name"], Uint8Array, ForwarderEvent][] = [
   ["Initialized", eventIx("Initialized", [u64Le(2n)]), { name: "Initialized", version: 2n }],
 ];
 
-const forwarderIdlEvents = (
-  JSON.parse(
-    readFileSync(fileURLToPath(new URL("../../idl/spl_token_forwarder.json", import.meta.url)), "utf8"),
-  ) as { events: { name: string; discriminator: number[] }[] }
-).events;
+const forwarderIdl = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../idl/spl_token_forwarder.json", import.meta.url)), "utf8"),
+) as { events: { name: string; discriminator: number[] }[] };
+const forwarderIdlEvents = forwarderIdl.events;
 
 describe("decodeForwarderEventInstruction", () => {
   it("decodes every forwarder event from hand-built bytes", () => {
     for (const [name, data, expected] of forwarderCases) {
       expect(decodeForwarderEventInstruction(data), name).toEqual(expected);
+    }
+  });
+
+  // Anchor's coder reads each body from the IDL's field list, independently of
+  // this decoder: a field order or width both the decoder and the hand-built
+  // bytes got wrong would decode differently here.
+  it("decodes every forwarder event as Anchor's IDL coder does", () => {
+    const coder = new BorshCoder(forwarderIdl as Idl);
+    const plain = (value: unknown): unknown =>
+      value instanceof PublicKey
+        ? hex(value.toBytes())
+        : BN.isBN(value)
+          ? BigInt(value.toString())
+          : value instanceof Uint8Array || Array.isArray(value)
+            ? hex(Uint8Array.from(value as number[]))
+            : value;
+    for (const [name, data] of forwarderCases) {
+      const anchorEvent = coder.events.decode(Buffer.from(data.slice(8)).toString("base64"));
+      expect(anchorEvent?.name, name).toBe(name);
+      const { name: _, ...fields } = decodeForwarderEventInstruction(data);
+      expect(
+        Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, plain(v)])),
+        name,
+      ).toEqual(
+        Object.fromEntries(
+          Object.entries(anchorEvent!.data).map(([k, v]) => [k.replace(/_(.)/g, (_m, c: string) => c.toUpperCase()), plain(v)]),
+        ),
+      );
     }
   });
 
