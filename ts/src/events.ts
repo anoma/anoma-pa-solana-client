@@ -274,7 +274,7 @@ function forwarderEventBody(disc: Uint8Array, c: Cursor): ForwarderEvent {
     return ownershipTransferred("OwnershipTransferred", c);
   }
   if (bytesEqual(disc, anchorEventDisc("Upgraded"))) {
-    return { name: "Upgraded", executableHash: c.array32("executable_hash") };
+    return upgraded("Upgraded", c);
   }
   throw unknownDiscriminator(disc);
 }
@@ -284,6 +284,10 @@ function ownershipTransferred<N extends "OwnershipTransferredEvent" | "Ownership
   c: Cursor,
 ): OwnershipTransferredEvent<N> {
   return { name, previousOwner: c.array32("previous_owner"), newOwner: c.array32("new_owner") };
+}
+
+function upgraded<N extends "UpgradedEvent" | "Upgraded">(name: N, c: Cursor): UpgradedEvent<N> {
+  return { name, executableHash: c.array32("executable_hash") };
 }
 
 function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
@@ -323,7 +327,7 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
     return ownershipTransferred("OwnershipTransferredEvent", c);
   }
   if (bytesEqual(disc, anchorEventDisc("UpgradedEvent"))) {
-    return { name: "UpgradedEvent", executableHash: c.array32("executable_hash") };
+    return upgraded("UpgradedEvent", c);
   }
   if (bytesEqual(disc, anchorEventDisc("ForwarderCallExecutedEvent"))) {
     return {
