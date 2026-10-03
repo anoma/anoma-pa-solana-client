@@ -88,7 +88,7 @@ export interface PauseEvent {
 /**
  * The ownership moved from `previousOwner` to `newOwner`, as OpenZeppelin
  * Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
- * previous owner at `initialize` or a migration, the new owner once
+ * previous owner at `initialize`, the new owner once
  * renounced). The PA names it `OwnershipTransferredEvent`, the forwarder
  * `OwnershipTransferred`.
  */

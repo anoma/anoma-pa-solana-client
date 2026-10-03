@@ -4,7 +4,7 @@
 #
 # Format: the full 40-character commit SHA on its own line. Comments allowed.
 
-# solana-protocol-adapter anthony/arm-v2-port at the merge of #117:
-# protocol-adapter 2.0.0-rc.2 and spl-token-forwarder 2.0.0-rc.3. The four IDL
+# solana-protocol-adapter anoma/solana-protocol-adapter#118 head:
+# protocol-adapter 2.0.0-rc.3 and spl-token-forwarder 2.0.0-rc.4. The four IDL
 # files are its production builds' IDLs.
-f02c0c5b9c928cdc6d5eb14b896d2bde5855671e
+27a93e8b3a0fa1269bac5c1656fb95ee0bb5d5d2

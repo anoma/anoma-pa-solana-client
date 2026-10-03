@@ -76,7 +76,7 @@ pub struct PauseEvent {
 
 /// The ownership moved from `previous_owner` to `new_owner`, as OpenZeppelin
 /// Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
-/// previous owner at `initialize` or a migration, the new owner once
+/// previous owner at `initialize`, the new owner once
 /// renounced). Both programs emit it: the PA as `OwnershipTransferredEvent`,
 /// the forwarder as `OwnershipTransferred`.
 #[derive(Clone, Debug, PartialEq, Eq)]
