@@ -12,12 +12,14 @@ import { Cursor, TruncatedError } from "./cursor.js";
  * layout, and refuses every instruction on an account whose number is not its
  * own; a mismatch seen by a client is a deployment mid-migration.
  */
-export const PA_STATE_SCHEMA_VERSION = 2;
+export const PA_STATE_SCHEMA_VERSION = 3;
 
 /** Decoded PA state account. */
 export interface PAStateAccount {
   schemaVersion: number;
   bump: number;
+  /** The adapter's owner, who signs every owner-only instruction and upgrades the program; all zeros once renounced. */
+  owner: Uint8Array;
   verifierRouter: Uint8Array;
   proofSelector: Uint8Array;
   /** Kind-table commitment every settled aggregation instance must carry. */
@@ -66,6 +68,7 @@ function decode(c: Cursor): PAStateAccount {
     );
   }
   const bump = c.u8("bump");
+  const owner = c.array32("owner");
   const verifierRouter = c.array32("verifier_router");
   const proofSelector = c.take(4, "proof_selector");
   const kindTableCommitment = c.array32("kind_table_commitment");
@@ -97,6 +100,7 @@ function decode(c: Cursor): PAStateAccount {
   return {
     schemaVersion,
     bump,
+    owner,
     verifierRouter,
     proofSelector,
     kindTableCommitment,

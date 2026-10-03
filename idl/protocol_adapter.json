@@ -2,7 +2,7 @@
   "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc",
   "metadata": {
     "name": "protocol_adapter",
-    "version": "2.0.0-rc.1",
+    "version": "2.0.0-rc.2",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
   },
@@ -50,7 +50,7 @@
         {
           "name": "authority",
           "docs": [
-            "The authority, which pays for the denylist's growth."
+            "The owner, which pays for the denylist's growth."
           ],
           "writable": true,
           "signer": true
@@ -58,14 +58,6 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "This program's ProgramData, where the loader records the upgrade",
-            "authority: the adapter's owner."
-          ],
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
         },
         {
           "name": "event_authority"
@@ -89,13 +81,17 @@
     {
       "name": "initialize",
       "docs": [
-        "Initialize a new PAState account.",
+        "Initialize a new PAState account, owned by `initial_owner`.",
         "",
-        "Takes no remaining accounts. The empty-tree root equals `PADDING_LEAF`,",
-        "which `is_root_valid` accepts unconditionally, so transactions built",
-        "against the initial tree stay valid without a genesis marker. Like",
-        "pa-evm's initializer, it starts on the empty kind table and announces",
-        "it; `set_kind_table_commitment` installs any other table."
+        "Signed by the program's upgrade authority, the deployer, who alone may",
+        "initialize it; it hands that authority to the program's",
+        "`UPGRADE_AUTHORITY_SEED` PDA, so from then on only `upgrade`, for the",
+        "owner, upgrades the program. Takes no remaining accounts. The",
+        "empty-tree root equals `PADDING_LEAF`, which `is_root_valid` accepts",
+        "unconditionally, so transactions built against the initial tree stay",
+        "valid without a genesis marker. Like pa-evm's initializer, it sets the",
+        "owner, starts on the empty kind table, and announces both;",
+        "`set_kind_table_commitment` installs any other table."
       ],
       "discriminator": [
         175,
@@ -142,9 +138,47 @@
           "name": "program_data",
           "docs": [
             "This program's ProgramData, where the loader records the upgrade",
-            "authority: the adapter's owner, who alone initializes it."
+            "authority: the deployer, who alone initializes the adapter and hands",
+            "the authority to `upgrade_authority`."
           ],
+          "writable": true,
           "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
+        },
+        {
+          "name": "upgrade_authority",
+          "docs": [
+            "seeds pin it."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  103,
+                  114,
+                  97,
+                  100,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bpf_loader_upgradeable",
+          "address": "BPFLoaderUpgradeab1e11111111111111111111111"
         },
         {
           "name": "verifier_entry",
@@ -161,6 +195,10 @@
       ],
       "args": [
         {
+          "name": "initial_owner",
+          "type": "pubkey"
+        },
+        {
           "name": "verifier_router",
           "type": "pubkey"
         },
@@ -176,6 +214,123 @@
       ]
     },
     {
+      "name": "migrate_state",
+      "docs": [
+        "Bring a state account in the previous schema version to this one,",
+        "owned by the upgrade authority that signs, and hand the program's",
+        "upgrade authority to its `UPGRADE_AUTHORITY_SEED` PDA. In the previous",
+        "version the upgrade authority was the owner; from this one the owner",
+        "is stored and upgrades go through `upgrade`. The counterpart of the",
+        "call pa-evm's owner passes to `upgradeToAndCall`: run once, after the",
+        "in-place upgrade and before any other instruction, which all refuse",
+        "the previous version. It parses the previous layout rather than",
+        "reinterpreting its bytes, pays for the account's growth, and",
+        "announces the owner as `initialize` does."
+      ],
+      "discriminator": [
+        34,
+        189,
+        226,
+        222,
+        218,
+        156,
+        19,
+        213
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The upgrade authority, the owner in the previous schema version,",
+            "which pays for the account's growth and becomes the stored owner."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pa_state",
+          "docs": [
+            "as owner and the previous schema's layout, which the typed account",
+            "cannot read."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "This program's ProgramData, where the loader records the upgrade",
+            "authority, which the handler hands to `upgrade_authority`."
+          ],
+          "writable": true,
+          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
+        },
+        {
+          "name": "upgrade_authority",
+          "docs": [
+            "seeds pin it."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  103,
+                  114,
+                  97,
+                  100,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bpf_loader_upgradeable",
+          "address": "BPFLoaderUpgradeab1e11111111111111111111111"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "pause",
       "docs": [
         "Pause settlement. Mirrors pa-evm's `pause()`: owner-only, refused",
@@ -183,15 +338,11 @@
         "While paused, `settle` and `settle_from_txdata` refuse every",
         "transaction; nothing else is gated.",
         "",
-        "A permanent shutdown is a pause followed by setting",
-        "`program_data.upgrade_authority_address` to `None`: with no upgrade",
-        "authority, no one can unpause or upgrade. Do that only once the",
-        "deployment is truly retired, because `initialize` requires",
-        "`program_data.upgrade_authority_address == Some(payer.key())`, so this",
-        "program ID can never be initialized again. `close_markers_batch`, which",
-        "requires a paused adapter, exists only in `dev-teardown` builds (never",
-        "present in production) to reclaim marker rent so a *development*",
-        "deployment can be re-initialized in place."
+        "A permanent shutdown is a pause followed by `renounce_ownership`, as",
+        "on pa-evm: with no owner, no one can unpause or upgrade.",
+        "`close_markers_batch`, which requires a paused adapter, exists only in",
+        "`dev-teardown` builds (never present in production) to reclaim a",
+        "development deployment's marker rent."
       ],
       "discriminator": [
         211,
@@ -230,12 +381,56 @@
           "signer": true
         },
         {
-          "name": "program_data",
-          "docs": [
-            "This program's ProgramData, where the loader records the upgrade",
-            "authority: the adapter's owner."
-          ],
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "renounce_ownership",
+      "docs": [
+        "Give up the ownership for good. Mirrors OwnableUpgradeable's",
+        "`renounceOwnership`: owner only; the owner becomes the zero key, so",
+        "no owner-only instruction, `upgrade` included, can run again."
+      ],
+      "discriminator": [
+        19,
+        143,
+        91,
+        79,
+        34,
+        168,
+        174,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
         },
         {
           "name": "event_authority"
@@ -337,14 +532,6 @@
         {
           "name": "authority",
           "signer": true
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "This program's ProgramData, where the loader records the upgrade",
-            "authority: the adapter's owner."
-          ],
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
         },
         {
           "name": "event_authority"
@@ -556,6 +743,64 @@
         {
           "name": "_upload_id",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "transfer_ownership",
+      "docs": [
+        "Move the ownership to `new_owner`. Mirrors OwnableUpgradeable's",
+        "`transferOwnership`: owner only, effective at once, the zero key",
+        "refused (`OwnableInvalidOwner`), announced with",
+        "`OwnershipTransferredEvent`."
+      ],
+      "discriminator": [
+        65,
+        177,
+        215,
+        73,
+        53,
+        45,
+        99,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_owner",
+          "type": "pubkey"
         }
       ]
     },
@@ -977,14 +1222,6 @@
           "signer": true
         },
         {
-          "name": "program_data",
-          "docs": [
-            "This program's ProgramData, where the loader records the upgrade",
-            "authority: the adapter's owner."
-          ],
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
-        },
-        {
           "name": "event_authority"
         },
         {
@@ -1033,14 +1270,6 @@
         {
           "name": "authority",
           "signer": true
-        },
-        {
-          "name": "program_data",
-          "docs": [
-            "This program's ProgramData, where the loader records the upgrade",
-            "authority: the adapter's owner."
-          ],
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
         }
       ],
       "args": [
@@ -1053,6 +1282,135 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "upgrade",
+      "docs": [
+        "Replace this program's code with the code in `buffer`. Mirrors the",
+        "UUPS `upgradeToAndCall` pa-evm's owner calls: owner only",
+        "(`_authorizeUpgrade`), announced with `UpgradedEvent`, which names the",
+        "new code by its executable hash as ERC1967's `Upgraded` names the new",
+        "implementation. The buffer's authority must be the owner, who wrote",
+        "it; the program hands it to its upgrade authority PDA, which signs the",
+        "upgrade, and its rent goes to `spill`. The new code",
+        "runs from the next slot, so a release that changes a layout ships a",
+        "migration the owner runs after it."
+      ],
+      "discriminator": [
+        239,
+        238,
+        57,
+        74,
+        205,
+        87,
+        165,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "pa_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "address pins it."
+          ],
+          "writable": true,
+          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
+        },
+        {
+          "name": "upgraded_program",
+          "docs": [
+            "the address pins it."
+          ],
+          "writable": true,
+          "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc"
+        },
+        {
+          "name": "buffer",
+          "docs": [
+            "loader requires to be the owner, who signs; `executable_hash` refuses",
+            "any other account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "spill",
+          "writable": true
+        },
+        {
+          "name": "upgrade_authority",
+          "docs": [
+            "the seeds pin it."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  103,
+                  114,
+                  97,
+                  100,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        },
+        {
+          "name": "bpf_loader_upgradeable",
+          "address": "BPFLoaderUpgradeab1e11111111111111111111111"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
     },
     {
       "name": "version",
@@ -1210,6 +1568,19 @@
       ]
     },
     {
+      "name": "OwnershipTransferredEvent",
+      "discriminator": [
+        64,
+        151,
+        32,
+        57,
+        187,
+        155,
+        242,
+        84
+      ]
+    },
+    {
       "name": "PausedEvent",
       "discriminator": [
         43,
@@ -1259,6 +1630,19 @@
         86,
         160,
         55
+      ]
+    },
+    {
+      "name": "UpgradedEvent",
+      "discriminator": [
+        4,
+        77,
+        187,
+        151,
+        92,
+        63,
+        232,
+        46
       ]
     }
   ],
@@ -1492,6 +1876,26 @@
       "code": 6045,
       "name": "ZeroProofSelectorNotAllowed",
       "msg": "Zero proof selector not allowed"
+    },
+    {
+      "code": 6046,
+      "name": "OwnableUnauthorizedAccount",
+      "msg": "The signer is not the adapter's owner"
+    },
+    {
+      "code": 6047,
+      "name": "OwnableInvalidOwner",
+      "msg": "The zero key cannot be the owner"
+    },
+    {
+      "code": 6048,
+      "name": "NotPreviousSchema",
+      "msg": "PAState is not a state account in the previous schema version"
+    },
+    {
+      "code": 6049,
+      "name": "InvalidUpgradeBuffer",
+      "msg": "Buffer is not a loader buffer holding a program"
     }
   ],
   "types": [
@@ -1723,6 +2127,28 @@
       }
     },
     {
+      "name": "OwnershipTransferredEvent",
+      "docs": [
+        "Mirrors OpenZeppelin Ownable: `event OwnershipTransferred(address indexed",
+        "previousOwner, address indexed newOwner);`. The zero key stands for no",
+        "owner: the previous owner when `initialize` or `migrate_state` sets the",
+        "first one, the new owner when `renounce_ownership` gives it up."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previous_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_owner",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "PAStateAccount",
       "docs": [
         "Protocol Adapter state — commitment tree frontier with variable depth (1-32).",
@@ -1739,17 +2165,28 @@
               "every layout: a later binary that changes the layout reads this byte",
               "through an unchecked account to decide whether it may migrate. Every",
               "instruction that reads this account — all but `initialize`, which",
-              "creates it, and the development-only `dev_set_schema_version` —",
-              "refuses an account whose version is not `SCHEMA_VERSION`. A layout",
-              "change bumps the constant, may add, remove or reorder the other",
-              "fields, and ships a migration instruction that parses the previous",
-              "layout explicitly, run once right after the in-place upgrade."
+              "creates it, `migrate_state`, which requires the previous version, and",
+              "the development-only `dev_set_schema_version` — refuses an account",
+              "whose version is not `SCHEMA_VERSION`. A layout change bumps the",
+              "constant and may add, remove or reorder the other fields:",
+              "`migrate_state` parses the previous layout explicitly."
             ],
             "type": "u8"
           },
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "The adapter's owner, as OpenZeppelin's `OwnableUpgradeable` stores",
+              "pa-evm's: it signs every owner-only instruction, upgrades the program",
+              "(`upgrade`), and moves or renounces the ownership",
+              "(`transfer_ownership`, `renounce_ownership`). The all-zero key once",
+              "renounced, which no one can sign for."
+            ],
+            "type": "pubkey"
           },
           {
             "name": "verifier_router",
@@ -1980,6 +2417,30 @@
           }
         ]
       }
+    },
+    {
+      "name": "UpgradedEvent",
+      "docs": [
+        "Mirrors ERC1967: `event Upgraded(address indexed implementation);`. A",
+        "Solana program keeps its address across upgrades, so the new code is",
+        "named by its executable hash: sha256 of the code without trailing zero",
+        "bytes, which `solana-verify get-program-hash` reports for the deployed",
+        "program."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "executable_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
     }
   ],
   "constants": [
@@ -2036,6 +2497,14 @@
       "value": "[112, 97, 95, 115, 116, 97, 116, 101]"
     },
     {
+      "name": "PREVIOUS_SCHEMA_VERSION",
+      "docs": [
+        "The schema version `migrate_state` migrates from."
+      ],
+      "type": "u8",
+      "value": "2"
+    },
+    {
       "name": "ROOT_SEED",
       "docs": [
         "Seeds prefix for root marker PDA derivation."
@@ -2050,7 +2519,7 @@
         "Bumped on every change to the account layout; unrelated to release names."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "3"
     },
     {
       "name": "SEVEN_DAYS_SLOTS",
@@ -2064,6 +2533,18 @@
       "name": "TX_DATA_SEED",
       "type": "bytes",
       "value": "[116, 120, 95, 100, 97, 116, 97]"
+    },
+    {
+      "name": "UPGRADE_AUTHORITY_SEED",
+      "docs": [
+        "Seed of the PDA that is the program's upgrade authority once initialized:",
+        "the loader accepts an upgrade only signed by it, which only this program",
+        "can sign, and only in `upgrade`, for the owner. pa-evm's UUPS",
+        "implementation likewise authorizes its own upgrades (`_authorizeUpgrade`,",
+        "owner only)."
+      ],
+      "type": "bytes",
+      "value": "[117, 112, 103, 114, 97, 100, 101, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
     }
   ]
 }

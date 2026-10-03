@@ -85,3 +85,14 @@ cea162c65474302550361d29a95977236ca843d7
 # it (production build); the adapter and block-time forwarder IDLs are
 # unchanged.
 863e095cae4249d550b113e98691f96a28c1027f
+
+# solana-protocol-adapter anthony/arm-v2-port f02c0c5 (merge of #117): the
+# adapter and the forwarder store their owner, move it with transfer_ownership /
+# renounce_ownership (OwnershipTransferred(Event)), and upgrade only through
+# their own owner-only upgrade, signed by their upgrade_authority PDA
+# (Upgraded(Event) with the new code's executable hash), as pa-evm's
+# Ownable UUPS contracts; PAState schema 3 stores the owner, migrate_state
+# and migrate_config bring the previous layouts over. Adapter 2.0.0-rc.2,
+# forwarder 2.0.0-rc.3. idl/protocol_adapter.json and
+# idl/spl_token_forwarder.json are regenerated from it (production build).
+f02c0c5b9c928cdc6d5eb14b896d2bde5855671e

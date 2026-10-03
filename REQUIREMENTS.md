@@ -81,7 +81,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.7 Account decoders
 
-- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly (schema version 2): `schema_version: u8`, `bump`, `verifier_router`, `proof_selector: [u8; 4]`, `kind_table_commitment: [u8; 32]`, `paused: bool`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`, `denied_logic_refs: Vec<[u8; 32]>`. The decoder refuses any other schema version.
+- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly (schema version 3): `schema_version: u8`, `bump`, `owner: [u8; 32]`, `verifier_router`, `proof_selector: [u8; 4]`, `kind_table_commitment: [u8; 32]`, `paused: bool`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`, `denied_logic_refs: Vec<[u8; 32]>`. The decoder refuses any other schema version.
 - The schema is sourced from the PA repository at the commit tagged by this package's version. When the PA's struct changes, the new struct shape ships in the next release.
 
 ### 3.8 Event decoders
@@ -93,12 +93,14 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
   - `ForwarderCallExecutedEvent { forwarder, input, output }`
   - `CommitmentTreeRootAddedEvent { root }`, `KindTableCommitmentUpdatedEvent { kind_table_commitment }`, `LogicRefDeniedEvent { logic_ref }`
   - `PausedEvent { account }`, `UnpausedEvent { account }`
+  - `OwnershipTransferredEvent { previous_owner, new_owner }`, `UpgradedEvent { executable_hash: [u8; 32] }`
 - Decoders for every Anchor event emitted by the SPL Token Forwarder:
   - `Wrapped { token_mint, from, amount: u64, nonce: u64, action_tree_root: [u8; 32] }`
   - `Unwrapped { token_mint, to, amount: u64 }`
   - `EmergencyCallerSet { emergency_caller, set_by }`
   - `EmergencyWithdraw { token_mint, to, amount: u64, caller }`
   - `Initialized { version: u64 }`
+  - `OwnershipTransferred { previous_owner, new_owner }`, `Upgraded { executable_hash: [u8; 32] }`
 - Both programs emit every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: one helper per program takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.
 - The indexer consumes the IDL files (`idl/protocol_adapter.json`, `idl/spl_token_forwarder.json`) for the same decoding in non-Rust/TS contexts.
 
