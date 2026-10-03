@@ -56,6 +56,19 @@ pub fn init_nonce_bitmap_ix(
     }
 }
 
+/// The head of every forwarder CPI segment: the forwarder (segment marker),
+/// its config, the instructions sysvar, then the forwarder's event authority
+/// and the forwarder again, which its CPI events need.
+fn forwarder_segment_head(forwarder_program: &Pubkey) -> [AccountMeta; 5] {
+    [
+        AccountMeta::new_readonly(*forwarder_program, false),
+        AccountMeta::new_readonly(derive_forwarder_config_pda(forwarder_program).0, false),
+        AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        AccountMeta::new_readonly(derive_event_authority_pda(forwarder_program).0, false),
+        AccountMeta::new_readonly(*forwarder_program, false),
+    ]
+}
+
 /// Build the wrap forwarder CPI segment.
 ///
 /// Order: `[forwarder_program, config, ix_sysvar, event_authority,
@@ -67,26 +80,20 @@ pub fn build_wrap_forwarder_accounts(
     token_mint: &Pubkey,
     nonce: u64,
 ) -> Vec<AccountMeta> {
-    let (config_pda, _) = derive_forwarder_config_pda(forwarder_program);
     let (escrow_authority, _) = derive_forwarder_escrow_authority(forwarder_program);
-    let (event_authority, _) = derive_event_authority_pda(forwarder_program);
     let user_ata = derive_associated_token_address(user, token_mint);
     let escrow_ata = derive_associated_token_address(&escrow_authority, token_mint);
     let (nonce_bitmap_pda, _) =
         derive_nonce_bitmap_pda(forwarder_program, user, nonce_word_index(nonce));
 
-    let accounts = vec![
-        AccountMeta::new_readonly(*forwarder_program, false), // segment marker
-        AccountMeta::new_readonly(config_pda, false),         // config
-        AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
-        AccountMeta::new_readonly(event_authority, false),    // event authority
-        AccountMeta::new_readonly(*forwarder_program, false), // program (CPI events)
-        AccountMeta::new(user_ata, false),                    // user ATA
-        AccountMeta::new(escrow_ata, false),                  // escrow ATA
-        AccountMeta::new_readonly(escrow_authority, false),   // escrow authority
-        AccountMeta::new(nonce_bitmap_pda, false),            // nonce bitmap
-        AccountMeta::new_readonly(spl_token::id(), false),    // token program
-    ];
+    let mut accounts = forwarder_segment_head(forwarder_program).to_vec();
+    accounts.extend([
+        AccountMeta::new(user_ata, false),                  // user ATA
+        AccountMeta::new(escrow_ata, false),                // escrow ATA
+        AccountMeta::new_readonly(escrow_authority, false), // escrow authority
+        AccountMeta::new(nonce_bitmap_pda, false),          // nonce bitmap
+        AccountMeta::new_readonly(spl_token::id(), false),  // token program
+    ]);
     debug_assert_eq!(accounts.len(), FORWARDER_WRAP_NUM_ACCOUNTS as usize);
     accounts
 }
@@ -101,23 +108,17 @@ pub fn build_unwrap_forwarder_accounts(
     recipient: &Pubkey,
     token_mint: &Pubkey,
 ) -> Vec<AccountMeta> {
-    let (config_pda, _) = derive_forwarder_config_pda(forwarder_program);
     let (escrow_authority, _) = derive_forwarder_escrow_authority(forwarder_program);
-    let (event_authority, _) = derive_event_authority_pda(forwarder_program);
     let escrow_ata = derive_associated_token_address(&escrow_authority, token_mint);
     let recipient_ata = derive_associated_token_address(recipient, token_mint);
 
-    let accounts = vec![
-        AccountMeta::new_readonly(*forwarder_program, false), // segment marker
-        AccountMeta::new_readonly(config_pda, false),         // config
-        AccountMeta::new_readonly(sysvar::instructions::id(), false), // ix sysvar
-        AccountMeta::new_readonly(event_authority, false),    // event authority
-        AccountMeta::new_readonly(*forwarder_program, false), // program (CPI events)
-        AccountMeta::new(escrow_ata, false),                  // escrow ATA
-        AccountMeta::new(recipient_ata, false),               // recipient ATA
-        AccountMeta::new_readonly(escrow_authority, false),   // escrow authority
-        AccountMeta::new_readonly(spl_token::id(), false),    // token program
-    ];
+    let mut accounts = forwarder_segment_head(forwarder_program).to_vec();
+    accounts.extend([
+        AccountMeta::new(escrow_ata, false),                // escrow ATA
+        AccountMeta::new(recipient_ata, false),             // recipient ATA
+        AccountMeta::new_readonly(escrow_authority, false), // escrow authority
+        AccountMeta::new_readonly(spl_token::id(), false),  // token program
+    ]);
     debug_assert_eq!(accounts.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);
     accounts
 }
