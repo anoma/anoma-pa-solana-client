@@ -41,13 +41,15 @@ pub fn derive_root_marker_pda(
     Pubkey::find_program_address(&[b"root", pa_state.as_ref(), root], pa_program)
 }
 
-/// Derive the PA's event authority PDA. Seed: `["__event_authority"]`.
+/// Derive a program's event authority PDA. Seed: `["__event_authority"]`.
 ///
 /// Anchor's `#[event_cpi]` signs each event self-invocation with this PDA and
-/// requires it, followed by the program's own address, as the last two named
-/// accounts of `settle` and `settle_from_txdata`.
-pub fn derive_event_authority_pda(pa_program: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[b"__event_authority"], pa_program)
+/// requires it, followed by the program's own address, after an
+/// instruction's other named accounts: the PA's `settle` and
+/// `settle_from_txdata`, and the forwarder's instructions that emit events
+/// (inside the forwarder CPI segment for `forward_call`).
+pub fn derive_event_authority_pda(program: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"__event_authority"], program)
 }
 
 // ---- Forwarder PDAs ----------------------------------------------------------

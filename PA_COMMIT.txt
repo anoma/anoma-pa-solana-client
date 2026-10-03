@@ -75,3 +75,13 @@ cea162c65474302550361d29a95977236ca843d7
 # and previous-build migrations (migrate_state, migrate_*), which no
 # deployment needs. The four IDL files are regenerated from it.
 2da415195c17f7e1c771448c396305785e9c2e68
+
+# solana-protocol-adapter anthony/forwarder-cpi-events 863e095: the SPL token
+# forwarder emits every event as a CPI event (Wrapped, Unwrapped, Initialized,
+# EmergencyWithdraw, EmergencyCallerSet), so forward_call's segment carries the
+# forwarder's event authority and the forwarder (wrap 10 accounts, unwrap 9);
+# forwarder 2.0.0-rc.2, CONFIG_VERSION 3, transfer circuit 1f90852b.
+# idl/spl_token_forwarder.json and idl/test_forwarder.json are regenerated from
+# it (production build); the adapter and block-time forwarder IDLs are
+# unchanged.
+863e095cae4249d550b113e98691f96a28c1027f

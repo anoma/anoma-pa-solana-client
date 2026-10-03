@@ -11,6 +11,7 @@ import {
 } from "./forwarder.js";
 import {
   deriveAssociatedTokenAddress,
+  deriveEventAuthorityPda,
   deriveForwarderConfigPda,
   deriveForwarderEscrowAuthority,
   deriveNonceBitmapPda,
@@ -31,6 +32,8 @@ describe("forwarder segment builders", () => {
         forwarder,
         deriveForwarderConfigPda(forwarder)[0],
         SYSVAR_INSTRUCTIONS_PUBKEY,
+        deriveEventAuthorityPda(forwarder)[0],
+        forwarder,
         deriveAssociatedTokenAddress(user, mint),
         deriveAssociatedTokenAddress(escrowAuthority, mint),
         escrowAuthority,
@@ -38,7 +41,7 @@ describe("forwarder segment builders", () => {
         TOKEN_PROGRAM_ID,
       ].map((k) => k.toBase58()),
     );
-    expect(accounts.map((a) => a.isWritable)).toEqual([false, false, false, true, true, false, true, false]);
+    expect(accounts.map((a) => a.isWritable)).toEqual([false, false, false, false, false, true, true, false, true, false]);
     expect(accounts.every((a) => !a.isSigner)).toBe(true);
   });
 
@@ -53,13 +56,15 @@ describe("forwarder segment builders", () => {
         forwarder,
         deriveForwarderConfigPda(forwarder)[0],
         SYSVAR_INSTRUCTIONS_PUBKEY,
+        deriveEventAuthorityPda(forwarder)[0],
+        forwarder,
         deriveAssociatedTokenAddress(escrowAuthority, mint),
         deriveAssociatedTokenAddress(recipient, mint),
         escrowAuthority,
         TOKEN_PROGRAM_ID,
       ].map((k) => k.toBase58()),
     );
-    expect(accounts.map((a) => a.isWritable)).toEqual([false, false, false, true, true, false, false]);
+    expect(accounts.map((a) => a.isWritable)).toEqual([false, false, false, false, false, true, true, false, false]);
     expect(accounts.every((a) => !a.isSigner)).toBe(true);
   });
 

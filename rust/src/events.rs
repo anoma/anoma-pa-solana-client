@@ -1,11 +1,13 @@
-//! Decoders for the PA's settlement events.
+//! Decoders for the events of the PA and of the SPL Token Forwarder.
 //!
-//! The PA emits every event as a self-invocation (Anchor `#[event_cpi]`): an
-//! inner instruction whose program is the PA and whose data is the 8-byte
-//! event tag, the event's 8-byte discriminator (`sha256("event:<Name>")[..8]`),
-//! and the Borsh-encoded body. Readers take a settlement transaction's inner
-//! instructions and pass each PA-addressed one through
-//! [`decode_event_instruction`]. Events never appear in the program log.
+//! Both programs emit every event as a self-invocation (Anchor `#[event_cpi]`):
+//! an inner instruction whose program is the emitter and whose data is the
+//! 8-byte event tag, the event's 8-byte discriminator
+//! (`sha256("event:<Name>")[..8]`), and the Borsh-encoded body. Readers take a
+//! settlement transaction's inner instructions and pass each PA-addressed one
+//! through [`decode_event_instruction`] and each forwarder-addressed one
+//! through [`decode_forwarder_event_instruction`]. Events never appear in the
+//! program log.
 
 use crate::constants::ANCHOR_DISCRIMINATOR_LEN;
 use crate::cursor::{Cursor, Truncated};
@@ -97,12 +99,70 @@ pub enum PaEvent {
     Unpaused(PauseEvent),
 }
 
-/// Errors produced by [`decode_event_instruction`].
+/// The forwarder escrowed `amount` of `token_mint` from `from` for the wrap
+/// with `nonce`, authorized for the action whose tree root is
+/// `action_tree_root`, as the EVM forwarder's `Wrapped`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WrappedEvent {
+    pub token_mint: [u8; 32],
+    pub from: [u8; 32],
+    pub amount: u64,
+    pub nonce: u64,
+    pub action_tree_root: [u8; 32],
+}
+
+/// The forwarder released `amount` of `token_mint` to `to`, as the EVM
+/// forwarder's `Unwrapped`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnwrappedEvent {
+    pub token_mint: [u8; 32],
+    pub to: [u8; 32],
+    pub amount: u64,
+}
+
+/// The emergency committee (`set_by`) named `emergency_caller` as the
+/// forwarder's emergency caller, as the EVM V1 forwarder's
+/// `EmergencyCallerSet`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmergencyCallerSetEvent {
+    pub emergency_caller: [u8; 32],
+    pub set_by: [u8; 32],
+}
+
+/// The emergency caller (`caller`) moved `amount` of `token_mint` from escrow
+/// to `to`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmergencyWithdrawEvent {
+    pub token_mint: [u8; 32],
+    pub to: [u8; 32],
+    pub amount: u64,
+    pub caller: [u8; 32],
+}
+
+/// `initialize` or `reinitialize` set the forwarder's configuration to
+/// `version`, as OpenZeppelin Initializable's `Initialized(version)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InitializedEvent {
+    pub version: u64,
+}
+
+/// One decoded SPL Token Forwarder event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ForwarderEvent {
+    Wrapped(WrappedEvent),
+    Unwrapped(UnwrappedEvent),
+    EmergencyCallerSet(EmergencyCallerSetEvent),
+    EmergencyWithdraw(EmergencyWithdrawEvent),
+    Initialized(InitializedEvent),
+}
+
+/// Errors produced by [`decode_event_instruction`] and
+/// [`decode_forwarder_event_instruction`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EventDecodeError {
     /// The data does not start with [`EVENT_IX_TAG`]; it is not an event self-invocation.
     NotAnEvent,
-    /// The discriminator names no PA event.
+    /// The discriminator names no event of the decoder's program.
     UnknownDiscriminator([u8; ANCHOR_DISCRIMINATOR_LEN]),
     /// The body ran out while reading the named field.
     Truncated { field: &'static str },
@@ -144,8 +204,12 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Decode the instruction data of one PA event self-invocation.
-pub fn decode_event_instruction(data: &[u8]) -> Result<PaEvent, EventDecodeError> {
+/// Decode one event self-invocation's data: check the tag, read the
+/// discriminator, let `body` decode the body it names, and refuse trailing bytes.
+fn decode_cpi_event<E>(
+    data: &[u8],
+    body: impl FnOnce([u8; ANCHOR_DISCRIMINATOR_LEN], &mut Cursor<'_>) -> Result<E, EventDecodeError>,
+) -> Result<E, EventDecodeError> {
     let mut c = Cursor::new(data, 0);
     let tag = c.take(EVENT_IX_TAG.len(), "event tag");
     if tag != Ok(&EVENT_IX_TAG) {
@@ -155,15 +219,74 @@ pub fn decode_event_instruction(data: &[u8]) -> Result<PaEvent, EventDecodeError
         .take(ANCHOR_DISCRIMINATOR_LEN, "event discriminator")?
         .try_into()
         .expect("8 bytes");
+    let event = body(disc, &mut c)?;
+    match c.remaining() {
+        0 => Ok(event),
+        n => Err(EventDecodeError::TrailingBytes(n)),
+    }
+}
 
-    let event = if disc == anchor_event_disc("ResourcePayloadEvent") {
-        PaEvent::ResourcePayload(payload(&mut c)?)
+/// Decode the instruction data of one PA event self-invocation.
+pub fn decode_event_instruction(data: &[u8]) -> Result<PaEvent, EventDecodeError> {
+    decode_cpi_event(data, pa_event_body)
+}
+
+/// Decode the instruction data of one SPL Token Forwarder event self-invocation.
+pub fn decode_forwarder_event_instruction(data: &[u8]) -> Result<ForwarderEvent, EventDecodeError> {
+    decode_cpi_event(data, forwarder_event_body)
+}
+
+fn forwarder_event_body(
+    disc: [u8; ANCHOR_DISCRIMINATOR_LEN],
+    c: &mut Cursor<'_>,
+) -> Result<ForwarderEvent, EventDecodeError> {
+    Ok(if disc == anchor_event_disc("Wrapped") {
+        ForwarderEvent::Wrapped(WrappedEvent {
+            token_mint: c.array_32("token_mint")?,
+            from: c.array_32("from")?,
+            amount: c.u64_le("amount")?,
+            nonce: c.u64_le("nonce")?,
+            action_tree_root: c.array_32("action_tree_root")?,
+        })
+    } else if disc == anchor_event_disc("Unwrapped") {
+        ForwarderEvent::Unwrapped(UnwrappedEvent {
+            token_mint: c.array_32("token_mint")?,
+            to: c.array_32("to")?,
+            amount: c.u64_le("amount")?,
+        })
+    } else if disc == anchor_event_disc("EmergencyCallerSet") {
+        ForwarderEvent::EmergencyCallerSet(EmergencyCallerSetEvent {
+            emergency_caller: c.array_32("emergency_caller")?,
+            set_by: c.array_32("set_by")?,
+        })
+    } else if disc == anchor_event_disc("EmergencyWithdraw") {
+        ForwarderEvent::EmergencyWithdraw(EmergencyWithdrawEvent {
+            token_mint: c.array_32("token_mint")?,
+            to: c.array_32("to")?,
+            amount: c.u64_le("amount")?,
+            caller: c.array_32("caller")?,
+        })
+    } else if disc == anchor_event_disc("Initialized") {
+        ForwarderEvent::Initialized(InitializedEvent {
+            version: c.u64_le("version")?,
+        })
+    } else {
+        return Err(EventDecodeError::UnknownDiscriminator(disc));
+    })
+}
+
+fn pa_event_body(
+    disc: [u8; ANCHOR_DISCRIMINATOR_LEN],
+    c: &mut Cursor<'_>,
+) -> Result<PaEvent, EventDecodeError> {
+    Ok(if disc == anchor_event_disc("ResourcePayloadEvent") {
+        PaEvent::ResourcePayload(payload(c)?)
     } else if disc == anchor_event_disc("DiscoveryPayloadEvent") {
-        PaEvent::DiscoveryPayload(payload(&mut c)?)
+        PaEvent::DiscoveryPayload(payload(c)?)
     } else if disc == anchor_event_disc("ExternalPayloadEvent") {
-        PaEvent::ExternalPayload(payload(&mut c)?)
+        PaEvent::ExternalPayload(payload(c)?)
     } else if disc == anchor_event_disc("ApplicationPayloadEvent") {
-        PaEvent::ApplicationPayload(payload(&mut c)?)
+        PaEvent::ApplicationPayload(payload(c)?)
     } else if disc == anchor_event_disc("ActionExecutedEvent") {
         PaEvent::ActionExecuted(ActionExecutedEvent {
             action_tree_root: c.array_32("action_tree_root")?,
@@ -204,12 +327,7 @@ pub fn decode_event_instruction(data: &[u8]) -> Result<PaEvent, EventDecodeError
         })
     } else {
         return Err(EventDecodeError::UnknownDiscriminator(disc));
-    };
-
-    match c.remaining() {
-        0 => Ok(event),
-        n => Err(EventDecodeError::TrailingBytes(n)),
-    }
+    })
 }
 
 fn payload(c: &mut Cursor<'_>) -> Result<PayloadEvent, EventDecodeError> {

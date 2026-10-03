@@ -34,12 +34,13 @@ use std::str::FromStr;
 
 use anoma_pa_solana_client::{
     build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, create_ata_idempotent_ix,
-    decode_event_instruction, decode_pa_state, derive_nonce_bitmap_pda, derive_nullifier_pda,
-    derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda, derive_verifier_router_pdas,
-    init_nonce_bitmap_ix, nonce_word_index, settle_from_txdata_ix, sha256, txdata_close_ix,
-    txdata_init_ix, txdata_write_ix, CommitmentTreeState, PaEvent, EVENT_IX_TAG,
-    FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES,
-    SETTLE_LOOKUP_TABLE, TXDATA_CHUNK_SIZE, TXDATA_EXPIRY_SLOTS_DEFAULT,
+    decode_event_instruction, decode_forwarder_event_instruction, decode_pa_state,
+    derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
+    derive_tx_data_pda, derive_verifier_router_pdas, init_nonce_bitmap_ix, nonce_word_index,
+    settle_from_txdata_ix, sha256, txdata_close_ix, txdata_init_ix, txdata_write_ix,
+    CommitmentTreeState, ForwarderEvent, PaEvent, EVENT_IX_TAG, FORWARDER_PROGRAM_ID,
+    PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, SETTLE_LOOKUP_TABLE,
+    TXDATA_CHUNK_SIZE, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
@@ -174,6 +175,17 @@ fn send(
     tables: &[AddressLookupTableAccount],
     label: &str,
 ) -> Signature {
+    try_send(client, payer, ixs, tables, label).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// `send`, returning the failure instead of panicking on it.
+fn try_send(
+    client: &RpcClient,
+    payer: &Keypair,
+    ixs: &[Instruction],
+    tables: &[AddressLookupTableAccount],
+    label: &str,
+) -> Result<Signature, String> {
     let blockhash = client.get_latest_blockhash().expect("blockhash");
     let message = v0::Message::try_compile(&payer.pubkey(), ixs, tables, blockhash)
         .expect("compile v0 message");
@@ -187,9 +199,9 @@ fn send(
     let size = bincode::serialized_size(&tx).expect("serialize");
     let sig = client
         .send_and_confirm_transaction(&tx)
-        .unwrap_or_else(|e| panic!("{label} failed: {e}"));
+        .map_err(|e| format!("{label} failed: {e}"))?;
     println!("{label}: {sig} ({size} bytes, {static_keys} static keys, {looked_up} looked up)");
-    sig
+    Ok(sig)
 }
 
 fn main() {
@@ -325,40 +337,6 @@ fn main() {
         .unwrap()
         .as_secs();
     let (tx_data, _) = derive_tx_data_pda(&args.pa, &payer.pubkey(), upload_id);
-    let expires_slot = client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT;
-    send(
-        &client,
-        &payer,
-        &[txdata_init_ix(
-            &args.pa,
-            &pa_state,
-            &tx_data,
-            &payer.pubkey(),
-            upload_id,
-            tx_bytes.len() as u32,
-            expires_slot,
-        )],
-        &[],
-        "txdata_init",
-    );
-    for (i, chunk) in tx_bytes.chunks(TXDATA_CHUNK_SIZE).enumerate() {
-        send(
-            &client,
-            &payer,
-            &[txdata_write_ix(
-                &args.pa,
-                &tx_data,
-                &payer.pubkey(),
-                upload_id,
-                (i * TXDATA_CHUNK_SIZE) as u32,
-                chunk,
-            )],
-            &[],
-            &format!("txdata_write[{i}]"),
-        );
-    }
-
-    // 5. Settle.
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&Pubkey::from(state.verifier_router));
     let verifier_program = verifier_program_of(&client, &verifier_entry);
@@ -380,13 +358,50 @@ fn main() {
             remaining,
         ),
     ]);
-    let settle_sig = send(
+    let expires_slot = client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT;
+    send(
         &client,
         &payer,
-        &settle_ixs,
-        std::slice::from_ref(&table),
-        "settle_from_txdata",
+        &[txdata_init_ix(
+            &args.pa,
+            &pa_state,
+            &tx_data,
+            &payer.pubkey(),
+            upload_id,
+            tx_bytes.len() as u32,
+            expires_slot,
+        )],
+        &[],
+        "txdata_init",
     );
+
+    // 5. Write the chunks and settle, then close the upload whatever the
+    // outcome, so a refused settlement does not strand its rent.
+    let settled = (|| {
+        for (i, chunk) in tx_bytes.chunks(TXDATA_CHUNK_SIZE).enumerate() {
+            try_send(
+                &client,
+                &payer,
+                &[txdata_write_ix(
+                    &args.pa,
+                    &tx_data,
+                    &payer.pubkey(),
+                    upload_id,
+                    (i * TXDATA_CHUNK_SIZE) as u32,
+                    chunk,
+                )],
+                &[],
+                &format!("txdata_write[{i}]"),
+            )?;
+        }
+        try_send(
+            &client,
+            &payer,
+            &settle_ixs,
+            std::slice::from_ref(&table),
+            "settle_from_txdata",
+        )
+    })();
     send(
         &client,
         &payer,
@@ -400,6 +415,7 @@ fn main() {
         &[],
         "txdata_close",
     );
+    let settle_sig = settled.unwrap_or_else(|e| panic!("{e}"));
 
     // 6. Read back: the root moved to the prediction, and the events decode.
     let after = decode_pa_state(&client.get_account_data(&pa_state).expect("pa_state")).unwrap();
@@ -412,7 +428,7 @@ fn main() {
         "root after settlement matches the replay: {}",
         hex(&after.root)
     );
-    print_events(&client, &args.pa, &settle_sig);
+    print_events(&client, &args.pa, &args.forwarder, &settle_sig);
 }
 
 /// The verifier program the router entry points at (first 32 bytes after the
@@ -425,10 +441,11 @@ fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
     Pubkey::try_from(&data[12..44]).expect("verifier pubkey")
 }
 
-fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
+fn print_events(client: &RpcClient, pa: &Pubkey, forwarder: &Pubkey, sig: &Signature) {
     // The parsed encoding resolves lookup-table addresses and names each
-    // inner instruction's program; the adapter has no RPC parser, so its
-    // event self-invocations arrive partially decoded with base58 data.
+    // inner instruction's program; neither the adapter nor the forwarder has
+    // an RPC parser, so their event self-invocations arrive partially decoded
+    // with base58 data.
     let tx = client
         .get_transaction_with_config(
             sig,
@@ -445,14 +462,14 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
         Option::<u64>::from(meta.compute_units_consumed)
     );
     let inner: Vec<_> = Option::from(meta.inner_instructions).unwrap_or_default();
-    let pa = pa.to_string();
+    let (pa, forwarder) = (pa.to_string(), forwarder.to_string());
     let mut count = 0;
     for group in inner {
         for ix in group.instructions {
             let UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(ix)) = ix else {
                 continue;
             };
-            if ix.program_id != pa {
+            if ix.program_id != pa && ix.program_id != forwarder {
                 continue;
             }
             let data = bs58::decode(&ix.data).into_vec().expect("base58 ix data");
@@ -460,6 +477,25 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
                 continue;
             }
             count += 1;
+            if ix.program_id == forwarder {
+                match decode_forwarder_event_instruction(&data).expect("decode forwarder event") {
+                    ForwarderEvent::Wrapped(e) => println!(
+                        "forwarder event Wrapped: mint {} from {} amount {} nonce {}",
+                        Pubkey::from(e.token_mint),
+                        Pubkey::from(e.from),
+                        e.amount,
+                        e.nonce
+                    ),
+                    ForwarderEvent::Unwrapped(e) => println!(
+                        "forwarder event Unwrapped: mint {} to {} amount {}",
+                        Pubkey::from(e.token_mint),
+                        Pubkey::from(e.to),
+                        e.amount
+                    ),
+                    other => println!("forwarder event {other:?}"),
+                }
+                continue;
+            }
             match decode_event_instruction(&data).expect("decode event") {
                 PaEvent::TransactionExecuted(e) => println!(
                     "event TransactionExecuted: transaction id {}",

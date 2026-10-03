@@ -61,16 +61,18 @@ export function deriveRootMarkerPda(
 }
 
 /**
- * Derive the PA's event authority PDA. Seed: `["__event_authority"]`.
+ * Derive a program's event authority PDA. Seed: `["__event_authority"]`.
  *
  * Anchor's `#[event_cpi]` signs each event self-invocation with this PDA and
- * requires it, followed by the program's own address, as the last two named
- * accounts of `settle` and `settle_from_txdata`.
+ * requires it, followed by the program's own address, after an instruction's
+ * other named accounts: the PA's `settle` and `settle_from_txdata`, and the
+ * forwarder's instructions that emit events (inside the forwarder CPI segment
+ * for `forward_call`).
  */
-export function deriveEventAuthorityPda(paProgram: PublicKey): [PublicKey, number] {
+export function deriveEventAuthorityPda(program: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [new TextEncoder().encode("__event_authority")],
-    paProgram,
+    program,
   );
 }
 
