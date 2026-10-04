@@ -1,4 +1,4 @@
-//! Solana program identifiers used by AnomaPay.
+//! The adapter's program id and its deployment's settlement lookup table.
 //!
 //! Devnet defaults are baked in as `pub const` values. For mainnet or alternative
 //! cluster deployments, integrators should override at the call site rather than
@@ -9,24 +9,12 @@ use solana_pubkey::{pubkey, Pubkey};
 /// Anoma Protocol Adapter program ID (devnet/localnet default).
 pub const PA_PROGRAM_ID: Pubkey = pubkey!("5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc");
 
-/// SPL Token Forwarder program ID: the V2 forwarder's declared id, under which
-/// the adapter repository builds and deploys it.
-pub const FORWARDER_PROGRAM_ID: Pubkey = pubkey!("BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7");
-
 /// The devnet V2 deployment's settlement lookup table: the accounts every
 /// settlement carries that are fixed for the deployment. Settle transactions
 /// are v0 messages compiled against it. The adapter repo's `lookup-table`
 /// command creates one per deployment; its operations runbook lists the keys
 /// and its deployment record names the table.
 pub const SETTLE_LOOKUP_TABLE: Pubkey = pubkey!("4UFsq2ks2DcC29ErmEeHxqXWKLRWo26vs4W65S89bpWn");
-
-/// Solana's native ed25519 signature-verification program. Used to carry verified
-/// wrap-authorization signatures into the settle transaction.
-pub const ED25519_PROGRAM_ID: Pubkey = pubkey!("Ed25519SigVerify111111111111111111111111111");
-
-/// Solana's `Instructions` sysvar (used by the forwarder to introspect the
-/// ed25519-verify instruction at `ed25519_ix_index`).
-pub const INSTRUCTIONS_SYSVAR_ID: Pubkey = pubkey!("Sysvar1nstructions1111111111111111111111111");
 
 #[cfg(test)]
 mod tests {
@@ -50,18 +38,5 @@ mod tests {
         )))
         .unwrap();
         assert_eq!(idl["address"].as_str().unwrap(), PA_PROGRAM_ID.to_string());
-    }
-
-    #[test]
-    fn forwarder_program_id_matches_the_vendored_idl() {
-        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../idl/spl_token_forwarder.json"
-        )))
-        .unwrap();
-        assert_eq!(
-            idl["address"].as_str().unwrap(),
-            FORWARDER_PROGRAM_ID.to_string()
-        );
     }
 }

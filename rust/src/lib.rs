@@ -1,4 +1,4 @@
-//! Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder.
+//! Client bindings for the Solana Anoma Protocol Adapter.
 //!
 //! See `REQUIREMENTS.md` at the repository root for the full surface specification.
 //! This crate is the canonical home for instruction builders, account decoders, PDA
@@ -15,12 +15,7 @@ pub mod merkle;
 #[cfg(feature = "arm")]
 pub mod settlement_input;
 pub mod wallet_keyring;
-pub mod wrap_message;
 
-#[cfg(feature = "solana")]
-pub mod ata;
-#[cfg(feature = "solana")]
-pub mod forwarder;
 #[cfg(feature = "solana")]
 pub mod instructions;
 #[cfg(feature = "solana")]
@@ -37,30 +32,18 @@ pub use accounts::{
 pub use constants::*;
 pub use discriminator::{anchor_account_disc, anchor_event_disc, anchor_instruction_disc};
 pub use events::{
-    decode_cpi_event, decode_event_instruction, decode_forwarder_event_instruction,
-    decode_ownership_transferred, decode_upgraded, ActionExecutedEvent,
-    CommitmentTreeRootAddedEvent, EmergencyCallerSetEvent, EmergencyWithdrawEvent,
-    EventDecodeError, ForwarderCallExecutedEvent, ForwarderEvent, InitializedEvent,
-    KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent, OwnershipTransferredEvent, PaEvent,
-    PauseEvent, PayloadEvent, TransactionExecutedEvent, UnwrappedEvent, UpgradedEvent,
-    WrappedEvent, EVENT_IX_TAG,
+    decode_cpi_event, decode_event_instruction, decode_ownership_transferred, decode_upgraded,
+    ActionExecutedEvent, CommitmentTreeRootAddedEvent, EventDecodeError,
+    ForwarderCallExecutedEvent, KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent,
+    OwnershipTransferredEvent, PaEvent, PauseEvent, PayloadEvent, TransactionExecutedEvent,
+    UpgradedEvent, EVENT_IX_TAG,
 };
-pub use external_call::{
-    encode_unwrap_forwarder_input, encode_wrap_forwarder_input, OutputMode, SolanaExternalCall,
-    OP_UNWRAP, OP_WRAP,
-};
+pub use external_call::{OutputMode, SolanaExternalCall};
 pub use merkle::{
     depth_for_leaves, hash_two, merkle_path, path_root, zero_hashes, CommitmentTreeState,
     MerkleError, PADDING_LEAF,
 };
 
-#[cfg(feature = "solana")]
-pub use ata::create_ata_idempotent_ix;
-#[cfg(feature = "solana")]
-pub use forwarder::{
-    build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, init_nonce_bitmap_ix,
-    nonce_word_index, NONCES_PER_WORD,
-};
 #[cfg(feature = "solana")]
 pub use instructions::{
     initialize_ix, pause_ix, set_kind_table_commitment_ix, settle_from_txdata_ix, txdata_close_ix,
@@ -68,9 +51,8 @@ pub use instructions::{
 };
 #[cfg(feature = "solana")]
 pub use pda::{
-    derive_associated_token_address, derive_event_authority_pda, derive_forwarder_config_pda,
-    derive_forwarder_escrow_authority, derive_nonce_bitmap_pda, derive_nullifier_pda,
-    derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
+    derive_event_authority_pda, derive_nullifier_pda, derive_pa_state_pda,
+    derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
     derive_upgrade_authority_pda, derive_verifier_entry_pda, derive_verifier_router_pdas,
 };
 #[cfg(feature = "solana")]
@@ -83,4 +65,3 @@ pub use wallet_keyring::{
     derive_keyring_secrets, nullifier_commitment, sign_message, KeyringSecrets, AUTHORITY_DOMAIN,
     DISCOVERY_DOMAIN, ENCRYPTION_DOMAIN, KEYRING_SALT, NULLIFIER_DOMAIN,
 };
-pub use wrap_message::{sha256, WrapMessage, WRAP_MESSAGE_LEN};

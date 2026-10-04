@@ -3,7 +3,7 @@ name = "anoma-pa-solana-client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder"
+description = "Client bindings for the Solana Anoma Protocol Adapter"
 repository.workspace = true
 readme = "../README.md"
 
@@ -17,7 +17,6 @@ serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 hkdf = "0.12"
 hmac = "0.12"
-base64 = "0.22"
 
 # Solana SDK deps — used only by the on-chain instruction/PDA/program-id
 # builders. Optional so that consumers needing only the pure wire-format and
@@ -27,10 +26,9 @@ base64 = "0.22"
 # 1.2): pubkey, instruction and sdk-ids 3.
 solana-compute-budget-interface = { version = "3", optional = true }
 solana-instruction = { version = "3", optional = true }
-solana-pubkey = { version = "3", optional = true }
+# `curve25519`: PDA derivation (`Pubkey::find_program_address`).
+solana-pubkey = { version = "3", optional = true, features = ["curve25519"] }
 solana-sdk-ids = { version = "3", optional = true }
-spl-associated-token-account-interface = { version = "2", optional = true }
-spl-token-interface = { version = "3", optional = true }
 
 # The settlement input (`arm` feature): a proven ARM transaction in the form
 # the adapter settles. Without the prover: no `prove` feature.
@@ -38,23 +36,22 @@ anoma-rm-risc0 = { version = "=2.0.0-rc.6", default-features = false, features =
 risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
 
 [dev-dependencies]
-# Reads the cross-package fixtures under `fixtures/`.
+# Read the vendored IDL and the cross-package fixtures under `fixtures/`.
 serde_json = "1.0"
+base64 = "0.22"
 # Proves trivial actions for the settlement-input tests.
 anoma-pa-testkit = { version = "=1.0.0-rc.1", features = ["local", "fixtures"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [features]
 default = ["solana"]
-# Enables the modules that depend on the Solana SDK: instruction builders, PDA
-# derivation, program IDs, and ATA helpers.
+# Enables the modules that depend on the Solana SDK: instruction builders,
+# settlement planning, PDA derivation and program IDs.
 solana = [
   "dep:solana-compute-budget-interface",
   "dep:solana-instruction",
   "dep:solana-pubkey",
   "dep:solana-sdk-ids",
-  "dep:spl-associated-token-account-interface",
-  "dep:spl-token-interface",
 ]
 # The settlement input: a proven ARM transaction with its aggregation proof
 # re-encoded as the verifier-router seal the adapter decodes.
