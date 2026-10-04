@@ -3,8 +3,8 @@
 //! These mirror the seed schemas baked into the on-chain programs. They are pure
 //! functions: same inputs always produce the same `(Pubkey, bump)` pair.
 
-use solana_program::pubkey::Pubkey;
-use spl_associated_token_account_client::address::get_associated_token_address;
+use solana_pubkey::Pubkey;
+use spl_associated_token_account_interface::address::get_associated_token_address;
 
 use crate::constants::GROTH16_VERIFIER_SELECTOR;
 

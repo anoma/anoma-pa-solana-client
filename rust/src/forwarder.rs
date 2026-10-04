@@ -3,12 +3,9 @@
 //! `init_nonce_bitmap` instruction. Ordering is owned by the forwarder program;
 //! integrators must use these builders rather than hand-rolling the slice.
 
-use solana_program::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-    sysvar,
-};
-use solana_sdk_ids::system_program;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
+use solana_sdk_ids::{system_program, sysvar};
 
 use crate::constants::{FORWARDER_UNWRAP_NUM_ACCOUNTS, FORWARDER_WRAP_NUM_ACCOUNTS};
 use crate::discriminator::anchor_instruction_disc;
@@ -92,7 +89,7 @@ pub fn build_wrap_forwarder_accounts(
         AccountMeta::new(escrow_ata, false),                // escrow ATA
         AccountMeta::new_readonly(escrow_authority, false), // escrow authority
         AccountMeta::new(nonce_bitmap_pda, false),          // nonce bitmap
-        AccountMeta::new_readonly(spl_token::id(), false),  // token program
+        AccountMeta::new_readonly(spl_token_interface::id(), false), // token program
     ]);
     debug_assert_eq!(accounts.len(), FORWARDER_WRAP_NUM_ACCOUNTS as usize);
     accounts
@@ -117,7 +114,7 @@ pub fn build_unwrap_forwarder_accounts(
         AccountMeta::new(escrow_ata, false),                // escrow ATA
         AccountMeta::new(recipient_ata, false),             // recipient ATA
         AccountMeta::new_readonly(escrow_authority, false), // escrow authority
-        AccountMeta::new_readonly(spl_token::id(), false),  // token program
+        AccountMeta::new_readonly(spl_token_interface::id(), false), // token program
     ]);
     debug_assert_eq!(accounts.len(), FORWARDER_UNWRAP_NUM_ACCOUNTS as usize);
     accounts

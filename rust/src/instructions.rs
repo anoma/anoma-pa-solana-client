@@ -5,10 +5,8 @@
 //! account fan-out (4 accounts) lives in `derive_verifier_router_pdas` in the
 //! `pda` module.
 
-use solana_program::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-};
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
 use solana_sdk_ids::system_program;
 
 use crate::discriminator::anchor_instruction_disc;

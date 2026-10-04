@@ -46,15 +46,17 @@ use base64::Engine;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcTransactionConfig;
-use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::compute_budget::ComputeBudgetInstruction;
-use solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature;
+use solana_commitment_config::CommitmentConfig;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{read_keypair_file, Keypair, Signature, Signer};
 use solana_sdk::transaction::VersionedTransaction;
-use solana_transaction_status::{UiInstruction, UiParsedInstruction, UiTransactionEncoding};
+use solana_transaction_status_client_types::{
+    UiInstruction, UiParsedInstruction, UiTransactionEncoding,
+};
 
 #[derive(serde::Deserialize)]
 struct Fixture {
