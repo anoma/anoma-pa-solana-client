@@ -18,6 +18,12 @@ pub fn anchor_event_disc(name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
     anchor_disc("event", name)
 }
 
+/// Compute an Anchor account discriminator: first 8 bytes of
+/// `sha256("account:<name>")`, the prefix of every account of type `<name>`.
+pub fn anchor_account_disc(name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
+    anchor_disc("account", name)
+}
+
 fn anchor_disc(namespace: &str, name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
     let mut hasher = Sha256::new();
     hasher.update(namespace.as_bytes());
@@ -54,5 +60,20 @@ mod tests {
             anchor_instruction_disc("settle"),
             anchor_event_disc("settle")
         );
+    }
+
+    #[test]
+    fn account_discriminators_match_the_adapters_idl() {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../idl/protocol_adapter.json"
+        )))
+        .unwrap();
+        for account in idl["accounts"].as_array().unwrap() {
+            let name = account["name"].as_str().unwrap();
+            let expected: Vec<u8> =
+                serde_json::from_value(account["discriminator"].clone()).unwrap();
+            assert_eq!(anchor_account_disc(name).to_vec(), expected, "{name}");
+        }
     }
 }

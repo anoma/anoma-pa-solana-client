@@ -35,7 +35,7 @@ pub use accounts::{
     PA_STATE_SCHEMA_VERSION,
 };
 pub use constants::*;
-pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
+pub use discriminator::{anchor_account_disc, anchor_event_disc, anchor_instruction_disc};
 pub use events::{
     decode_cpi_event, decode_event_instruction, decode_forwarder_event_instruction,
     decode_ownership_transferred, decode_upgraded, ActionExecutedEvent,
