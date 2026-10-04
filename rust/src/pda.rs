@@ -6,8 +6,6 @@
 use solana_pubkey::Pubkey;
 use spl_associated_token_account_interface::address::get_associated_token_address;
 
-use crate::constants::GROTH16_VERIFIER_SELECTOR;
-
 // ---- PA program PDAs ---------------------------------------------------------
 
 /// Derive the global PA state PDA. Seed: `["pa_state"]`.
@@ -93,16 +91,19 @@ pub fn derive_associated_token_address(wallet: &Pubkey, token_mint: &Pubkey) -> 
 
 // ---- Verifier router PDAs ----------------------------------------------------
 
-/// Derive the verifier-router state PDA and the Groth16 verifier-entry PDA.
+/// Derive the verifier-router state PDA and the router's verifier-entry PDA
+/// for `selector`.
 ///
 /// The router PDA holds the registry of verifier programs; the entry PDA points
-/// to the specific verifier implementation matched by `GROTH16_VERIFIER_SELECTOR`.
-pub fn derive_verifier_router_pdas(verifier_router_program: &Pubkey) -> (Pubkey, Pubkey) {
+/// to the verifier registered under `selector`, the proof selector the adapter
+/// was initialized with (`PAStateAccount::proof_selector`).
+pub fn derive_verifier_router_pdas(
+    verifier_router_program: &Pubkey,
+    selector: [u8; 4],
+) -> (Pubkey, Pubkey) {
     let (router, _) = Pubkey::find_program_address(&[b"router"], verifier_router_program);
-    let (entry, _) = Pubkey::find_program_address(
-        &[b"verifier", &GROTH16_VERIFIER_SELECTOR],
-        verifier_router_program,
-    );
+    let (entry, _) =
+        Pubkey::find_program_address(&[b"verifier", &selector], verifier_router_program);
     (router, entry)
 }
 
@@ -144,5 +145,22 @@ mod tests {
             "G78SQtzYuo4YKDEECzh25rckXeJFjLMXy44iWKKG5rDG"
         );
         assert_eq!(bump, 255);
+    }
+
+    #[test]
+    fn the_verifier_entry_is_the_routers_entry_for_the_given_selector() {
+        // An adapter initialized with the mock selector settles through the
+        // router's entry for 0xffffffff, not the Groth16 one.
+        let router_program = Pubkey::new_from_array([2; 32]);
+        let selector = [0xff; 4];
+        let (router, entry) = derive_verifier_router_pdas(&router_program, selector);
+        assert_eq!(
+            router,
+            Pubkey::find_program_address(&[b"router"], &router_program).0
+        );
+        assert_eq!(
+            entry,
+            Pubkey::find_program_address(&[b"verifier", &selector], &router_program).0
+        );
     }
 }

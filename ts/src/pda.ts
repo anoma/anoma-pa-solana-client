@@ -6,8 +6,6 @@
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
-import { GROTH16_VERIFIER_SELECTOR } from "./constants.js";
-
 const u64Le = (value: bigint): Uint8Array => {
   const buf = new Uint8Array(8);
   new DataView(buf.buffer).setBigUint64(0, value, true);
@@ -134,16 +132,20 @@ export function deriveAssociatedTokenAddress(
 
 // ---- Verifier router PDAs --------------------------------------------------
 
-/** Derive the verifier-router state PDA and the Groth16 verifier-entry PDA. */
+/**
+ * Derive the verifier-router state PDA and the router's verifier-entry PDA for
+ * `selector`, the proof selector the adapter was initialized with.
+ */
 export function deriveVerifierRouterPdas(
   verifierRouterProgram: PublicKey,
+  selector: Uint8Array,
 ): { router: PublicKey; entry: PublicKey } {
   const [router] = PublicKey.findProgramAddressSync(
     [new TextEncoder().encode("router")],
     verifierRouterProgram,
   );
   const [entry] = PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("verifier"), GROTH16_VERIFIER_SELECTOR],
+    [new TextEncoder().encode("verifier"), selector],
     verifierRouterProgram,
   );
   return { router, entry };
