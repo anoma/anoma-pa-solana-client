@@ -1,18 +1,54 @@
-//! Builders for the PA's `txdata_*` and `settle_from_txdata` instructions.
+//! Builders for the PA's `initialize`, `txdata_*` and `settle_from_txdata`
+//! instructions.
 //!
 //! Each builder serializes the Anchor discriminator + arguments and lays out
 //! the accounts in the order the PA program expects. The verifier-router
 //! account fan-out (4 accounts) lives in `derive_verifier_router_pdas` in the
 //! `pda` module.
 
-use solana_program::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-};
-use solana_sdk_ids::system_program;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
+use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
 
 use crate::discriminator::anchor_instruction_disc;
-use crate::pda::derive_event_authority_pda;
+use crate::pda::{
+    derive_event_authority_pda, derive_pa_state_pda, derive_program_data_address,
+    derive_upgrade_authority_pda, derive_verifier_entry_pda,
+};
+
+/// Build the PA's `initialize`: `payer`, the program's upgrade authority, sets
+/// the owner, verifier router and proof selector, and hands the upgrade
+/// authority to the program.
+pub fn initialize_ix(
+    pa_program: &Pubkey,
+    payer: &Pubkey,
+    initial_owner: &Pubkey,
+    verifier_router: &Pubkey,
+    proof_selector: [u8; 4],
+) -> Instruction {
+    let mut data = anchor_instruction_disc("initialize").to_vec();
+    data.extend_from_slice(initial_owner.as_ref());
+    data.extend_from_slice(verifier_router.as_ref());
+    data.extend_from_slice(&proof_selector);
+    Instruction {
+        program_id: *pa_program,
+        accounts: vec![
+            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
+            AccountMeta::new(*payer, true),
+            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new(derive_program_data_address(pa_program), false),
+            AccountMeta::new_readonly(derive_upgrade_authority_pda(pa_program).0, false),
+            AccountMeta::new_readonly(bpf_loader_upgradeable::id(), false),
+            AccountMeta::new_readonly(
+                derive_verifier_entry_pda(verifier_router, proof_selector),
+                false,
+            ),
+            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
+            AccountMeta::new_readonly(*pa_program, false),
+        ],
+        data,
+    }
+}
 
 /// Build a PA `txdata_init` instruction.
 pub fn txdata_init_ix(
@@ -159,7 +195,6 @@ pub fn txdata_close_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pda::derive_event_authority_pda;
 
     #[test]
     fn txdata_init_disc_is_first_8_bytes() {
@@ -285,5 +320,77 @@ mod tests {
         assert_eq!(ix.data.len(), 29);
         // Length prefix at offset 20 is 5 (Anchor Vec<u8> length).
         assert_eq!(&ix.data[20..24], &5u32.to_le_bytes());
+    }
+
+    #[test]
+    fn initialize_matches_the_adapters_idl() {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../idl/protocol_adapter.json"
+        )))
+        .unwrap();
+        let spec = idl["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|ix| ix["name"] == "initialize")
+            .unwrap();
+        let pa = crate::program_ids::PA_PROGRAM_ID;
+        let (payer, owner, router) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let selector = [0xff; 4];
+        let ix = initialize_ix(&pa, &payer, &owner, &router, selector);
+
+        let mut data: Vec<u8> = serde_json::from_value(spec["discriminator"].clone()).unwrap();
+        data.extend(owner.to_bytes());
+        data.extend(router.to_bytes());
+        data.extend(selector);
+        assert_eq!(ix.data, data, "discriminator, then owner, router, selector");
+
+        // Each account's flags, its fixed address, or its PDA from the IDL's
+        // own constant seeds.
+        let accounts = spec["accounts"].as_array().unwrap();
+        assert_eq!(ix.accounts.len(), accounts.len());
+        for (meta, account) in ix.accounts.iter().zip(accounts) {
+            let name = account["name"].as_str().unwrap();
+            assert_eq!(
+                meta.is_writable,
+                account["writable"] == true,
+                "{name} writable"
+            );
+            assert_eq!(meta.is_signer, account["signer"] == true, "{name} signer");
+            if let Some(address) = account["address"].as_str() {
+                assert_eq!(meta.pubkey.to_string(), address, "{name} address");
+            }
+            if let Some(seeds) = account["pda"]["seeds"].as_array() {
+                let seeds: Vec<Vec<u8>> = seeds
+                    .iter()
+                    .map(|s| serde_json::from_value(s["value"].clone()).unwrap())
+                    .collect();
+                let seeds: Vec<&[u8]> = seeds.iter().map(Vec::as_slice).collect();
+                assert_eq!(
+                    meta.pubkey,
+                    Pubkey::find_program_address(&seeds, &pa).0,
+                    "{name} PDA"
+                );
+            }
+        }
+        let by_name = |name: &str| {
+            let i = accounts.iter().position(|a| a["name"] == name).unwrap();
+            ix.accounts[i].pubkey
+        };
+        assert_eq!(by_name("payer"), payer);
+        assert_eq!(
+            by_name("verifier_entry"),
+            derive_verifier_entry_pda(&router, selector)
+        );
+        assert_eq!(
+            by_name("event_authority"),
+            derive_event_authority_pda(&pa).0
+        );
+        assert_eq!(by_name("program"), pa);
     }
 }

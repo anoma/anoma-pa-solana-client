@@ -4,7 +4,7 @@
 //! cluster deployments, integrators should override at the call site rather than
 //! relying on these constants.
 
-use solana_program::{pubkey, pubkey::Pubkey};
+use solana_pubkey::{pubkey, Pubkey};
 
 /// Anoma Protocol Adapter program ID (devnet/localnet default).
 pub const PA_PROGRAM_ID: Pubkey = pubkey!("5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc");
