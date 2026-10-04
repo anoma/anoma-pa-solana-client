@@ -63,7 +63,7 @@ pub use forwarder::{
 };
 #[cfg(feature = "solana")]
 pub use instructions::{
-    initialize_ix, set_kind_table_commitment_ix, settle_from_txdata_ix, txdata_close_ix,
+    initialize_ix, pause_ix, set_kind_table_commitment_ix, settle_from_txdata_ix, txdata_close_ix,
     txdata_init_ix, txdata_write_ix,
 };
 #[cfg(feature = "solana")]

@@ -50,6 +50,21 @@ pub fn initialize_ix(
     }
 }
 
+/// Build the PA's `pause`: the owner `authority` stops settlement, the
+/// emergency stop a forwarder's committee instructions wait for.
+pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
+    Instruction {
+        program_id: *pa_program,
+        accounts: vec![
+            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
+            AccountMeta::new_readonly(*authority, true),
+            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
+            AccountMeta::new_readonly(*pa_program, false),
+        ],
+        data: anchor_instruction_disc("pause").to_vec(),
+    }
+}
+
 /// Build the PA's `set_kind_table_commitment`: the owner `authority` replaces
 /// the kind-table commitment settled transactions must be proven against.
 pub fn set_kind_table_commitment_ix(
@@ -431,6 +446,21 @@ mod tests {
             by_name("verifier_entry"),
             derive_verifier_entry_pda(&router, selector)
         );
+        assert_eq!(
+            by_name("event_authority"),
+            derive_event_authority_pda(&pa).0
+        );
+        assert_eq!(by_name("program"), pa);
+    }
+
+    #[test]
+    fn pause_matches_the_adapters_idl() {
+        let pa = crate::program_ids::PA_PROGRAM_ID;
+        let authority = Pubkey::new_unique();
+        let ix = pause_ix(&pa, &authority);
+
+        let by_name = assert_matches_the_adapters_idl(&ix, "pause", &[]);
+        assert_eq!(by_name("authority"), authority);
         assert_eq!(
             by_name("event_authority"),
             derive_event_authority_pda(&pa).0
