@@ -88,6 +88,8 @@ impl core::fmt::Display for DecodeError {
     }
 }
 
+impl std::error::Error for DecodeError {}
+
 /// Decode a raw `PAStateAccount` byte buffer.
 ///
 /// The buffer is the full account-data slice returned by `getAccountInfo`,
