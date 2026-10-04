@@ -38,8 +38,8 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: cargo clippy --workspace --all-targets -- -D warnings
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   rust-test:
     name: Rust Test
@@ -50,8 +50,8 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
-      - name: cargo test --workspace
-        run: cargo test --workspace
+      - name: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features
 
   rust-no-default-features:
     name: Rust No-Default-Features (guest-compatible subset)

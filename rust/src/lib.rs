@@ -12,6 +12,8 @@ pub mod discriminator;
 pub mod events;
 pub mod external_call;
 pub mod merkle;
+#[cfg(feature = "arm")]
+pub mod settlement_input;
 pub mod wallet_keyring;
 pub mod wrap_message;
 
