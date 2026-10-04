@@ -4,11 +4,10 @@
 
 use std::fmt;
 
-use anoma_rm_risc0::constants::BATCH_AGGREGATION_VK;
 use anoma_rm_risc0::proving_system::encode_seal;
 use anoma_rm_risc0::transaction::Transaction;
-use risc0_zkvm::sha::{Digest, Digestible, Sha256};
-use risc0_zkvm::{InnerReceipt, MaybePruned, ReceiptClaim};
+use risc0_zkvm::sha::{Digest, Digestible};
+use risc0_zkvm::InnerReceipt;
 
 /// The selector a mock seal carries, risc0's convention for a receipt that
 /// holds a claim digest instead of a proof. The local validator registers the
@@ -25,12 +24,6 @@ pub enum SettlementInputError {
     NoAggregation,
     /// The aggregation proof is not a bincode-encoded risc0 receipt.
     Receipt(String),
-    /// A mock receipt claims something other than the transaction's own
-    /// aggregation claim.
-    ClaimMismatch {
-        receipt: Digest,
-        transaction: Digest,
-    },
     /// arm could not encode the receipt as a seal.
     Seal(String),
     /// The transaction did not serialize.
@@ -42,13 +35,6 @@ impl fmt::Display for SettlementInputError {
         match self {
             Self::NoAggregation => write!(f, "the transaction carries no aggregation proof"),
             Self::Receipt(e) => write!(f, "the aggregation proof is not a risc0 receipt: {e}"),
-            Self::ClaimMismatch {
-                receipt,
-                transaction,
-            } => write!(
-                f,
-                "the mock receipt claims {receipt}, the transaction's aggregation claim is {transaction}"
-            ),
             Self::Seal(e) => write!(f, "encoding the seal: {e}"),
             Self::Serialize(e) => write!(f, "serializing the transaction: {e}"),
         }
@@ -65,8 +51,7 @@ pub fn settlement_input(mut tx: Transaction) -> Result<Vec<u8>, SettlementInputE
         .aggregation
         .as_mut()
         .ok_or(SettlementInputError::NoAggregation)?;
-    let claim = aggregation_claim(&aggregation.instance.to_journal());
-    aggregation.proof = router_seal(&aggregation.proof, claim)?;
+    aggregation.proof = router_seal(&aggregation.proof)?;
     bincode::serialize(&tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))
 }
 
@@ -102,22 +87,15 @@ pub fn settled_resources(tx: &Transaction) -> Result<SettledResources, Settlemen
     })
 }
 
-/// The claim a batch aggregation proof over `journal` proves.
-fn aggregation_claim(journal: &[u8]) -> Digest {
-    ReceiptClaim::ok(
-        BATCH_AGGREGATION_VK,
-        MaybePruned::Pruned(*risc0_zkvm::sha::Impl::hash_bytes(journal)),
-    )
-    .digest()
-}
-
 /// A real Groth16 receipt becomes arm's seal; a receipt holding a claim digest
-/// (a dev-mode receipt, or pa-testkit's local proof) becomes the mock seal the
-/// mock verifier accepts, once its claim is the transaction's.
-fn router_seal(proof: &[u8], claim: Digest) -> Result<Vec<u8>, SettlementInputError> {
+/// (a dev-mode receipt, or pa-testkit's local proof) becomes the mock seal of
+/// that digest, as arm's `encode_seal` re-encodes a receipt for the EVM
+/// adapter. Whether the seal proves the transaction's claim is the verifier's
+/// to decide.
+fn router_seal(proof: &[u8]) -> Result<Vec<u8>, SettlementInputError> {
     let receipt: InnerReceipt =
         bincode::deserialize(proof).map_err(|e| SettlementInputError::Receipt(e.to_string()))?;
-    let mock_claim = match receipt {
+    let claim = match receipt {
         InnerReceipt::Fake(fake) => fake.claim.digest(),
         InnerReceipt::Groth16(receipt)
             if receipt.verifier_parameters == MOCK_VERIFIER_PARAMETERS =>
@@ -131,12 +109,6 @@ fn router_seal(proof: &[u8], claim: Digest) -> Result<Vec<u8>, SettlementInputEr
         }
         _ => return encode_seal(proof).map_err(|e| SettlementInputError::Seal(format!("{e:?}"))),
     };
-    if mock_claim != claim {
-        return Err(SettlementInputError::ClaimMismatch {
-            receipt: mock_claim,
-            transaction: claim,
-        });
-    }
     Ok(mock_seal(claim))
 }
 
@@ -218,6 +190,26 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_tampered_local_proof_keeps_its_digest_for_the_verifier_to_refuse() {
+        let built = trivial::build(1, trivial::Overrides::default()).expect("trivial action");
+        let mut proven = LocalProver
+            .prove(&[built.witnesses])
+            .await
+            .expect("local proof");
+        let mut tampered = claim_of(proven.as_arm()).as_bytes().to_vec();
+        tampered[0] ^= 0xff;
+        proven
+            .tamper_aggregation_seal()
+            .expect("tamper the aggregation seal");
+        let input = settlement_input(proven.into_arm()).expect("settlement input");
+        assert_eq!(
+            settled_proof(&input),
+            mock_seal(Digest::try_from(tampered.as_slice()).unwrap()),
+            "the conversion re-encodes the receipt; refusing it is the verifier's job"
+        );
+    }
+
     async fn proven_trivial_transaction() -> Transaction {
         let built = trivial::build(1, trivial::Overrides::default()).expect("trivial action");
         LocalProver
@@ -267,26 +259,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_dev_mode_receipt_becomes_the_mock_router_seal_when_its_claim_matches() {
+    async fn a_dev_mode_receipt_becomes_the_mock_router_seal_of_its_claim() {
         let mut tx = proven_trivial_transaction().await;
         let journal = tx.aggregation.as_ref().unwrap().instance.to_journal();
         let claim = ReceiptClaim::ok(BATCH_AGGREGATION_VK, journal);
         let digest = claim.digest();
         tx.aggregation.as_mut().unwrap().proof =
             bincode::serialize(&InnerReceipt::Fake(FakeReceipt::new(claim))).unwrap();
-        let input = settlement_input(tx.clone()).expect("settlement input");
+        let input = settlement_input(tx).expect("settlement input");
         assert_eq!(settled_proof(&input), mock_seal(digest));
-
-        let other = ReceiptClaim::ok(Digest::default(), Vec::<u8>::new());
-        tx.aggregation.as_mut().unwrap().proof =
-            bincode::serialize(&InnerReceipt::Fake(FakeReceipt::new(other.clone()))).unwrap();
-        assert_eq!(
-            settlement_input(tx),
-            Err(SettlementInputError::ClaimMismatch {
-                receipt: other.digest(),
-                transaction: digest,
-            })
-        );
+        assert_eq!(digest, claim_of(&bincode::deserialize(&input).unwrap()));
     }
 
     #[tokio::test]
