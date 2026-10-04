@@ -107,16 +107,7 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
     let verifier_router = c.array_32("verifier_router")?;
     let proof_selector: [u8; 4] = c.take(4, "proof_selector")?.try_into().expect("4 bytes");
     let kind_table_commitment = c.array_32("kind_table_commitment")?;
-    let paused = match c.u8("paused")? {
-        0 => false,
-        1 => true,
-        byte => {
-            return Err(DecodeError::InvalidBool {
-                field: "paused",
-                byte,
-            })
-        }
-    };
+    let paused = bool_field(&mut c, "paused")?;
     let root = c.array_32("root")?;
     let next_index = c.u64_le("next_index")?;
     let current_depth = c.u8("current_depth")?;
@@ -164,9 +155,75 @@ impl From<Truncated> for DecodeError {
     }
 }
 
+/// A verifier router's `VerifierEntry`: the verifier program registered under
+/// a selector, and whether the router has paused it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifierEntryAccount {
+    pub selector: [u8; 4],
+    pub verifier: [u8; 32],
+    pub paused: bool,
+}
+
+/// Decode a router `VerifierEntry` account (Anchor discriminator, then
+/// selector, verifier, paused), as the router's IDL lays it out.
+pub fn decode_verifier_entry(data: &[u8]) -> Result<VerifierEntryAccount, DecodeError> {
+    let mut c = Cursor::new(data, ANCHOR_DISCRIMINATOR_LEN);
+    let selector = c.take(4, "selector")?.try_into().expect("4 bytes");
+    let verifier = c.array_32("verifier")?;
+    let paused = bool_field(&mut c, "paused")?;
+    Ok(VerifierEntryAccount {
+        selector,
+        verifier,
+        paused,
+    })
+}
+
+/// A Borsh `bool`: one byte, 0 or 1.
+fn bool_field(c: &mut Cursor<'_>, field: &'static str) -> Result<bool, DecodeError> {
+    match c.u8(field)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        byte => Err(DecodeError::InvalidBool { field, byte }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_the_committed_mock_verifier_entry() {
+        // The adapter repo's tests/fixtures/verifier-entries entry that
+        // registers the localnet mock verifier
+        // (H3ZFoDHFvthGZu3kxpif3oSWm8MQn8uKvgDhrvVVHvHf) under 0xffffffff.
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD
+            .decode("ZveUniGZZF3/////7mKfmDSxMGCnyy/TbpmX7hTkzxHBC9Wi03rWqde0u7oA")
+            .unwrap();
+        let entry = decode_verifier_entry(&data).unwrap();
+        assert_eq!(entry.selector, [0xff; 4]);
+        assert!(!entry.paused);
+        let mut paused = data.clone();
+        paused[44] = 1;
+        assert!(decode_verifier_entry(&paused).unwrap().paused);
+        paused[44] = 2;
+        assert_eq!(
+            decode_verifier_entry(&paused),
+            Err(DecodeError::InvalidBool {
+                field: "paused",
+                byte: 2
+            })
+        );
+        assert_eq!(
+            decode_verifier_entry(&data[..20]),
+            Err(DecodeError::Truncated { field: "verifier" })
+        );
+        #[cfg(feature = "solana")]
+        assert_eq!(
+            solana_pubkey::Pubkey::new_from_array(entry.verifier).to_string(),
+            "H3ZFoDHFvthGZu3kxpif3oSWm8MQn8uKvgDhrvVVHvHf"
+        );
+    }
 
     /// The schema-3 `PAStateAccount` layout (state.rs): schema_version, bump,
     /// owner, verifier_router, proof_selector, kind_table_commitment, paused, root,

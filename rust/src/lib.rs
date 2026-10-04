@@ -30,7 +30,10 @@ pub mod program_ids;
 #[cfg(feature = "solana")]
 pub mod settlement;
 
-pub use accounts::{decode_pa_state, DecodeError, PAStateAccount, PA_STATE_SCHEMA_VERSION};
+pub use accounts::{
+    decode_pa_state, decode_verifier_entry, DecodeError, PAStateAccount, VerifierEntryAccount,
+    PA_STATE_SCHEMA_VERSION,
+};
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
 pub use events::{

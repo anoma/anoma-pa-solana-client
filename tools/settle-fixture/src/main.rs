@@ -35,9 +35,9 @@ use std::str::FromStr;
 use anoma_pa_solana_client::{
     build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, create_ata_idempotent_ix,
     decode_event_instruction, decode_forwarder_event_instruction, decode_pa_state,
-    derive_nonce_bitmap_pda, derive_pa_state_pda, derive_verifier_entry_pda, init_nonce_bitmap_ix,
-    nonce_word_index, plan_settlement, sha256, ForwarderEvent, PaEvent, SettlementRequest,
-    EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_LOOKUP_TABLE,
+    decode_verifier_entry, derive_nonce_bitmap_pda, derive_pa_state_pda, derive_verifier_entry_pda,
+    init_nonce_bitmap_ix, nonce_word_index, plan_settlement, sha256, ForwarderEvent, PaEvent,
+    SettlementRequest, EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_LOOKUP_TABLE,
     TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
@@ -376,14 +376,16 @@ fn main() {
     print_events(&client, &args.pa, &args.forwarder, &settle_sig);
 }
 
-/// The verifier program the router entry points at (first 32 bytes after the
-/// entry's discriminator and selector are the entry's `verifier` field).
+/// The verifier program the router entry points at.
 fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
     let data = client
         .get_account_data(verifier_entry)
         .expect("verifier entry account");
-    // VerifierEntry { selector: [u8; 4], verifier: Pubkey } after the 8-byte discriminator.
-    Pubkey::try_from(&data[12..44]).expect("verifier pubkey")
+    Pubkey::from(
+        decode_verifier_entry(&data)
+            .expect("decode the verifier entry")
+            .verifier,
+    )
 }
 
 fn print_events(client: &RpcClient, pa: &Pubkey, forwarder: &Pubkey, sig: &Signature) {
