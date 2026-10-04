@@ -25,7 +25,7 @@ PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder.
 
 ## Pairing check
 
-`tools/settle-fixture` exercises the whole client surface against a live adapter: it decodes the state account, replays the commitment tree to predict the new root marker, uploads a fixture transaction with the `txdata_*` builders, settles it with `settle_from_txdata_ix`, asserts the on-chain root equals the replay, and decodes the settlement's CPI events, printing the compute units the settlement consumed. Run it against devnet, or against a local validator set up from the adapter repo's `solana-pa-prototype/`:
+`tools/settle-fixture` exercises the whole client surface against a live adapter: it decodes the state account, plans the settlement with `plan_settlement` (the upload, the remaining accounts with any historical-root markers, and the predicted new root), uploads the fixture transaction, settles it, asserts the on-chain root equals the replay, and decodes the settlement's CPI events, printing the compute units the settlement consumed. Run it against devnet, or against a local validator set up from the adapter repo's `solana-pa-prototype/`:
 
 ```bash
 ./scripts/dev.sh validator-deploy                                    # every program loaded at genesis; keeps running

@@ -27,6 +27,8 @@ pub mod instructions;
 pub mod pda;
 #[cfg(feature = "solana")]
 pub mod program_ids;
+#[cfg(feature = "solana")]
+pub mod settlement;
 
 pub use accounts::{decode_pa_state, DecodeError, PAStateAccount, PA_STATE_SCHEMA_VERSION};
 pub use constants::*;
@@ -65,6 +67,11 @@ pub use pda::{
 };
 #[cfg(feature = "solana")]
 pub use program_ids::*;
+#[cfg(feature = "solana")]
+pub use settlement::{
+    adapter_settlement_lookup_keys, initialize_ix, plan_settlement, SettlementPlan,
+    SettlementRequest,
+};
 pub use wallet_keyring::{
     derive_keyring_secrets, nullifier_commitment, sign_message, KeyringSecrets, AUTHORITY_DOMAIN,
     DISCOVERY_DOMAIN, ENCRYPTION_DOMAIN, KEYRING_SALT, NULLIFIER_DOMAIN,

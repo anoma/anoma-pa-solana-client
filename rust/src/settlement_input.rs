@@ -70,6 +70,38 @@ pub fn settlement_input(mut tx: Transaction) -> Result<Vec<u8>, SettlementInputE
     bincode::serialize(&tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))
 }
 
+/// The resources a settlement of a transaction touches, in the form
+/// `plan_settlement` takes them: the consumed resources' nullifiers and the
+/// roots their proofs were made against, and the created commitments, each in
+/// the aggregation instance's order.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SettledResources {
+    pub nullifiers: Vec<[u8; 32]>,
+    pub consumed_roots: Vec<[u8; 32]>,
+    pub created: Vec<[u8; 32]>,
+}
+
+/// The resources a settlement of `tx` consumes and creates, read from its
+/// aggregation instance, the statement the adapter settles.
+pub fn settled_resources(tx: &Transaction) -> Result<SettledResources, SettlementInputError> {
+    let actions = &tx
+        .aggregation
+        .as_ref()
+        .ok_or(SettlementInputError::NoAggregation)?
+        .instance
+        .actions;
+    let consumed = || actions.iter().flat_map(|action| &action.consumed_publics);
+    Ok(SettledResources {
+        nullifiers: consumed().map(|c| c.resource_nullifier.into()).collect(),
+        consumed_roots: consumed().map(|c| c.commitment_tree_root.into()).collect(),
+        created: actions
+            .iter()
+            .flat_map(|action| &action.created_publics)
+            .map(|c| c.resource_commitment.into())
+            .collect(),
+    })
+}
+
 /// The claim a batch aggregation proof over `journal` proves.
 fn aggregation_claim(journal: &[u8]) -> Digest {
     ReceiptClaim::ok(
@@ -128,8 +160,63 @@ mod tests {
     use anoma_pa_testkit::fixtures::trivial;
     use anoma_pa_testkit::prover::LocalProver;
     use anoma_rm_risc0::constants::BATCH_AGGREGATION_VK;
+    use anoma_rm_risc0::resource::Resource;
     use risc0_zkvm::sha::{Digest, Digestible, Sha256};
     use risc0_zkvm::{FakeReceipt, Groth16Receipt, InnerReceipt, MaybePruned, ReceiptClaim};
+
+    #[tokio::test]
+    async fn the_settled_resources_are_each_actions_nullifiers_and_commitments_in_order() {
+        let first = trivial::build(1, trivial::Overrides::default()).expect("trivial action");
+        let second = trivial::build(
+            2,
+            trivial::Overrides {
+                consumed_count: Some(2),
+                created_count: Some(2),
+                ..Default::default()
+            },
+        )
+        .expect("trivial action");
+        let created: Vec<[u8; 32]> = first
+            .created_ephemerals
+            .iter()
+            .chain(&second.created_ephemerals)
+            .map(|r| r.commitment().into())
+            .collect();
+        let created_nonces: Vec<Vec<[u8; 32]>> = [&first, &second]
+            .iter()
+            .map(|a| a.created_ephemerals.iter().map(|r| r.nonce).collect())
+            .collect();
+        let tx = LocalProver
+            .prove(&[first.witnesses, second.witnesses])
+            .await
+            .expect("local proof")
+            .into_arm();
+
+        let resources = settled_resources(&tx).expect("settled resources");
+        assert_eq!(resources.created, created);
+        assert_eq!(resources.nullifiers.len(), 3);
+        assert_eq!(resources.consumed_roots.len(), 3);
+        // A created resource's nonce derives from its action's nullifiers, so
+        // the nullifiers are each action's, in order.
+        for (nullifiers, nonces) in [&resources.nullifiers[..1], &resources.nullifiers[1..]]
+            .iter()
+            .zip(&created_nonces)
+        {
+            let digests: Vec<Digest> = nullifiers.iter().map(|n| Digest::from(*n)).collect();
+            for (index, nonce) in nonces.iter().enumerate() {
+                let derived =
+                    Resource::derive_nonce_from_nullifiers(index as u32, &digests).unwrap();
+                assert_eq!(&derived, nonce, "created nonce {index}");
+            }
+        }
+
+        let mut no_aggregation = tx;
+        no_aggregation.aggregation = None;
+        assert_eq!(
+            settled_resources(&no_aggregation),
+            Err(SettlementInputError::NoAggregation)
+        );
+    }
 
     async fn proven_trivial_transaction() -> Transaction {
         let built = trivial::build(1, trivial::Overrides::default()).expect("trivial action");

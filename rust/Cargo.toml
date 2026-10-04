@@ -25,6 +25,7 @@ base64 = "0.22"
 # riscv32im-risc0-zkvm-elf) can depend on this crate with `default-features =
 # false`. These are the Solana crate versions the programs build with (Anchor
 # 1.2): pubkey, instruction and sdk-ids 3.
+solana-compute-budget-interface = { version = "3", optional = true }
 solana-instruction = { version = "3", optional = true }
 solana-pubkey = { version = "3", optional = true }
 solana-sdk-ids = { version = "3", optional = true }
@@ -48,6 +49,7 @@ default = ["solana"]
 # Enables the modules that depend on the Solana SDK: instruction builders, PDA
 # derivation, program IDs, and ATA helpers.
 solana = [
+  "dep:solana-compute-budget-interface",
   "dep:solana-instruction",
   "dep:solana-pubkey",
   "dep:solana-sdk-ids",

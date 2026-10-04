@@ -2,7 +2,7 @@
 
 This document specifies what the `anoma-pa-solana-client` package must provide. Implementation follows from this spec.
 
-The repository ships **two language packages from one source of truth**: a Rust crate (under `rust/`) and a TypeScript/npm package (under `ts/`). They expose the same surface — instruction builders, account decoders, PDA helpers, event decoders, and constants — adapted to each language's idioms. They are released together with matching versions.
+The repository ships **two language packages from one source of truth**: a Rust crate (under `rust/`) and a TypeScript/npm package (under `ts/`). Both carry the wire-level core — discriminators, PDA helpers, account and event decoders, wrap messages, forwarder account assembly and constants — adapted to each language's idioms. The settlement builders (§3.3, §3.5) are in the Rust crate; the TypeScript package adds the frontend's helpers (amounts, confirmation, the ed25519 instruction index). They are released together with matching versions.
 
 ---
 
@@ -48,6 +48,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 
 ### 3.3 Instruction builders — Protocol Adapter
 
+- `initialize` (the deployer, as the program's upgrade authority, sets the owner, verifier router and proof selector)
 - `txdata_init`
 - `txdata_write` (chunked; chunk size constant is shipped from this package)
 - `settle_from_txdata`
@@ -66,7 +67,9 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 - The settle transaction is a v0 message compiled against `SETTLE_LOOKUP_TABLE`. The table holds the settlement accounts that are fixed per deployment; signers, invoked programs and per-transaction accounts (upload, markers, token accounts, nonce bitmap) stay static.
 - A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, optional `Ed25519Program` verify ix(es) for wrap authorizations, and the `settle_from_txdata` ix with correct `remaining_accounts`.
 - Computes `ed25519_ix_index` from the actual transaction layout, not from a constant.
-- Chunked upload helper: bincode-serializes the ARM `Transaction`, splits into appropriately-sized chunks, returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions.
+- Chunked upload helper: splits the settlement input into appropriately-sized chunks and returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions (`plan_settlement`). The `settle_from_txdata` remaining accounts are the nullifier PDAs, then the external-call segments, then the root marker of every consumed root other than the padding leaf; the new root is predicted from the adapter's stored frontier.
+- The settlement input (the `arm` feature): a proven ARM `Transaction` with its aggregation proof re-encoded as the verifier-router seal, bincode-serialized (`settlement_input`), and the nullifiers, consumed roots and created commitments its settlement touches (`settled_resources`).
+- The adapter's part of a deployment's settlement lookup table (`adapter_settlement_lookup_keys`).
 
 ### 3.6 PDA derivation
 
@@ -74,6 +77,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 - `derive_tx_data_pda(authority, upload_id)`
 - `derive_nullifier_pda(pa_state, nullifier_bytes)`
 - `derive_root_marker_pda(pa_state, root_bytes)`
+- `derive_verifier_router_pdas(router_program, selector)` — the router's state PDA and its verifier entry for the adapter's proof selector
 - `derive_forwarder_escrow_authority()` — `[b"escrow"]` seed schema: the one PDA that owns every mint's escrow ATA
 - `derive_associated_token_address(mint, owner)` — convenience wrapper
 

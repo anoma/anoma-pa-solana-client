@@ -35,19 +35,16 @@ use std::str::FromStr;
 use anoma_pa_solana_client::{
     build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, create_ata_idempotent_ix,
     decode_event_instruction, decode_forwarder_event_instruction, decode_pa_state,
-    derive_nonce_bitmap_pda, derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda,
-    derive_tx_data_pda, derive_verifier_router_pdas, init_nonce_bitmap_ix, nonce_word_index,
-    settle_from_txdata_ix, sha256, txdata_close_ix, txdata_init_ix, txdata_write_ix,
-    CommitmentTreeState, ForwarderEvent, PaEvent, EVENT_IX_TAG, FORWARDER_PROGRAM_ID,
-    PA_PROGRAM_ID, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, SETTLE_LOOKUP_TABLE,
-    TXDATA_CHUNK_SIZE, TXDATA_EXPIRY_SLOTS_DEFAULT,
+    derive_nonce_bitmap_pda, derive_pa_state_pda, derive_verifier_router_pdas,
+    init_nonce_bitmap_ix, nonce_word_index, plan_settlement, sha256, ForwarderEvent, PaEvent,
+    SettlementRequest, EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_LOOKUP_TABLE,
+    TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcTransactionConfig;
 use solana_commitment_config::CommitmentConfig;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
@@ -64,6 +61,9 @@ struct Fixture {
     tx_b64: String,
     consumed_nullifiers_b64: Vec<String>,
     created_commitments_b64: Vec<String>,
+    /// The consumed roots other than the initial one; absent when there are none.
+    #[serde(default)]
+    historical_roots_b64: Vec<String>,
     spl_token_wrap: Option<SplTokenWrap>,
     spl_token_unwrap: Option<SplTokenUnwrap>,
 }
@@ -247,38 +247,11 @@ fn main() {
         "fixture selector must match the deployment's pinned selector"
     );
 
-    // 2. Replay the commitment tree to predict the post-settlement root.
-    let mut tree = CommitmentTreeState {
-        root: state.root,
-        next_index: state.next_index,
-        current_depth: state.current_depth,
-        frontier: state.frontier.clone(),
-    };
-    for c in &fixture.created_commitments_b64 {
-        tree.append(b64_32(c)).expect("append commitment");
-    }
-    // A settlement that creates nothing produces no root and takes no marker.
-    let new_root_marker = (!fixture.created_commitments_b64.is_empty())
-        .then(|| derive_root_marker_pda(&args.pa, &pa_state, &tree.root).0);
-    println!(
-        "predicted root {} marker {new_root_marker:?}",
-        hex(&tree.root)
-    );
-
-    // 3. Remaining accounts: nullifier markers, then the external-call
-    //    segments. A wrap's segment comes from the forwarder builders, and its
-    //    settlement starts with the ed25519 instruction the wrap input names
-    //    (index 0) and the bitmap creation when the nonce's word has none.
-    let mut remaining: Vec<AccountMeta> = fixture
-        .consumed_nullifiers_b64
-        .iter()
-        .map(|n| {
-            AccountMeta::new(
-                derive_nullifier_pda(&args.pa, &pa_state, &b64_32(n)).0,
-                false,
-            )
-        })
-        .collect();
+    // 2. The external-call segments. A wrap's segment comes from the
+    //    forwarder builders, and its settlement starts with the ed25519
+    //    instruction the wrap input names (index 0) and the bitmap creation
+    //    when the nonce's word has none.
+    let mut call_segments: Vec<Vec<AccountMeta>> = Vec::new();
     let mut pre_instructions: Vec<Instruction> = Vec::new();
     if let Some(wrap) = &fixture.spl_token_wrap {
         let user = seeded_pubkey(&wrap.user_seed_label);
@@ -304,7 +277,7 @@ fn main() {
                 word,
             ));
         }
-        remaining.extend(build_wrap_forwarder_accounts(
+        call_segments.push(build_wrap_forwarder_accounts(
             &args.forwarder,
             &user,
             &mint,
@@ -319,7 +292,7 @@ fn main() {
         let recipient = seeded_pubkey(&unwrap.recipient_seed_label);
         let mint = seeded_pubkey(&unwrap.mint_seed_label);
         pre_instructions.push(create_ata_idempotent_ix(&payer.pubkey(), &recipient, &mint));
-        remaining.extend(build_unwrap_forwarder_accounts(
+        call_segments.push(build_unwrap_forwarder_accounts(
             &args.forwarder,
             &recipient,
             &mint,
@@ -329,69 +302,63 @@ fn main() {
             args.forwarder
         );
     }
-    for segment in &args.call_accounts {
-        remaining.extend(segment.iter().map(|k| AccountMeta::new_readonly(*k, false)));
-    }
+    call_segments.extend(args.call_accounts.iter().map(|segment| {
+        segment
+            .iter()
+            .map(|k| AccountMeta::new_readonly(*k, false))
+            .collect()
+    }));
 
-    // 4. Upload the transaction in chunks.
+    // 3. Plan the settlement with the crate: the upload, the settle (the
+    //    remaining accounts, the predicted root and its marker) and the close.
     let upload_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let (tx_data, _) = derive_tx_data_pda(&args.pa, &payer.pubkey(), upload_id);
-    let (router, verifier_entry) =
-        derive_verifier_router_pdas(&Pubkey::from(state.verifier_router));
-    let verifier_program = verifier_program_of(&client, &verifier_entry);
+    let (_, verifier_entry) =
+        derive_verifier_router_pdas(&Pubkey::from(state.verifier_router), state.proof_selector);
+    let nullifiers: Vec<[u8; 32]> = fixture
+        .consumed_nullifiers_b64
+        .iter()
+        .map(|n| b64_32(n))
+        .collect();
+    let consumed_roots: Vec<[u8; 32]> = fixture
+        .historical_roots_b64
+        .iter()
+        .map(|r| b64_32(r))
+        .collect();
+    let created: Vec<[u8; 32]> = fixture
+        .created_commitments_b64
+        .iter()
+        .map(|c| b64_32(c))
+        .collect();
+    let plan = plan_settlement(SettlementRequest {
+        pa_program: args.pa,
+        payer: payer.pubkey(),
+        upload_id,
+        expires_slot: client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT,
+        input: &tx_bytes,
+        state: &state,
+        verifier_program: verifier_program_of(&client, &verifier_entry),
+        nullifiers: &nullifiers,
+        consumed_roots: &consumed_roots,
+        created: &created,
+        call_segments,
+    })
+    .expect("plan the settlement");
+    println!("predicted root {:?}", plan.new_root.map(|root| hex(&root)));
     let mut settle_ixs = pre_instructions;
-    settle_ixs.extend([
-        ComputeBudgetInstruction::set_compute_unit_limit(SETTLE_COMPUTE_UNIT_LIMIT),
-        ComputeBudgetInstruction::request_heap_frame(SETTLE_HEAP_FRAME_BYTES),
-        settle_from_txdata_ix(
-            &args.pa,
-            &pa_state,
-            &tx_data,
-            &payer.pubkey(),
-            upload_id,
-            new_root_marker.as_ref(),
-            &Pubkey::from(state.verifier_router),
-            &router,
-            &verifier_entry,
-            &verifier_program,
-            remaining,
-        ),
-    ]);
-    let expires_slot = client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT;
-    send(
-        &client,
-        &payer,
-        &[txdata_init_ix(
-            &args.pa,
-            &pa_state,
-            &tx_data,
-            &payer.pubkey(),
-            upload_id,
-            tx_bytes.len() as u32,
-            expires_slot,
-        )],
-        &[],
-        "txdata_init",
-    );
+    settle_ixs.extend(plan.settle);
 
-    // 5. Write the chunks and settle, then close the upload whatever the
-    // outcome, so a refused settlement does not strand its rent.
+    // 4. Upload, settle, then close the upload whatever the outcome, so a
+    //    refused settlement does not strand its rent.
+    send(&client, &payer, &[plan.init], &[], "txdata_init");
     let settled = (|| {
-        for (i, chunk) in tx_bytes.chunks(TXDATA_CHUNK_SIZE).enumerate() {
+        for (i, write) in plan.writes.into_iter().enumerate() {
             try_send(
                 &client,
                 &payer,
-                &[txdata_write_ix(
-                    &args.pa,
-                    &tx_data,
-                    &payer.pubkey(),
-                    upload_id,
-                    (i * TXDATA_CHUNK_SIZE) as u32,
-                    chunk,
-                )],
+                &[write],
                 &[],
                 &format!("txdata_write[{i}]"),
             )?;
@@ -404,26 +371,14 @@ fn main() {
             "settle_from_txdata",
         )
     })();
-    send(
-        &client,
-        &payer,
-        &[txdata_close_ix(
-            &args.pa,
-            &tx_data,
-            &payer.pubkey(),
-            &payer.pubkey(),
-            upload_id,
-        )],
-        &[],
-        "txdata_close",
-    );
+    send(&client, &payer, &[plan.close], &[], "txdata_close");
     let settle_sig = settled.unwrap_or_else(|e| panic!("{e}"));
 
-    // 6. Read back: the root moved to the prediction, and the events decode.
+    // 5. Read back: the root moved to the prediction, and the events decode.
     let after = decode_pa_state(&client.get_account_data(&pa_state).expect("pa_state")).unwrap();
     assert_eq!(
         hex(&after.root),
-        hex(&tree.root),
+        hex(&plan.new_root.unwrap_or(state.root)),
         "on-chain root must equal the replayed root"
     );
     println!(
