@@ -7,7 +7,7 @@
 
 pub mod accounts;
 pub mod constants;
-mod cursor;
+pub mod cursor;
 pub mod discriminator;
 pub mod events;
 pub mod external_call;
@@ -37,7 +37,8 @@ pub use accounts::{
 pub use constants::*;
 pub use discriminator::{anchor_event_disc, anchor_instruction_disc};
 pub use events::{
-    decode_event_instruction, decode_forwarder_event_instruction, ActionExecutedEvent,
+    decode_cpi_event, decode_event_instruction, decode_forwarder_event_instruction,
+    decode_ownership_transferred, decode_upgraded, ActionExecutedEvent,
     CommitmentTreeRootAddedEvent, EmergencyCallerSetEvent, EmergencyWithdrawEvent,
     EventDecodeError, ForwarderCallExecutedEvent, ForwarderEvent, InitializedEvent,
     KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent, OwnershipTransferredEvent, PaEvent,

@@ -228,9 +228,11 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Decode one event self-invocation's data: check the tag, read the
-/// discriminator, let `body` decode the body it names, and refuse trailing bytes.
-fn decode_cpi_event<E>(
+/// Decode one Anchor event self-invocation's data: check the tag, read the
+/// discriminator, let `body` decode the body it names, and refuse trailing
+/// bytes. Every program that emits its events with `emit_cpi!` (the adapter,
+/// its forwarders) frames them this way.
+pub fn decode_cpi_event<E>(
     data: &[u8],
     body: impl FnOnce([u8; ANCHOR_DISCRIMINATOR_LEN], &mut Cursor<'_>) -> Result<E, EventDecodeError>,
 ) -> Result<E, EventDecodeError> {
@@ -295,9 +297,9 @@ fn forwarder_event_body(
             version: c.u64_le("version")?,
         })
     } else if disc == anchor_event_disc("OwnershipTransferred") {
-        ForwarderEvent::OwnershipTransferred(ownership_transferred(c)?)
+        ForwarderEvent::OwnershipTransferred(decode_ownership_transferred(c)?)
     } else if disc == anchor_event_disc("Upgraded") {
-        ForwarderEvent::Upgraded(upgraded(c)?)
+        ForwarderEvent::Upgraded(decode_upgraded(c)?)
     } else {
         return Err(EventDecodeError::UnknownDiscriminator(disc));
     })
@@ -348,9 +350,9 @@ fn pa_event_body(
             account: c.array_32("account")?,
         })
     } else if disc == anchor_event_disc("OwnershipTransferredEvent") {
-        PaEvent::OwnershipTransferred(ownership_transferred(c)?)
+        PaEvent::OwnershipTransferred(decode_ownership_transferred(c)?)
     } else if disc == anchor_event_disc("UpgradedEvent") {
-        PaEvent::Upgraded(upgraded(c)?)
+        PaEvent::Upgraded(decode_upgraded(c)?)
     } else if disc == anchor_event_disc("ForwarderCallExecutedEvent") {
         PaEvent::ForwarderCallExecuted(ForwarderCallExecutedEvent {
             forwarder: c.array_32("forwarder")?,
@@ -362,7 +364,9 @@ fn pa_event_body(
     })
 }
 
-fn ownership_transferred(
+/// The body of an `OwnershipTransferred` event, which the adapter and the
+/// forwarders emit alike.
+pub fn decode_ownership_transferred(
     c: &mut Cursor<'_>,
 ) -> Result<OwnershipTransferredEvent, EventDecodeError> {
     Ok(OwnershipTransferredEvent {
@@ -371,7 +375,9 @@ fn ownership_transferred(
     })
 }
 
-fn upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeError> {
+/// The body of an `Upgraded` event, which the adapter and the forwarders emit
+/// alike.
+pub fn decode_upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeError> {
     Ok(UpgradedEvent {
         executable_hash: c.array_32("executable_hash")?,
     })
