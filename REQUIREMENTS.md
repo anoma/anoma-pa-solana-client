@@ -77,7 +77,9 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 - `derive_tx_data_pda(authority, upload_id)`
 - `derive_nullifier_pda(pa_state, nullifier_bytes)`
 - `derive_root_marker_pda(pa_state, root_bytes)`
-- `derive_verifier_router_pdas(router_program, selector)` — the router's state PDA and its verifier entry for the adapter's proof selector
+- `derive_verifier_router_pdas(router_program, selector)` — the router's state PDA and its verifier entry for the adapter's proof selector; `derive_verifier_entry_pda(router_program, selector)` — the entry alone
+- `derive_upgrade_authority_pda()` — `[b"upgrade_authority"]`: the program's upgrade authority once `initialize` ran
+- `derive_program_data_address(program)` — the upgradeable loader's ProgramData account, which `initialize` checks
 - `derive_forwarder_escrow_authority()` — `[b"escrow"]` seed schema: the one PDA that owns every mint's escrow ATA
 - `derive_associated_token_address(mint, owner)` — convenience wrapper
 

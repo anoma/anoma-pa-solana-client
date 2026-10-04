@@ -58,19 +58,21 @@ pub use forwarder::{
     nonce_word_index, NONCES_PER_WORD,
 };
 #[cfg(feature = "solana")]
-pub use instructions::{settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix};
+pub use instructions::{
+    initialize_ix, settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix,
+};
 #[cfg(feature = "solana")]
 pub use pda::{
     derive_associated_token_address, derive_event_authority_pda, derive_forwarder_config_pda,
     derive_forwarder_escrow_authority, derive_nonce_bitmap_pda, derive_nullifier_pda,
-    derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda, derive_verifier_router_pdas,
+    derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
+    derive_upgrade_authority_pda, derive_verifier_entry_pda, derive_verifier_router_pdas,
 };
 #[cfg(feature = "solana")]
 pub use program_ids::*;
 #[cfg(feature = "solana")]
 pub use settlement::{
-    adapter_settlement_lookup_keys, initialize_ix, plan_settlement, SettlementPlan,
-    SettlementRequest,
+    adapter_settlement_lookup_keys, plan_settlement, SettlementPlan, SettlementRequest,
 };
 pub use wallet_keyring::{
     derive_keyring_secrets, nullifier_commitment, sign_message, KeyringSecrets, AUTHORITY_DOMAIN,

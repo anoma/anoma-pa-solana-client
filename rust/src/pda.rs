@@ -4,6 +4,7 @@
 //! functions: same inputs always produce the same `(Pubkey, bump)` pair.
 
 use solana_pubkey::Pubkey;
+use solana_sdk_ids::bpf_loader_upgradeable;
 use spl_associated_token_account_interface::address::get_associated_token_address;
 
 // ---- PA program PDAs ---------------------------------------------------------
@@ -102,9 +103,29 @@ pub fn derive_verifier_router_pdas(
     selector: [u8; 4],
 ) -> (Pubkey, Pubkey) {
     let (router, _) = Pubkey::find_program_address(&[b"router"], verifier_router_program);
-    let (entry, _) =
-        Pubkey::find_program_address(&[b"verifier", &selector], verifier_router_program);
-    (router, entry)
+    (
+        router,
+        derive_verifier_entry_pda(verifier_router_program, selector),
+    )
+}
+
+/// The router's verifier-entry PDA for `selector`. Seed: `["verifier", selector]`.
+pub fn derive_verifier_entry_pda(verifier_router_program: &Pubkey, selector: [u8; 4]) -> Pubkey {
+    Pubkey::find_program_address(&[b"verifier", &selector], verifier_router_program).0
+}
+
+// ---- Upgrade authority -------------------------------------------------------
+
+/// The PDA the adapter's `initialize` makes the program's upgrade authority.
+/// Seed: `["upgrade_authority"]`.
+pub fn derive_upgrade_authority_pda(pa_program: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"upgrade_authority"], pa_program)
+}
+
+/// The upgradeable loader's ProgramData account of `program`, where the loader
+/// records its upgrade authority.
+pub fn derive_program_data_address(program: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[program.as_ref()], &bpf_loader_upgradeable::id()).0
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@
 
 use crate::constants::{ANCHOR_DISCRIMINATOR_LEN, MAX_TREE_DEPTH};
 use crate::cursor::{Cursor, Truncated};
+use crate::merkle::CommitmentTreeState;
 
 /// The `PAStateAccount` layout number this decoder reads. The PA stores it at
 /// byte 8 of the account data, right after the Anchor discriminator, in every
@@ -35,6 +36,19 @@ pub struct PAStateAccount {
     /// Logic refs the owner denied: no settlement consumes or creates a
     /// resource carrying one.
     pub denied_logic_refs: Vec<[u8; 32]>,
+}
+
+/// The commitment tree the adapter stores, to replay the leaves a settlement
+/// appends.
+impl From<&PAStateAccount> for CommitmentTreeState {
+    fn from(state: &PAStateAccount) -> Self {
+        CommitmentTreeState {
+            root: state.root,
+            next_index: state.next_index,
+            current_depth: state.current_depth,
+            frontier: state.frontier.clone(),
+        }
+    }
 }
 
 /// Errors produced by the PA state decoder.

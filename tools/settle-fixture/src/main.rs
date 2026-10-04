@@ -35,9 +35,9 @@ use std::str::FromStr;
 use anoma_pa_solana_client::{
     build_unwrap_forwarder_accounts, build_wrap_forwarder_accounts, create_ata_idempotent_ix,
     decode_event_instruction, decode_forwarder_event_instruction, decode_pa_state,
-    derive_nonce_bitmap_pda, derive_pa_state_pda, derive_verifier_router_pdas,
-    init_nonce_bitmap_ix, nonce_word_index, plan_settlement, sha256, ForwarderEvent, PaEvent,
-    SettlementRequest, EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_LOOKUP_TABLE,
+    derive_nonce_bitmap_pda, derive_pa_state_pda, derive_verifier_entry_pda, init_nonce_bitmap_ix,
+    nonce_word_index, plan_settlement, sha256, ForwarderEvent, PaEvent, SettlementRequest,
+    EVENT_IX_TAG, FORWARDER_PROGRAM_ID, PA_PROGRAM_ID, SETTLE_LOOKUP_TABLE,
     TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
@@ -151,8 +151,11 @@ fn b64(s: &str) -> Vec<u8> {
         .expect("fixture field is base64")
 }
 
-fn b64_32(s: &str) -> [u8; 32] {
-    b64(s).try_into().expect("32-byte fixture field")
+fn b64_32s(fields: &[String]) -> Vec<[u8; 32]> {
+    fields
+        .iter()
+        .map(|s| b64(s).try_into().expect("32-byte fixture field"))
+        .collect()
 }
 
 /// The deployment's settlement lookup table, as the message compiler wants it.
@@ -315,23 +318,8 @@ fn main() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let (_, verifier_entry) =
-        derive_verifier_router_pdas(&Pubkey::from(state.verifier_router), state.proof_selector);
-    let nullifiers: Vec<[u8; 32]> = fixture
-        .consumed_nullifiers_b64
-        .iter()
-        .map(|n| b64_32(n))
-        .collect();
-    let consumed_roots: Vec<[u8; 32]> = fixture
-        .historical_roots_b64
-        .iter()
-        .map(|r| b64_32(r))
-        .collect();
-    let created: Vec<[u8; 32]> = fixture
-        .created_commitments_b64
-        .iter()
-        .map(|c| b64_32(c))
-        .collect();
+    let verifier_entry =
+        derive_verifier_entry_pda(&Pubkey::from(state.verifier_router), state.proof_selector);
     let plan = plan_settlement(SettlementRequest {
         pa_program: args.pa,
         payer: payer.pubkey(),
@@ -340,9 +328,9 @@ fn main() {
         input: &tx_bytes,
         state: &state,
         verifier_program: verifier_program_of(&client, &verifier_entry),
-        nullifiers: &nullifiers,
-        consumed_roots: &consumed_roots,
-        created: &created,
+        nullifiers: &b64_32s(&fixture.consumed_nullifiers_b64),
+        consumed_roots: &b64_32s(&fixture.historical_roots_b64),
+        created: &b64_32s(&fixture.created_commitments_b64),
         call_segments,
     })
     .expect("plan the settlement");

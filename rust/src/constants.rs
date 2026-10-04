@@ -44,8 +44,9 @@ pub const FORWARDER_UNWRAP_NUM_ACCOUNTS: u8 = 9;
 /// forwarder returns and the resource's external call expects as output.
 pub const FORWARDER_RESULT_SUCCESS: u8 = 1;
 
-/// Groth16 proof selector for the verifier-router lookup. The first 4 bytes identify
-/// the verifier type; the PA verifier-entry PDA is derived from `["verifier", selector]`.
+/// The verifier router's selector for the Groth16 verifier: the `proof_selector`
+/// an adapter that settles real proofs is initialized with. Settlement derives
+/// the verifier entry from the adapter's stored `proof_selector`, not from this.
 pub const GROTH16_VERIFIER_SELECTOR: [u8; 4] = [0x73, 0xc4, 0x57, 0xba];
 
 /// Anchor account-discriminator prefix length (constant across all Anchor programs).

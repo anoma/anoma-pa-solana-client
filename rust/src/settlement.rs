@@ -1,16 +1,15 @@
-//! The transactions of one settlement, an adapter's initialization, and the
-//! adapter's part of a deployment's settlement lookup table.
+//! The transactions of one settlement, and the adapter's part of a
+//! deployment's settlement lookup table.
 
 use std::collections::BTreeSet;
 
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
+use solana_sdk_ids::system_program;
 
 use crate::accounts::PAStateAccount;
 use crate::constants::{SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES, TXDATA_CHUNK_SIZE};
-use crate::discriminator::anchor_instruction_disc;
 use crate::instructions::{
     settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix,
 };
@@ -92,12 +91,7 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
     let new_root = if created.is_empty() {
         None
     } else {
-        let mut tree = CommitmentTreeState {
-            root: state.root,
-            next_index: state.next_index,
-            current_depth: state.current_depth,
-            frontier: state.frontier.clone(),
-        };
+        let mut tree = CommitmentTreeState::from(state);
         for leaf in created {
             tree.append(*leaf)?;
         }
@@ -174,45 +168,6 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
     })
 }
 
-/// The adapter's `initialize`: `payer`, the program's upgrade authority, sets
-/// the owner, verifier router and proof selector, and hands the upgrade
-/// authority to the program.
-pub fn initialize_ix(
-    pa_program: &Pubkey,
-    payer: &Pubkey,
-    initial_owner: &Pubkey,
-    verifier_router: &Pubkey,
-    proof_selector: [u8; 4],
-) -> Instruction {
-    let mut data = anchor_instruction_disc("initialize").to_vec();
-    data.extend_from_slice(initial_owner.as_ref());
-    data.extend_from_slice(verifier_router.as_ref());
-    data.extend_from_slice(&proof_selector);
-    let (_, verifier_entry) = derive_verifier_router_pdas(verifier_router, proof_selector);
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(system_program::id(), false),
-            AccountMeta::new(
-                Pubkey::find_program_address(&[pa_program.as_ref()], &bpf_loader_upgradeable::id())
-                    .0,
-                false,
-            ),
-            AccountMeta::new_readonly(
-                Pubkey::find_program_address(&[b"upgrade_authority"], pa_program).0,
-                false,
-            ),
-            AccountMeta::new_readonly(bpf_loader_upgradeable::id(), false),
-            AccountMeta::new_readonly(verifier_entry, false),
-            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*pa_program, false),
-        ],
-        data,
-    }
-}
-
 /// The accounts the adapter's part of every settlement carries that a lookup
 /// table can hold (neither a signer nor an invoked program): its state, the
 /// system program, the verifier router, the router's state and its entry for
@@ -239,7 +194,6 @@ pub fn adapter_settlement_lookup_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use solana_sdk_ids::compute_budget;
 
     const MOCK_SELECTOR: [u8; 4] = [0xff; 4];
 
@@ -363,7 +317,7 @@ mod tests {
         let (pa_state, _) = derive_pa_state_pda(&key(9));
         assert_eq!(
             plan.init,
-            crate::instructions::txdata_init_ix(
+            txdata_init_ix(
                 &key(9),
                 &pa_state,
                 &tx_data,
@@ -373,24 +327,25 @@ mod tests {
                 500
             )
         );
-        let expected: Vec<Instruction> = input
-            .chunks(TXDATA_CHUNK_SIZE)
-            .enumerate()
-            .map(|(i, chunk)| {
-                crate::instructions::txdata_write_ix(
+        // Two full chunks, then the 5-byte rest.
+        let c = TXDATA_CHUNK_SIZE;
+        let expected: Vec<Instruction> = [(0, c), (c, 2 * c), (2 * c, 2 * c + 5)]
+            .iter()
+            .map(|&(start, end)| {
+                txdata_write_ix(
                     &key(9),
                     &tx_data,
                     &key(8),
                     7,
-                    (i * TXDATA_CHUNK_SIZE) as u32,
-                    chunk,
+                    start as u32,
+                    &input[start..end],
                 )
             })
             .collect();
         assert_eq!(plan.writes, expected);
         assert_eq!(
             plan.close,
-            crate::instructions::txdata_close_ix(&key(9), &tx_data, &key(8), &key(8), 7)
+            txdata_close_ix(&key(9), &tx_data, &key(8), &key(8), 7)
         );
     }
 
@@ -399,22 +354,20 @@ mod tests {
         let state = state_with(&[]);
         let plan = plan_settlement(request(&state, b"input", &[], &[], &[], vec![])).unwrap();
         assert_eq!(plan.settle.len(), 3);
-        assert_eq!(plan.settle[0].program_id, compute_budget::id());
         assert_eq!(
-            plan.settle[0].data,
-            [&[2u8][..], &SETTLE_COMPUTE_UNIT_LIMIT.to_le_bytes()].concat()
+            plan.settle[0],
+            ComputeBudgetInstruction::set_compute_unit_limit(SETTLE_COMPUTE_UNIT_LIMIT)
         );
-        assert_eq!(plan.settle[1].program_id, compute_budget::id());
         assert_eq!(
-            plan.settle[1].data,
-            [&[1u8][..], &SETTLE_HEAP_FRAME_BYTES.to_le_bytes()].concat()
+            plan.settle[1],
+            ComputeBudgetInstruction::request_heap_frame(SETTLE_HEAP_FRAME_BYTES)
         );
         let router_program = Pubkey::new_from_array(state.verifier_router);
         let (router, entry) = derive_verifier_router_pdas(&router_program, MOCK_SELECTOR);
         let settle = &plan.settle[2];
         assert_eq!(
             settle.data[..8],
-            anchor_instruction_disc("settle_from_txdata")
+            crate::discriminator::anchor_instruction_disc("settle_from_txdata")
         );
         for k in [router_program, router, entry, key(6)] {
             assert!(
@@ -422,64 +375,6 @@ mod tests {
                 "settle names {k}"
             );
         }
-    }
-
-    #[test]
-    fn initialize_matches_the_adapters_idl() {
-        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../idl/protocol_adapter.json"
-        )))
-        .unwrap();
-        let spec = idl["instructions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|ix| ix["name"] == "initialize")
-            .unwrap();
-        let pa = crate::program_ids::PA_PROGRAM_ID;
-        let ix = initialize_ix(&pa, &key(8), &key(1), &key(2), MOCK_SELECTOR);
-
-        let disc: Vec<u8> = serde_json::from_value(spec["discriminator"].clone()).unwrap();
-        let mut data = disc;
-        data.extend(key(1).to_bytes());
-        data.extend(key(2).to_bytes());
-        data.extend(MOCK_SELECTOR);
-        assert_eq!(ix.data, data, "discriminator, then owner, router, selector");
-
-        let accounts = spec["accounts"].as_array().unwrap();
-        assert_eq!(ix.accounts.len(), accounts.len());
-        for (meta, account) in ix.accounts.iter().zip(accounts) {
-            let name = account["name"].as_str().unwrap();
-            assert_eq!(
-                meta.is_writable,
-                account["writable"] == true,
-                "{name} writable"
-            );
-            assert_eq!(meta.is_signer, account["signer"] == true, "{name} signer");
-            if let Some(address) = account["address"].as_str() {
-                assert_eq!(meta.pubkey.to_string(), address, "{name} address");
-            }
-        }
-        let by_name = |name: &str| {
-            let i = accounts.iter().position(|a| a["name"] == name).unwrap();
-            ix.accounts[i].pubkey
-        };
-        assert_eq!(by_name("pa_state"), derive_pa_state_pda(&pa).0);
-        assert_eq!(by_name("payer"), key(8));
-        assert_eq!(
-            by_name("upgrade_authority"),
-            Pubkey::find_program_address(&[b"upgrade_authority"], &pa).0
-        );
-        assert_eq!(
-            by_name("verifier_entry"),
-            derive_verifier_router_pdas(&key(2), MOCK_SELECTOR).1
-        );
-        assert_eq!(
-            by_name("event_authority"),
-            derive_event_authority_pda(&pa).0
-        );
-        assert_eq!(by_name("program"), pa);
     }
 
     #[test]

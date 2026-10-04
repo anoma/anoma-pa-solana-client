@@ -45,7 +45,11 @@ export const FORWARDER_UNWRAP_NUM_ACCOUNTS = 9;
  */
 export const FORWARDER_RESULT_SUCCESS = 1;
 
-/** Groth16 proof selector for the verifier-router lookup. */
+/**
+ * The verifier router's selector for the Groth16 verifier: the `proof_selector`
+ * an adapter that settles real proofs is initialized with. Settlement derives
+ * the verifier entry from the adapter's stored `proof_selector`, not from this.
+ */
 export const GROTH16_VERIFIER_SELECTOR = new Uint8Array([0x73, 0xc4, 0x57, 0xba]);
 
 /** Anchor account-discriminator prefix length (constant across all Anchor programs). */
