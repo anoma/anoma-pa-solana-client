@@ -68,7 +68,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 - A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, optional `Ed25519Program` verify ix(es) for wrap authorizations, and the `settle_from_txdata` ix with correct `remaining_accounts`.
 - Computes `ed25519_ix_index` from the actual transaction layout, not from a constant.
 - Chunked upload helper: splits the settlement input into appropriately-sized chunks and returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions (`plan_settlement`). The `settle_from_txdata` remaining accounts are the nullifier PDAs, then the external-call segments, then the root marker of every consumed root other than the padding leaf; the new root is predicted from the adapter's stored frontier.
-- The settlement input (the `arm` feature): a proven ARM `Transaction` with its aggregation proof re-encoded as the verifier-router seal, bincode-serialized (`settlement_input`), and the nullifiers, consumed roots and created commitments its settlement touches (`settled_resources`).
+- The settlement input (the `arm` feature): a proven ARM `Transaction` with its aggregation proof re-encoded as the verifier-router seal, bincode-serialized (`settlement_input`), the nullifiers, consumed roots and created commitments its settlement touches (`settled_resources`), and the external calls it runs, in the adapter's order (`external_calls`), whose CPI accounts the submitter supplies.
 - The adapter's part of a deployment's settlement lookup table (`adapter_settlement_lookup_keys`).
 
 ### 3.6 PDA derivation

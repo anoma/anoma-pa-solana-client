@@ -6,6 +6,9 @@ use std::fmt;
 
 use anoma_rm_risc0::proving_system::encode_seal;
 use anoma_rm_risc0::transaction::Transaction;
+use anoma_rm_risc0::utils::words_to_bytes;
+
+use crate::external_call::SolanaExternalCall;
 use risc0_zkvm::sha::{Digest, Digestible};
 use risc0_zkvm::InnerReceipt;
 
@@ -24,6 +27,8 @@ pub enum SettlementInputError {
     NoAggregation,
     /// The aggregation proof is not a bincode-encoded risc0 receipt.
     Receipt(String),
+    /// An external payload blob is not a `SolanaExternalCall`.
+    ExternalCall(String),
     /// arm could not encode the receipt as a seal.
     Seal(String),
     /// The transaction did not serialize.
@@ -35,6 +40,7 @@ impl fmt::Display for SettlementInputError {
         match self {
             Self::NoAggregation => write!(f, "the transaction carries no aggregation proof"),
             Self::Receipt(e) => write!(f, "the aggregation proof is not a risc0 receipt: {e}"),
+            Self::ExternalCall(e) => write!(f, "an external payload is not an external call: {e}"),
             Self::Seal(e) => write!(f, "encoding the seal: {e}"),
             Self::Serialize(e) => write!(f, "serializing the transaction: {e}"),
         }
@@ -93,6 +99,30 @@ pub fn settled_resources(tx: &Transaction) -> Result<SettledResources, Settlemen
             .map(|c| c.resource_commitment.into())
             .collect(),
     })
+}
+
+/// The external calls a settlement of `tx` runs, in the order the adapter runs
+/// them: for each action, its consumed resources' calls, then its created
+/// resources', each resource's in the order its external payload lists them.
+/// The proof commits each call; the accounts of its CPI segment are the
+/// submitter's to supply.
+pub fn external_calls(tx: &Transaction) -> Result<Vec<SolanaExternalCall>, SettlementInputError> {
+    tx.aggregation
+        .as_ref()
+        .ok_or(SettlementInputError::NoAggregation)?
+        .instance
+        .actions
+        .iter()
+        .flat_map(|action| {
+            let consumed = action.consumed_publics.iter().map(|c| &c.app_data);
+            consumed.chain(action.created_publics.iter().map(|c| &c.app_data))
+        })
+        .flat_map(|app_data| &app_data.external_payload)
+        .map(|blob| {
+            SolanaExternalCall::decode(words_to_bytes(&blob.blob))
+                .map_err(|e| SettlementInputError::ExternalCall(e.to_string()))
+        })
+        .collect()
 }
 
 /// A real Groth16 receipt becomes arm's seal; a receipt holding a claim digest
@@ -216,6 +246,63 @@ mod tests {
             mock_seal(Digest::try_from(tampered.as_slice()).unwrap()),
             "the conversion re-encodes the receipt; refusing it is the verifier's job"
         );
+    }
+
+    #[tokio::test]
+    async fn the_external_calls_are_each_actions_consumed_then_created_resources_calls() {
+        use anoma_rm_risc0::logic_instance::ExpirableBlob;
+
+        let call = |n: u8| SolanaExternalCall {
+            program_id: [n; 32],
+            instruction_data: vec![n; n as usize],
+            expected_output: vec![1],
+            output_mode: crate::external_call::OutputMode::ReturnData,
+            num_accounts: n,
+        };
+        let blob = |n: u8| ExpirableBlob {
+            blob: anoma_rm_risc0::utils::bytes_to_words(&call(n).encode()),
+            deletion_criterion: 0,
+        };
+        let actions = trivial::build_many(2, 1).expect("trivial actions");
+        let mut tx = LocalProver
+            .prove(&actions)
+            .await
+            .expect("local proof")
+            .into_arm();
+        let instance = &mut tx.aggregation.as_mut().unwrap().instance;
+        // Listed out of run order: the second action's, then the first's
+        // created resource's, then its consumed resource's two.
+        instance.actions[1].consumed_publics[0]
+            .app_data
+            .external_payload = vec![blob(4)];
+        instance.actions[0].created_publics[0]
+            .app_data
+            .external_payload = vec![blob(3)];
+        instance.actions[0].consumed_publics[0]
+            .app_data
+            .external_payload = vec![blob(1), blob(2)];
+
+        assert_eq!(
+            external_calls(&tx).expect("external calls"),
+            (1..=4).map(call).collect::<Vec<_>>()
+        );
+
+        instance_mut(&mut tx).actions[1].consumed_publics[0]
+            .app_data
+            .external_payload = vec![ExpirableBlob {
+            blob: vec![u32::MAX],
+            deletion_criterion: 0,
+        }];
+        assert!(matches!(
+            external_calls(&tx),
+            Err(SettlementInputError::ExternalCall(_))
+        ));
+    }
+
+    fn instance_mut(
+        tx: &mut Transaction,
+    ) -> &mut anoma_rm_risc0::aggregation_instance::AggregationInstance {
+        &mut tx.aggregation.as_mut().unwrap().instance
     }
 
     async fn proven_trivial_transaction() -> Transaction {
