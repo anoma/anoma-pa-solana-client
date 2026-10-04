@@ -46,13 +46,21 @@ impl std::error::Error for SettlementInputError {}
 /// `tx` as the adapter settles it: its aggregation proof re-encoded as the
 /// router seal (selector ‖ Groth16 a, b, c), the transaction serialized with
 /// bincode.
-pub fn settlement_input(mut tx: Transaction) -> Result<Vec<u8>, SettlementInputError> {
+pub fn settlement_input(tx: Transaction) -> Result<Vec<u8>, SettlementInputError> {
+    bincode::serialize(&settlement_transaction(tx)?)
+        .map_err(|e| SettlementInputError::Serialize(e.to_string()))
+}
+
+/// `tx` with its aggregation proof re-encoded as the router seal: the
+/// transaction the settlement input serializes, for a caller that derives
+/// more from it (fixture-gen's tampered variants).
+pub fn settlement_transaction(mut tx: Transaction) -> Result<Transaction, SettlementInputError> {
     let aggregation = tx
         .aggregation
         .as_mut()
         .ok_or(SettlementInputError::NoAggregation)?;
     aggregation.proof = router_seal(&aggregation.proof)?;
-    bincode::serialize(&tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))
+    Ok(tx)
 }
 
 /// The resources a settlement of a transaction touches, in the form
