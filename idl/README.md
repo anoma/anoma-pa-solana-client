@@ -5,7 +5,6 @@ Anchor IDL files extracted from the `solana-protocol-adapter` programs at the co
 Files:
 
 - `protocol_adapter.json` — IDL for the PA Anchor program (production build).
-- `spl_token_forwarder.json` — IDL for the SPL Token Forwarder Anchor program (production build).
 - `block_time_forwarder.json` — IDL for the example forwarder the adapter's fixtures call.
 - `test_forwarder.json` — IDL for the adapter repo's localnet test forwarder.
 

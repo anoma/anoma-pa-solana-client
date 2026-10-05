@@ -1,9 +1,8 @@
-// Program-derived-address helpers for the PA and the SPL Token Forwarder.
+// Program-derived-address helpers for the PA.
 //
 // These mirror the seed schemas baked into the on-chain programs. They are pure
 // functions: same inputs always produce the same PublicKey + bump.
 
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
 const u64Le = (value: bigint): Uint8Array => {
@@ -63,71 +62,15 @@ export function deriveRootMarkerPda(
  *
  * Anchor's `#[event_cpi]` signs each event self-invocation with this PDA and
  * requires it, followed by the program's own address, after an instruction's
- * other named accounts: the PA's `settle` and `settle_from_txdata`, and the
- * forwarder's instructions that emit events (inside the forwarder CPI segment
- * for `forward_call`).
+ * other named accounts: for the PA, `settle` and `settle_from_txdata`. Any
+ * program that emits events this way derives its event authority with the
+ * same seed.
  */
 export function deriveEventAuthorityPda(program: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [new TextEncoder().encode("__event_authority")],
     program,
   );
-}
-
-// ---- Forwarder PDAs --------------------------------------------------------
-
-/** Derive the forwarder's global config PDA. */
-export function deriveForwarderConfigPda(
-  forwarderProgram: PublicKey,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("config")],
-    forwarderProgram,
-  );
-}
-
-/**
- * Derive the forwarder's escrow authority. Seed: `["escrow"]`.
- *
- * One PDA owns every mint's escrow: each escrow is the Associated Token Account
- * of this authority and the mint, as the EVM forwarder holds every token at its
- * own address. It is also the delegate users name in their SPL `Approve`
- * instruction before a wrap.
- */
-export function deriveForwarderEscrowAuthority(forwarderProgram: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([new TextEncoder().encode("escrow")], forwarderProgram);
-}
-
-/** Derive the forwarder's nonce bitmap PDA. `word_index = nonce / 256`. */
-export function deriveNonceBitmapPda(
-  forwarderProgram: PublicKey,
-  user: PublicKey,
-  wordIndex: bigint,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [
-      new TextEncoder().encode("nonce_bitmap"),
-      user.toBuffer(),
-      u64Le(wordIndex),
-    ],
-    forwarderProgram,
-  );
-}
-
-// ---- SPL Associated Token Account ------------------------------------------
-
-/**
- * Derive the SPL Associated Token Account address for a wallet and mint.
- *
- * The owner may be a PDA (the forwarder's escrow is one), so the on-curve
- * check the SPL library applies by default is off, as in the Rust crate.
- * Returns only the address (bump is unused by the ATA program during creation).
- */
-export function deriveAssociatedTokenAddress(
-  wallet: PublicKey,
-  tokenMint: PublicKey,
-): PublicKey {
-  return getAssociatedTokenAddressSync(tokenMint, wallet, true);
 }
 
 // ---- Verifier router PDAs --------------------------------------------------
