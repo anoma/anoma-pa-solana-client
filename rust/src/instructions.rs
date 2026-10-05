@@ -50,6 +50,46 @@ pub fn initialize_ix(
     }
 }
 
+/// An instruction the PA's owner `authority` signs: the PA state it changes,
+/// then the event authority and program its event CPI needs.
+fn owner_ix(pa_program: &Pubkey, authority: &Pubkey, data: Vec<u8>) -> Instruction {
+    Instruction {
+        program_id: *pa_program,
+        accounts: vec![
+            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
+            AccountMeta::new_readonly(*authority, true),
+            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
+            AccountMeta::new_readonly(*pa_program, false),
+        ],
+        data,
+    }
+}
+
+/// Build the PA's `pause`: the owner `authority` stops settlement until it
+/// unpauses.
+pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
+    owner_ix(
+        pa_program,
+        authority,
+        anchor_instruction_disc("pause").to_vec(),
+    )
+}
+
+/// Build the PA's `set_kind_table_commitment`: the owner `authority` replaces
+/// the kind-table commitment settled transactions must be proven against.
+pub fn set_kind_table_commitment_ix(
+    pa_program: &Pubkey,
+    authority: &Pubkey,
+    new_kind_table_commitment: [u8; 32],
+) -> Instruction {
+    let data = [
+        &anchor_instruction_disc("set_kind_table_commitment")[..],
+        &new_kind_table_commitment,
+    ]
+    .concat();
+    owner_ix(pa_program, authority, data)
+}
+
 /// Build a PA `txdata_init` instruction.
 pub fn txdata_init_ix(
     pa_program: &Pubkey,
@@ -322,8 +362,15 @@ mod tests {
         assert_eq!(&ix.data[20..24], &5u32.to_le_bytes());
     }
 
-    #[test]
-    fn initialize_matches_the_adapters_idl() {
+    /// Checks `ix` against the adapter IDL's instruction `name`: the data is
+    /// its discriminator then `args`, and each account has the IDL's flags,
+    /// its fixed address, or its PDA from the IDL's own constant seeds.
+    /// Returns the address `ix` passes for each IDL account name.
+    fn assert_matches_the_adapters_idl(
+        ix: &Instruction,
+        name: &str,
+        args: &[u8],
+    ) -> impl Fn(&str) -> Pubkey {
         let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../idl/protocol_adapter.json"
@@ -333,37 +380,33 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|ix| ix["name"] == "initialize")
-            .unwrap();
-        let pa = crate::program_ids::PA_PROGRAM_ID;
-        let (payer, owner, router) = (
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-        );
-        let selector = crate::MOCK_SELECTOR;
-        let ix = initialize_ix(&pa, &payer, &owner, &router, selector);
+            .find(|spec| spec["name"] == name)
+            .unwrap()
+            .clone();
 
         let mut data: Vec<u8> = serde_json::from_value(spec["discriminator"].clone()).unwrap();
-        data.extend(owner.to_bytes());
-        data.extend(router.to_bytes());
-        data.extend(selector);
-        assert_eq!(ix.data, data, "discriminator, then owner, router, selector");
+        data.extend(args);
+        assert_eq!(
+            ix.data, data,
+            "{name}: the discriminator, then the arguments"
+        );
 
-        // Each account's flags, its fixed address, or its PDA from the IDL's
-        // own constant seeds.
-        let accounts = spec["accounts"].as_array().unwrap();
+        let accounts = spec["accounts"].as_array().unwrap().clone();
         assert_eq!(ix.accounts.len(), accounts.len());
-        for (meta, account) in ix.accounts.iter().zip(accounts) {
-            let name = account["name"].as_str().unwrap();
+        for (meta, account) in ix.accounts.iter().zip(&accounts) {
+            let account_name = account["name"].as_str().unwrap();
             assert_eq!(
                 meta.is_writable,
                 account["writable"] == true,
-                "{name} writable"
+                "{account_name} writable"
             );
-            assert_eq!(meta.is_signer, account["signer"] == true, "{name} signer");
+            assert_eq!(
+                meta.is_signer,
+                account["signer"] == true,
+                "{account_name} signer"
+            );
             if let Some(address) = account["address"].as_str() {
-                assert_eq!(meta.pubkey.to_string(), address, "{name} address");
+                assert_eq!(meta.pubkey.to_string(), address, "{account_name} address");
             }
             if let Some(seeds) = account["pda"]["seeds"].as_array() {
                 let seeds: Vec<Vec<u8>> = seeds
@@ -373,15 +416,35 @@ mod tests {
                 let seeds: Vec<&[u8]> = seeds.iter().map(Vec::as_slice).collect();
                 assert_eq!(
                     meta.pubkey,
-                    Pubkey::find_program_address(&seeds, &pa).0,
-                    "{name} PDA"
+                    Pubkey::find_program_address(&seeds, &ix.program_id).0,
+                    "{account_name} PDA"
                 );
             }
         }
-        let by_name = |name: &str| {
+        let addresses = ix
+            .accounts
+            .iter()
+            .map(|meta| meta.pubkey)
+            .collect::<Vec<_>>();
+        move |name: &str| {
             let i = accounts.iter().position(|a| a["name"] == name).unwrap();
-            ix.accounts[i].pubkey
-        };
+            addresses[i]
+        }
+    }
+
+    #[test]
+    fn initialize_matches_the_adapters_idl() {
+        let pa = crate::program_ids::PA_PROGRAM_ID;
+        let (payer, owner, router) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let selector = crate::MOCK_SELECTOR;
+        let ix = initialize_ix(&pa, &payer, &owner, &router, selector);
+
+        let args = [owner.to_bytes().as_slice(), &router.to_bytes(), &selector].concat();
+        let by_name = assert_matches_the_adapters_idl(&ix, "initialize", &args);
         assert_eq!(by_name("payer"), payer);
         assert_eq!(
             by_name("verifier_entry"),
@@ -392,5 +455,29 @@ mod tests {
             derive_event_authority_pda(&pa).0
         );
         assert_eq!(by_name("program"), pa);
+    }
+
+    #[test]
+    fn the_owner_instructions_match_the_adapters_idl() {
+        let pa = crate::program_ids::PA_PROGRAM_ID;
+        let authority = Pubkey::new_unique();
+        let commitment = [7; 32];
+        for (ix, name, args) in [
+            (pause_ix(&pa, &authority), "pause", &[][..]),
+            (
+                set_kind_table_commitment_ix(&pa, &authority, commitment),
+                "set_kind_table_commitment",
+                &commitment[..],
+            ),
+        ] {
+            let by_name = assert_matches_the_adapters_idl(&ix, name, args);
+            assert_eq!(by_name("authority"), authority, "{name}");
+            assert_eq!(
+                by_name("event_authority"),
+                derive_event_authority_pda(&pa).0,
+                "{name}"
+            );
+            assert_eq!(by_name("program"), pa, "{name}");
+        }
     }
 }

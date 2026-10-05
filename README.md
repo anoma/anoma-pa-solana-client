@@ -2,9 +2,9 @@
 
 Releases: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). The Rust crate is `anoma-pa-solana-client` on crates.io and the npm package `@anomaorg/pa-solana-client`.
 
-PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder. One source of truth for instruction builders, account decoders, PDA helpers, event decoders, and constants — published as a Rust crate and a TypeScript/npm package from this repository.
+Client bindings for the Solana Protocol Adapter. One source of truth for instruction builders, account decoders, PDA helpers, event decoders, and constants — published as a Rust crate and a TypeScript/npm package from this repository. The SPL token forwarder's bindings are in [anoma/anomapay-spl-token-forwarder](https://github.com/anoma/anomapay-spl-token-forwarder) (`crates/client` and `ts/`).
 
-**Status:** paired with the V2 protocol adapter (branch `anthony/arm-v2-port`, commit in `PA_COMMIT.txt`; devnet program `5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc`). The SPL Token Forwarder bindings describe the V2 forwarder (program `BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7`, deployed with the adapter). See [REQUIREMENTS.md](REQUIREMENTS.md) for the intended surface.
+**Status:** paired with the V2 protocol adapter (branch `anthony/arm-v2-port`, commit in `PA_COMMIT.txt`; devnet program `5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc`). See [REQUIREMENTS.md](REQUIREMENTS.md) for the intended surface.
 
 ## Layout
 
@@ -14,7 +14,7 @@ PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder.
 | `rust/` | Rust crate (`Cargo.toml`, `src/`). Cargo target. |
 | `tools/settle-fixture/` | Pairing check: settles one adapter fixture on a cluster through the crate's builders, then verifies the replayed root and decodes the settlement's events. |
 | `ts/` | TypeScript / npm package (`package.json`, `src/`). npm target. |
-| `idl/` | Anchor IDL files extracted from the PA and forwarder programs, regenerated per release. |
+| `idl/` | Anchor IDL files extracted from the adapter repo's programs, regenerated per release. |
 | `PA_COMMIT.txt` | The `solana-protocol-adapter` commit this release pairs with. Updated per release. |
 
 ## Integrators
@@ -31,12 +31,10 @@ PA-side client bindings for the Solana Protocol Adapter and SPL Token Forwarder.
 ./scripts/dev.sh validator-deploy                                    # every program loaded at genesis; keeps running
 PA_OWNER=<pubkey> PA_VERIFIER_ROUTER=BetEAE4npinksQBxvqUN1KkCVjYFJywWao45MSWtp5yg PA_PROOF_SELECTOR=73c457ba \
   ./scripts/dev.sh init --cluster localnet
-STF_LOGIC_REF=<logic ref hex> STF_EMERGENCY_COMMITTEE=<pubkey> STF_OWNER=<pubkey> STF_TOKEN_MINT=<mint> \
-  ./scripts/dev.sh forwarder init --cluster localnet                 # for a wrap fixture
-STF_TOKEN_MINTS=<mint> ./scripts/dev.sh lookup-table --cluster localnet
+./scripts/dev.sh lookup-table --cluster localnet
 ```
 
-A wrap fixture also needs its seeded mint and user: the mint created, the user's token account holding the amount, and the forwarder's escrow authority approved as delegate. Then:
+Then settle a fixture:
 
 ```bash
 cargo run -p settle-fixture -- \

@@ -1,13 +1,14 @@
-//! Decoders for the events of the PA and of the SPL Token Forwarder.
+//! Decoders for the PA's events.
 //!
-//! Both programs emit every event as a self-invocation (Anchor `#[event_cpi]`):
-//! an inner instruction whose program is the emitter and whose data is the
-//! 8-byte event tag, the event's 8-byte discriminator
-//! (`sha256("event:<Name>")[..8]`), and the Borsh-encoded body. Readers take a
-//! settlement transaction's inner instructions and pass each PA-addressed one
-//! through [`decode_event_instruction`] and each forwarder-addressed one
-//! through [`decode_forwarder_event_instruction`]. Events never appear in the
-//! program log.
+//! The PA emits every event as a self-invocation (Anchor `#[event_cpi]`): an
+//! inner instruction whose program is the PA and whose data is the 8-byte
+//! event tag, the event's 8-byte discriminator (`sha256("event:<Name>")[..8]`),
+//! and the Borsh-encoded body. Readers take a settlement transaction's inner
+//! instructions and pass each PA-addressed one through
+//! [`decode_event_instruction`]. Events never appear in the program log.
+//!
+//! [`decode_cpi_event`] and the shared bodies ([`decode_ownership_transferred`],
+//! [`decode_upgraded`]) serve any program that frames its events the same way.
 
 use crate::constants::ANCHOR_DISCRIMINATOR_LEN;
 use crate::cursor::{Cursor, Truncated};
@@ -77,8 +78,7 @@ pub struct PauseEvent {
 /// The ownership moved from `previous_owner` to `new_owner`, as OpenZeppelin
 /// Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
 /// previous owner at `initialize`, the new owner once
-/// renounced). Both programs emit it: the PA as `OwnershipTransferredEvent`,
-/// the forwarder as `OwnershipTransferred`.
+/// renounced). The PA emits it as `OwnershipTransferredEvent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnershipTransferredEvent {
     pub previous_owner: [u8; 32],
@@ -88,7 +88,7 @@ pub struct OwnershipTransferredEvent {
 /// The owner upgraded the program to the code whose executable hash is
 /// `executable_hash` (sha256 of the code without trailing zero bytes, what
 /// `solana-verify get-program-hash` reports), as ERC1967's `Upgraded`. The PA
-/// emits it as `UpgradedEvent`, the forwarder as `Upgraded`.
+/// emits it as `UpgradedEvent`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpgradedEvent {
     pub executable_hash: [u8; 32],
@@ -121,67 +121,7 @@ pub enum PaEvent {
     Upgraded(UpgradedEvent),
 }
 
-/// The forwarder escrowed `amount` of `token_mint` from `from` for the wrap
-/// with `nonce`, authorized for the action whose tree root is
-/// `action_tree_root`, as the EVM forwarder's `Wrapped`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WrappedEvent {
-    pub token_mint: [u8; 32],
-    pub from: [u8; 32],
-    pub amount: u64,
-    pub nonce: u64,
-    pub action_tree_root: [u8; 32],
-}
-
-/// The forwarder released `amount` of `token_mint` to `to`, as the EVM
-/// forwarder's `Unwrapped`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnwrappedEvent {
-    pub token_mint: [u8; 32],
-    pub to: [u8; 32],
-    pub amount: u64,
-}
-
-/// The emergency committee (`set_by`) named `emergency_caller` as the
-/// forwarder's emergency caller, as the EVM V1 forwarder's
-/// `EmergencyCallerSet`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EmergencyCallerSetEvent {
-    pub emergency_caller: [u8; 32],
-    pub set_by: [u8; 32],
-}
-
-/// The emergency caller (`caller`) moved `amount` of `token_mint` from escrow
-/// to `to`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EmergencyWithdrawEvent {
-    pub token_mint: [u8; 32],
-    pub to: [u8; 32],
-    pub amount: u64,
-    pub caller: [u8; 32],
-}
-
-/// `initialize` or `reinitialize` set the forwarder's configuration to
-/// `version`, as OpenZeppelin Initializable's `Initialized(version)`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InitializedEvent {
-    pub version: u64,
-}
-
-/// One decoded SPL Token Forwarder event.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ForwarderEvent {
-    Wrapped(WrappedEvent),
-    Unwrapped(UnwrappedEvent),
-    EmergencyCallerSet(EmergencyCallerSetEvent),
-    EmergencyWithdraw(EmergencyWithdrawEvent),
-    Initialized(InitializedEvent),
-    OwnershipTransferred(OwnershipTransferredEvent),
-    Upgraded(UpgradedEvent),
-}
-
-/// Errors produced by [`decode_event_instruction`] and
-/// [`decode_forwarder_event_instruction`].
+/// Errors produced by [`decode_cpi_event`] and [`decode_event_instruction`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EventDecodeError {
     /// The data does not start with [`EVENT_IX_TAG`]; it is not an event self-invocation.
@@ -228,9 +168,11 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Decode one event self-invocation's data: check the tag, read the
-/// discriminator, let `body` decode the body it names, and refuse trailing bytes.
-fn decode_cpi_event<E>(
+/// Decode one Anchor event self-invocation's data: check the tag, read the
+/// discriminator, let `body` decode the body it names, and refuse trailing
+/// bytes. Every program that emits its events with `emit_cpi!` (the adapter,
+/// its forwarders) frames them this way.
+pub fn decode_cpi_event<E>(
     data: &[u8],
     body: impl FnOnce([u8; ANCHOR_DISCRIMINATOR_LEN], &mut Cursor<'_>) -> Result<E, EventDecodeError>,
 ) -> Result<E, EventDecodeError> {
@@ -253,54 +195,6 @@ fn decode_cpi_event<E>(
 /// Decode the instruction data of one PA event self-invocation.
 pub fn decode_event_instruction(data: &[u8]) -> Result<PaEvent, EventDecodeError> {
     decode_cpi_event(data, pa_event_body)
-}
-
-/// Decode the instruction data of one SPL Token Forwarder event self-invocation.
-pub fn decode_forwarder_event_instruction(data: &[u8]) -> Result<ForwarderEvent, EventDecodeError> {
-    decode_cpi_event(data, forwarder_event_body)
-}
-
-fn forwarder_event_body(
-    disc: [u8; ANCHOR_DISCRIMINATOR_LEN],
-    c: &mut Cursor<'_>,
-) -> Result<ForwarderEvent, EventDecodeError> {
-    Ok(if disc == anchor_event_disc("Wrapped") {
-        ForwarderEvent::Wrapped(WrappedEvent {
-            token_mint: c.array_32("token_mint")?,
-            from: c.array_32("from")?,
-            amount: c.u64_le("amount")?,
-            nonce: c.u64_le("nonce")?,
-            action_tree_root: c.array_32("action_tree_root")?,
-        })
-    } else if disc == anchor_event_disc("Unwrapped") {
-        ForwarderEvent::Unwrapped(UnwrappedEvent {
-            token_mint: c.array_32("token_mint")?,
-            to: c.array_32("to")?,
-            amount: c.u64_le("amount")?,
-        })
-    } else if disc == anchor_event_disc("EmergencyCallerSet") {
-        ForwarderEvent::EmergencyCallerSet(EmergencyCallerSetEvent {
-            emergency_caller: c.array_32("emergency_caller")?,
-            set_by: c.array_32("set_by")?,
-        })
-    } else if disc == anchor_event_disc("EmergencyWithdraw") {
-        ForwarderEvent::EmergencyWithdraw(EmergencyWithdrawEvent {
-            token_mint: c.array_32("token_mint")?,
-            to: c.array_32("to")?,
-            amount: c.u64_le("amount")?,
-            caller: c.array_32("caller")?,
-        })
-    } else if disc == anchor_event_disc("Initialized") {
-        ForwarderEvent::Initialized(InitializedEvent {
-            version: c.u64_le("version")?,
-        })
-    } else if disc == anchor_event_disc("OwnershipTransferred") {
-        ForwarderEvent::OwnershipTransferred(ownership_transferred(c)?)
-    } else if disc == anchor_event_disc("Upgraded") {
-        ForwarderEvent::Upgraded(upgraded(c)?)
-    } else {
-        return Err(EventDecodeError::UnknownDiscriminator(disc));
-    })
 }
 
 fn pa_event_body(
@@ -348,9 +242,9 @@ fn pa_event_body(
             account: c.array_32("account")?,
         })
     } else if disc == anchor_event_disc("OwnershipTransferredEvent") {
-        PaEvent::OwnershipTransferred(ownership_transferred(c)?)
+        PaEvent::OwnershipTransferred(decode_ownership_transferred(c)?)
     } else if disc == anchor_event_disc("UpgradedEvent") {
-        PaEvent::Upgraded(upgraded(c)?)
+        PaEvent::Upgraded(decode_upgraded(c)?)
     } else if disc == anchor_event_disc("ForwarderCallExecutedEvent") {
         PaEvent::ForwarderCallExecuted(ForwarderCallExecutedEvent {
             forwarder: c.array_32("forwarder")?,
@@ -362,7 +256,9 @@ fn pa_event_body(
     })
 }
 
-fn ownership_transferred(
+/// The body of an `OwnershipTransferred` event, which the adapter and the
+/// forwarders emit alike.
+pub fn decode_ownership_transferred(
     c: &mut Cursor<'_>,
 ) -> Result<OwnershipTransferredEvent, EventDecodeError> {
     Ok(OwnershipTransferredEvent {
@@ -371,7 +267,9 @@ fn ownership_transferred(
     })
 }
 
-fn upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeError> {
+/// The body of an `Upgraded` event, which the adapter and the forwarders emit
+/// alike.
+pub fn decode_upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeError> {
     Ok(UpgradedEvent {
         executable_hash: c.array_32("executable_hash")?,
     })

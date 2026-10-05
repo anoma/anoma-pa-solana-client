@@ -1,7 +1,7 @@
 {
   "name": "@anomaorg/pa-solana-client",
   "version": "0.4.0",
-  "description": "Client bindings for the Solana Anoma Protocol Adapter and SPL Token Forwarder",
+  "description": "Client bindings for the Solana Anoma Protocol Adapter",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",
-    "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.98.0",
     "bs58": "^6.0.0"
   },

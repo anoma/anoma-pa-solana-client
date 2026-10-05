@@ -1,12 +1,11 @@
-// Decoders for the events of the PA and of the SPL Token Forwarder.
+// Decoders for the PA's events.
 //
-// Both programs emit every event as a self-invocation (Anchor `#[event_cpi]`):
-// an inner instruction whose program is the emitter and whose data is the
-// 8-byte event tag, the event's 8-byte discriminator
-// (`sha256("event:<Name>")[..8]`), and the Borsh-encoded body. Readers take a
-// settlement transaction's inner instructions and pass each PA-addressed one
-// through `decodeEventInstruction` and each forwarder-addressed one through
-// `decodeForwarderEventInstruction`. Events never appear in the program log.
+// The PA emits every event as a self-invocation (Anchor `#[event_cpi]`): an
+// inner instruction whose program is the PA and whose data is the 8-byte event
+// tag, the event's 8-byte discriminator (`sha256("event:<Name>")[..8]`), and
+// the Borsh-encoded body. Readers take a settlement transaction's inner
+// instructions and pass each PA-addressed one through `decodeEventInstruction`.
+// Events never appear in the program log.
 
 import { toHex } from "./codecs.js";
 import { ANCHOR_DISCRIMINATOR_LEN } from "./constants.js";
@@ -88,12 +87,10 @@ export interface PauseEvent {
 /**
  * The ownership moved from `previousOwner` to `newOwner`, as OpenZeppelin
  * Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
- * previous owner at `initialize`, the new owner once
- * renounced). The PA names it `OwnershipTransferredEvent`, the forwarder
- * `OwnershipTransferred`.
+ * previous owner at `initialize`, the new owner once renounced).
  */
-export interface OwnershipTransferredEvent<N extends "OwnershipTransferredEvent" | "OwnershipTransferred"> {
-  name: N;
+export interface OwnershipTransferredEvent {
+  name: "OwnershipTransferredEvent";
   previousOwner: Uint8Array;
   newOwner: Uint8Array;
 }
@@ -101,11 +98,10 @@ export interface OwnershipTransferredEvent<N extends "OwnershipTransferredEvent"
 /**
  * The owner upgraded the program to the code whose executable hash is
  * `executableHash` (sha256 of the code without trailing zero bytes, what
- * `solana-verify get-program-hash` reports), as ERC1967's `Upgraded`. The PA
- * names it `UpgradedEvent`, the forwarder `Upgraded`.
+ * `solana-verify get-program-hash` reports), as ERC1967's `Upgraded`.
  */
-export interface UpgradedEvent<N extends "UpgradedEvent" | "Upgraded"> {
-  name: N;
+export interface UpgradedEvent {
+  name: "UpgradedEvent";
   executableHash: Uint8Array;
 }
 
@@ -126,67 +122,8 @@ export type PaEvent =
   | KindTableCommitmentUpdatedEvent
   | LogicRefDeniedEvent
   | PauseEvent
-  | OwnershipTransferredEvent<"OwnershipTransferredEvent">
-  | UpgradedEvent<"UpgradedEvent">;
-
-/**
- * The forwarder escrowed `amount` of `tokenMint` from `from` for the wrap with
- * `nonce`, authorized for the action whose tree root is `actionTreeRoot`, as
- * the EVM forwarder's `Wrapped`.
- */
-export interface WrappedEvent {
-  name: "Wrapped";
-  tokenMint: Uint8Array;
-  from: Uint8Array;
-  amount: bigint;
-  nonce: bigint;
-  actionTreeRoot: Uint8Array;
-}
-
-/** The forwarder released `amount` of `tokenMint` to `to`, as the EVM forwarder's `Unwrapped`. */
-export interface UnwrappedEvent {
-  name: "Unwrapped";
-  tokenMint: Uint8Array;
-  to: Uint8Array;
-  amount: bigint;
-}
-
-/**
- * The emergency committee (`setBy`) named `emergencyCaller` as the forwarder's
- * emergency caller, as the EVM V1 forwarder's `EmergencyCallerSet`.
- */
-export interface EmergencyCallerSetEvent {
-  name: "EmergencyCallerSet";
-  emergencyCaller: Uint8Array;
-  setBy: Uint8Array;
-}
-
-/** The emergency caller (`caller`) moved `amount` of `tokenMint` from escrow to `to`. */
-export interface EmergencyWithdrawEvent {
-  name: "EmergencyWithdraw";
-  tokenMint: Uint8Array;
-  to: Uint8Array;
-  amount: bigint;
-  caller: Uint8Array;
-}
-
-/**
- * `initialize` or `reinitialize` set the forwarder's configuration to
- * `version`, as OpenZeppelin Initializable's `Initialized(version)`.
- */
-export interface InitializedEvent {
-  name: "Initialized";
-  version: bigint;
-}
-
-export type ForwarderEvent =
-  | WrappedEvent
-  | UnwrappedEvent
-  | EmergencyCallerSetEvent
-  | EmergencyWithdrawEvent
-  | InitializedEvent
-  | OwnershipTransferredEvent<"OwnershipTransferred">
-  | UpgradedEvent<"Upgraded">;
+  | OwnershipTransferredEvent
+  | UpgradedEvent;
 
 export class EventDecodeError extends Error {
   constructor(message: string) {
@@ -205,26 +142,18 @@ const PAYLOAD_EVENT_NAMES: PayloadEvent["name"][] = [
 const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((v, i) => v === b[i]);
 
-/** Decode the instruction data of one PA event self-invocation. */
+/**
+ * Decode the instruction data of one PA event self-invocation: check the tag,
+ * read the discriminator, decode the body it names, and refuse trailing bytes.
+ */
 export function decodeEventInstruction(data: Uint8Array): PaEvent {
-  return decodeCpiEvent(data, paEventBody);
-}
-
-/** Decode the instruction data of one SPL Token Forwarder event self-invocation. */
-export function decodeForwarderEventInstruction(data: Uint8Array): ForwarderEvent {
-  return decodeCpiEvent(data, forwarderEventBody);
-}
-
-// Check the tag, read the discriminator, let `body` decode the body it names,
-// and refuse trailing bytes.
-function decodeCpiEvent<E>(data: Uint8Array, body: (disc: Uint8Array, c: Cursor) => E): E {
   try {
     const c = new Cursor(data);
     if (c.remaining() < EVENT_IX_TAG.length || !bytesEqual(c.take(EVENT_IX_TAG.length, "event tag"), EVENT_IX_TAG)) {
       throw new EventDecodeError("instruction data does not start with the Anchor event tag");
     }
     const disc = c.take(ANCHOR_DISCRIMINATOR_LEN, "event discriminator");
-    const event = body(disc, c);
+    const event = paEventBody(disc, c);
     const trailing = c.remaining();
     if (trailing !== 0) {
       throw new EventDecodeError(`${trailing} trailing byte(s) after the event body`);
@@ -236,58 +165,6 @@ function decodeCpiEvent<E>(data: Uint8Array, body: (disc: Uint8Array, c: Cursor)
     }
     throw e;
   }
-}
-
-const unknownDiscriminator = (disc: Uint8Array): EventDecodeError =>
-  new EventDecodeError(`unknown event discriminator ${toHex(disc).slice(2)}`);
-
-function forwarderEventBody(disc: Uint8Array, c: Cursor): ForwarderEvent {
-  if (bytesEqual(disc, anchorEventDisc("Wrapped"))) {
-    return {
-      name: "Wrapped",
-      tokenMint: c.array32("token_mint"),
-      from: c.array32("from"),
-      amount: c.u64Le("amount"),
-      nonce: c.u64Le("nonce"),
-      actionTreeRoot: c.array32("action_tree_root"),
-    };
-  }
-  if (bytesEqual(disc, anchorEventDisc("Unwrapped"))) {
-    return { name: "Unwrapped", tokenMint: c.array32("token_mint"), to: c.array32("to"), amount: c.u64Le("amount") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("EmergencyCallerSet"))) {
-    return { name: "EmergencyCallerSet", emergencyCaller: c.array32("emergency_caller"), setBy: c.array32("set_by") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("EmergencyWithdraw"))) {
-    return {
-      name: "EmergencyWithdraw",
-      tokenMint: c.array32("token_mint"),
-      to: c.array32("to"),
-      amount: c.u64Le("amount"),
-      caller: c.array32("caller"),
-    };
-  }
-  if (bytesEqual(disc, anchorEventDisc("Initialized"))) {
-    return { name: "Initialized", version: c.u64Le("version") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("OwnershipTransferred"))) {
-    return ownershipTransferred("OwnershipTransferred", c);
-  }
-  if (bytesEqual(disc, anchorEventDisc("Upgraded"))) {
-    return upgraded("Upgraded", c);
-  }
-  throw unknownDiscriminator(disc);
-}
-
-function ownershipTransferred<N extends "OwnershipTransferredEvent" | "OwnershipTransferred">(
-  name: N,
-  c: Cursor,
-): OwnershipTransferredEvent<N> {
-  return { name, previousOwner: c.array32("previous_owner"), newOwner: c.array32("new_owner") };
-}
-
-function upgraded<N extends "UpgradedEvent" | "Upgraded">(name: N, c: Cursor): UpgradedEvent<N> {
-  return { name, executableHash: c.array32("executable_hash") };
 }
 
 function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
@@ -324,10 +201,10 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
     }
   }
   if (bytesEqual(disc, anchorEventDisc("OwnershipTransferredEvent"))) {
-    return ownershipTransferred("OwnershipTransferredEvent", c);
+    return { name: "OwnershipTransferredEvent", previousOwner: c.array32("previous_owner"), newOwner: c.array32("new_owner") };
   }
   if (bytesEqual(disc, anchorEventDisc("UpgradedEvent"))) {
-    return upgraded("UpgradedEvent", c);
+    return { name: "UpgradedEvent", executableHash: c.array32("executable_hash") };
   }
   if (bytesEqual(disc, anchorEventDisc("ForwarderCallExecutedEvent"))) {
     return {
@@ -337,5 +214,5 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
       output: c.vecU8("output"),
     };
   }
-  throw unknownDiscriminator(disc);
+  throw new EventDecodeError(`unknown event discriminator ${toHex(disc).slice(2)}`);
 }

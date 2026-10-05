@@ -11,14 +11,6 @@ export const PA_PROGRAM_ID = new PublicKey(
 );
 
 /**
- * SPL Token Forwarder program ID: the V2 forwarder's declared id, under which
- * the adapter repository builds and deploys it.
- */
-export const FORWARDER_PROGRAM_ID = new PublicKey(
-  "BsfuXpxw8oCmZXnYijyQkUYNcCnuskFZbYizmWLnpSU7",
-);
-
-/**
  * The devnet V2 deployment's settlement lookup table: the accounts every
  * settlement carries that are fixed for the deployment. Settle transactions
  * are v0 messages compiled against it (`TransactionMessage.compileToV0Message`
@@ -26,20 +18,4 @@ export const FORWARDER_PROGRAM_ID = new PublicKey(
  */
 export const SETTLE_LOOKUP_TABLE = new PublicKey(
   "4UFsq2ks2DcC29ErmEeHxqXWKLRWo26vs4W65S89bpWn",
-);
-
-/**
- * Solana's native ed25519 signature-verification program. Used to carry verified
- * wrap-authorization signatures into the settle transaction.
- */
-export const ED25519_PROGRAM_ID = new PublicKey(
-  "Ed25519SigVerify111111111111111111111111111",
-);
-
-/**
- * Solana's `Instructions` sysvar — used by the forwarder to introspect the
- * ed25519-verify instruction at `ed25519_ix_index`.
- */
-export const INSTRUCTIONS_SYSVAR_ID = new PublicKey(
-  "Sysvar1nstructions1111111111111111111111111",
 );
