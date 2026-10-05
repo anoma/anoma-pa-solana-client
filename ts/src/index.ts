@@ -11,4 +11,3 @@ export * from "./accounts.js";
 export * from "./events.js";
 export * from "./confirmation.js";
 export * from "./labelValueRef.js";
-export * from "./walletKeyring.js";

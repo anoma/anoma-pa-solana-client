@@ -14,7 +14,6 @@ pub mod external_call;
 pub mod merkle;
 #[cfg(feature = "arm")]
 pub mod settlement_input;
-pub mod wallet_keyring;
 
 #[cfg(feature = "solana")]
 pub mod instructions;
@@ -60,8 +59,4 @@ pub use program_ids::*;
 #[cfg(feature = "solana")]
 pub use settlement::{
     adapter_settlement_lookup_keys, plan_settlement, SettlementPlan, SettlementRequest,
-};
-pub use wallet_keyring::{
-    derive_keyring_secrets, nullifier_commitment, sign_message, KeyringSecrets, AUTHORITY_DOMAIN,
-    DISCOVERY_DOMAIN, ENCRYPTION_DOMAIN, KEYRING_SALT, NULLIFIER_DOMAIN,
 };
