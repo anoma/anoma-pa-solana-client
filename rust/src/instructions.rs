@@ -50,30 +50,9 @@ pub fn initialize_ix(
     }
 }
 
-/// Build the PA's `pause`: the owner `authority` stops settlement, the
-/// emergency stop a forwarder's committee instructions wait for.
-pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*authority, true),
-            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*pa_program, false),
-        ],
-        data: anchor_instruction_disc("pause").to_vec(),
-    }
-}
-
-/// Build the PA's `set_kind_table_commitment`: the owner `authority` replaces
-/// the kind-table commitment settled transactions must be proven against.
-pub fn set_kind_table_commitment_ix(
-    pa_program: &Pubkey,
-    authority: &Pubkey,
-    new_kind_table_commitment: [u8; 32],
-) -> Instruction {
-    let mut data = anchor_instruction_disc("set_kind_table_commitment").to_vec();
-    data.extend_from_slice(&new_kind_table_commitment);
+/// An instruction the PA's owner `authority` signs: the PA state it changes,
+/// then the event authority and program its event CPI needs.
+fn owner_ix(pa_program: &Pubkey, authority: &Pubkey, data: Vec<u8>) -> Instruction {
     Instruction {
         program_id: *pa_program,
         accounts: vec![
@@ -84,6 +63,31 @@ pub fn set_kind_table_commitment_ix(
         ],
         data,
     }
+}
+
+/// Build the PA's `pause`: the owner `authority` stops settlement until it
+/// unpauses.
+pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
+    owner_ix(
+        pa_program,
+        authority,
+        anchor_instruction_disc("pause").to_vec(),
+    )
+}
+
+/// Build the PA's `set_kind_table_commitment`: the owner `authority` replaces
+/// the kind-table commitment settled transactions must be proven against.
+pub fn set_kind_table_commitment_ix(
+    pa_program: &Pubkey,
+    authority: &Pubkey,
+    new_kind_table_commitment: [u8; 32],
+) -> Instruction {
+    let data = [
+        &anchor_instruction_disc("set_kind_table_commitment")[..],
+        &new_kind_table_commitment,
+    ]
+    .concat();
+    owner_ix(pa_program, authority, data)
 }
 
 /// Build a PA `txdata_init` instruction.
@@ -454,34 +458,26 @@ mod tests {
     }
 
     #[test]
-    fn pause_matches_the_adapters_idl() {
-        let pa = crate::program_ids::PA_PROGRAM_ID;
-        let authority = Pubkey::new_unique();
-        let ix = pause_ix(&pa, &authority);
-
-        let by_name = assert_matches_the_adapters_idl(&ix, "pause", &[]);
-        assert_eq!(by_name("authority"), authority);
-        assert_eq!(
-            by_name("event_authority"),
-            derive_event_authority_pda(&pa).0
-        );
-        assert_eq!(by_name("program"), pa);
-    }
-
-    #[test]
-    fn set_kind_table_commitment_matches_the_adapters_idl() {
+    fn the_owner_instructions_match_the_adapters_idl() {
         let pa = crate::program_ids::PA_PROGRAM_ID;
         let authority = Pubkey::new_unique();
         let commitment = [7; 32];
-        let ix = set_kind_table_commitment_ix(&pa, &authority, commitment);
-
-        let by_name =
-            assert_matches_the_adapters_idl(&ix, "set_kind_table_commitment", &commitment);
-        assert_eq!(by_name("authority"), authority);
-        assert_eq!(
-            by_name("event_authority"),
-            derive_event_authority_pda(&pa).0
-        );
-        assert_eq!(by_name("program"), pa);
+        for (ix, name, args) in [
+            (pause_ix(&pa, &authority), "pause", &[][..]),
+            (
+                set_kind_table_commitment_ix(&pa, &authority, commitment),
+                "set_kind_table_commitment",
+                &commitment[..],
+            ),
+        ] {
+            let by_name = assert_matches_the_adapters_idl(&ix, name, args);
+            assert_eq!(by_name("authority"), authority, "{name}");
+            assert_eq!(
+                by_name("event_authority"),
+                derive_event_authority_pda(&pa).0,
+                "{name}"
+            );
+            assert_eq!(by_name("program"), pa, "{name}");
+        }
     }
 }
