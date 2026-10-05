@@ -44,9 +44,10 @@ pub const FORWARDER_UNWRAP_NUM_ACCOUNTS: u8 = 9;
 /// forwarder returns and the resource's external call expects as output.
 pub const FORWARDER_RESULT_SUCCESS: u8 = 1;
 
-/// Groth16 proof selector for the verifier-router lookup. The first 4 bytes identify
-/// the verifier type; the PA verifier-entry PDA is derived from `["verifier", selector]`.
-pub const GROTH16_VERIFIER_SELECTOR: [u8; 4] = [0x73, 0xc4, 0x57, 0xba];
+/// The selector a mock seal carries, risc0's convention for a receipt that
+/// holds a claim digest instead of a proof. The local validator registers the
+/// mock verifier under it.
+pub const MOCK_SELECTOR: [u8; 4] = [0xff; 4];
 
 /// Anchor account-discriminator prefix length (constant across all Anchor programs).
 pub const ANCHOR_DISCRIMINATOR_LEN: usize = 8;

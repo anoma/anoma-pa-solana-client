@@ -13,7 +13,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  RUST_VERSION: "1.93.0"
+  RUST_VERSION: "1.98.1"
 
 jobs:
   rust-fmt:
@@ -38,8 +38,8 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: cargo clippy --workspace --all-targets -- -D warnings
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   rust-test:
     name: Rust Test
@@ -50,8 +50,8 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
-      - name: cargo test --workspace
-        run: cargo test --workspace
+      - name: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features
 
   rust-no-default-features:
     name: Rust No-Default-Features (guest-compatible subset)
@@ -64,11 +64,10 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       # `--all-targets` compiles the lib, tests, and examples, so this verifies
-      # the crate builds free of solana-program (and its libsecp256k1 -> rand 0.7
-      # -> getrandom 0.1.16 chain) when the `solana` feature is off — keeping the
-      # pure modules usable by consumers that can't take solana-program. If a pure
-      # module gains a Solana dependency, or solana-program becomes non-optional,
-      # this job fails. It runs on the host target; building for the actual risc0
+      # the crate builds free of the Solana crates when the `solana` feature is
+      # off — keeping the pure modules usable by consumers that can't take them,
+      # such as the risc0 guest. If a pure module gains a Solana dependency, or a
+      # Solana crate becomes non-optional, this job fails. It runs on the host target; building for the actual risc0
       # guest target is exercised downstream by the transfer circuit build.
       # Scoped to the client package: the settle-fixture tool depends on the
       # crate with its default features, so a workspace-wide build would unify

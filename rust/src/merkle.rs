@@ -65,6 +65,8 @@ impl core::fmt::Display for MerkleError {
     }
 }
 
+impl std::error::Error for MerkleError {}
+
 impl CommitmentTreeState {
     /// Append a new commitment to the tree, updating `root`, `next_index`,
     /// `frontier`, and (if the tree fills at the current depth) `current_depth`.

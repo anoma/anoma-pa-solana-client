@@ -23,25 +23,39 @@ base64 = "0.22"
 # builders. Optional so that consumers needing only the pure wire-format and
 # crypto modules (e.g. the zkVM transfer circuit, which compiles for
 # riscv32im-risc0-zkvm-elf) can depend on this crate with `default-features =
-# false`. Pulling solana-program unconditionally drags in its transitive crypto
-# stack (libsecp256k1 -> rand 0.7 -> getrandom 0.1.16), which has no support for
-# the guest target and fails to compile there.
-solana-program = { version = "2.1", optional = true }
-solana-sdk-ids = { version = "2.2", optional = true }
-spl-associated-token-account-client = { version = "2.0", optional = true }
-spl-token = { version = "8.0", features = ["no-entrypoint"], optional = true }
+# false`. These are the Solana crate versions the programs build with (Anchor
+# 1.2): pubkey, instruction and sdk-ids 3.
+solana-compute-budget-interface = { version = "3", optional = true }
+solana-instruction = { version = "3", optional = true }
+solana-pubkey = { version = "3", optional = true }
+solana-sdk-ids = { version = "3", optional = true }
+spl-associated-token-account-interface = { version = "2", optional = true }
+spl-token-interface = { version = "3", optional = true }
+
+# The settlement input (`arm` feature): a proven ARM transaction in the form
+# the adapter settles. Without the prover: no `prove` feature.
+anoma-rm-risc0 = { version = "=2.0.0-rc.6", default-features = false, features = ["transaction"], optional = true }
+risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
 
 [dev-dependencies]
 # Reads the cross-package fixtures under `fixtures/`.
 serde_json = "1.0"
+# Proves trivial actions for the settlement-input tests.
+anoma-pa-testkit = { version = "=1.0.0-rc.1", features = ["local", "fixtures"] }
+tokio = { version = "1", features = ["macros", "rt"] }
 
 [features]
 default = ["solana"]
 # Enables the modules that depend on the Solana SDK: instruction builders, PDA
 # derivation, program IDs, and ATA helpers.
 solana = [
-  "dep:solana-program",
+  "dep:solana-compute-budget-interface",
+  "dep:solana-instruction",
+  "dep:solana-pubkey",
   "dep:solana-sdk-ids",
-  "dep:spl-associated-token-account-client",
-  "dep:spl-token",
+  "dep:spl-associated-token-account-interface",
+  "dep:spl-token-interface",
 ]
+# The settlement input: a proven ARM transaction with its aggregation proof
+# re-encoded as the verifier-router seal the adapter decodes.
+arm = ["dep:anoma-rm-risc0", "dep:risc0-zkvm"]

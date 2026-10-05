@@ -7,7 +7,9 @@ import {
   deriveEventAuthorityPda,
   deriveForwarderEscrowAuthority,
   derivePaStatePda,
+  deriveVerifierRouterPdas,
 } from "./pda.js";
+import { MOCK_SELECTOR } from "./constants.js";
 import { FORWARDER_PROGRAM_ID, PA_PROGRAM_ID } from "./programIds.js";
 
 describe("PDA derivation", () => {
@@ -48,5 +50,17 @@ describe("PDA derivation", () => {
     const mint = Keypair.generate().publicKey;
     const expected = getAssociatedTokenAddressSync(mint, owner);
     expect(deriveAssociatedTokenAddress(owner, mint).equals(expected)).toBe(true);
+  });
+
+  it("the verifier entry is the router's entry for the selector it is given", () => {
+    // An adapter initialized with the mock selector settles through the
+    // router's entry for 0xffffffff, not the Groth16 one.
+    const routerProgram = Keypair.generate().publicKey;
+    const selector = MOCK_SELECTOR;
+    const { router, entry } = deriveVerifierRouterPdas(routerProgram, selector);
+    const [expectedRouter] = PublicKey.findProgramAddressSync([new TextEncoder().encode("router")], routerProgram);
+    const [expectedEntry] = PublicKey.findProgramAddressSync([new TextEncoder().encode("verifier"), selector], routerProgram);
+    expect(router.equals(expectedRouter)).toBe(true);
+    expect(entry.equals(expectedEntry)).toBe(true);
   });
 });
