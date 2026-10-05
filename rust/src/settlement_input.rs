@@ -8,14 +8,10 @@ use anoma_rm_risc0::proving_system::encode_seal;
 use anoma_rm_risc0::transaction::Transaction;
 use anoma_rm_risc0::utils::words_to_bytes;
 
+use crate::constants::MOCK_SELECTOR;
 use crate::external_call::SolanaExternalCall;
 use risc0_zkvm::sha::{Digest, Digestible};
 use risc0_zkvm::InnerReceipt;
-
-/// The selector a mock seal carries, risc0's convention for a receipt that
-/// holds a claim digest instead of a proof. The local validator registers the
-/// mock verifier under it.
-pub const MOCK_SELECTOR: [u8; 4] = [0xff; 4];
 
 /// The verifier parameters of a Groth16 receipt that holds a claim digest
 /// instead of a proof, as pa-testkit's local prover produces it.
@@ -171,8 +167,8 @@ mod tests {
     use anoma_pa_testkit::prover::LocalProver;
     use anoma_rm_risc0::constants::BATCH_AGGREGATION_VK;
     use anoma_rm_risc0::resource::Resource;
-    use risc0_zkvm::sha::{Digest, Digestible, Sha256};
-    use risc0_zkvm::{FakeReceipt, Groth16Receipt, InnerReceipt, MaybePruned, ReceiptClaim};
+    use risc0_zkvm::sha::Sha256;
+    use risc0_zkvm::{FakeReceipt, Groth16Receipt, MaybePruned, ReceiptClaim};
 
     #[tokio::test]
     async fn the_settled_resources_are_each_actions_nullifiers_and_commitments_in_order() {
@@ -226,6 +222,10 @@ mod tests {
             settled_resources(&no_aggregation),
             Err(SettlementInputError::NoAggregation)
         );
+        assert_eq!(
+            settlement_input(no_aggregation),
+            Err(SettlementInputError::NoAggregation)
+        );
     }
 
     #[tokio::test]
@@ -243,7 +243,7 @@ mod tests {
         let input = settlement_input(proven.into_arm()).expect("settlement input");
         assert_eq!(
             settled_proof(&input),
-            mock_seal(Digest::try_from(tampered.as_slice()).unwrap()),
+            expected_mock_seal(Digest::try_from(tampered.as_slice()).unwrap()),
             "the conversion re-encodes the receipt; refusing it is the verifier's job"
         );
     }
@@ -287,7 +287,7 @@ mod tests {
             (1..=4).map(call).collect::<Vec<_>>()
         );
 
-        instance_mut(&mut tx).actions[1].consumed_publics[0]
+        tx.aggregation.as_mut().unwrap().instance.actions[1].consumed_publics[0]
             .app_data
             .external_payload = vec![ExpirableBlob {
             blob: vec![u32::MAX],
@@ -297,12 +297,6 @@ mod tests {
             external_calls(&tx),
             Err(SettlementInputError::ExternalCall(_))
         ));
-    }
-
-    fn instance_mut(
-        tx: &mut Transaction,
-    ) -> &mut anoma_rm_risc0::aggregation_instance::AggregationInstance {
-        &mut tx.aggregation.as_mut().unwrap().instance
     }
 
     async fn proven_trivial_transaction() -> Transaction {
@@ -328,8 +322,9 @@ mod tests {
         tx.aggregation.expect("aggregation").proof
     }
 
-    /// selector ‖ Groth16 a (64) ‖ b (128) ‖ c (64), the claim digest at the start of c.
-    fn mock_seal(claim: Digest) -> Vec<u8> {
+    /// selector ‖ Groth16 a (64) ‖ b (128) ‖ c (64), the claim digest at the
+    /// start of c: the layout written out independently of `mock_seal`.
+    fn expected_mock_seal(claim: Digest) -> Vec<u8> {
         let mut seal = vec![0xff; 4];
         seal.extend([0u8; 192]);
         seal.extend(claim.as_bytes());
@@ -342,7 +337,7 @@ mod tests {
         let tx = proven_trivial_transaction().await;
         let claim = claim_of(&tx);
         let input = settlement_input(tx.clone()).expect("settlement input");
-        assert_eq!(settled_proof(&input), mock_seal(claim));
+        assert_eq!(settled_proof(&input), expected_mock_seal(claim));
         let mut settled: Transaction = bincode::deserialize(&input).unwrap();
         settled.aggregation.as_mut().unwrap().proof =
             tx.aggregation.as_ref().unwrap().proof.clone();
@@ -362,7 +357,7 @@ mod tests {
         tx.aggregation.as_mut().unwrap().proof =
             bincode::serialize(&InnerReceipt::Fake(FakeReceipt::new(claim))).unwrap();
         let input = settlement_input(tx).expect("settlement input");
-        assert_eq!(settled_proof(&input), mock_seal(digest));
+        assert_eq!(settled_proof(&input), expected_mock_seal(digest));
         assert_eq!(digest, claim_of(&bincode::deserialize(&input).unwrap()));
     }
 
@@ -381,15 +376,5 @@ mod tests {
         let mut expected = parameters.as_bytes()[..4].to_vec();
         expected.extend(groth16_seal);
         assert_eq!(settled_proof(&settlement_input(tx).unwrap()), expected);
-    }
-
-    #[tokio::test]
-    async fn a_transaction_without_aggregation_has_no_settlement_input() {
-        let mut tx = proven_trivial_transaction().await;
-        tx.aggregation = None;
-        assert_eq!(
-            settlement_input(tx),
-            Err(SettlementInputError::NoAggregation)
-        );
     }
 }

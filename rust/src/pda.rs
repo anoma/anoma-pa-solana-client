@@ -120,7 +120,7 @@ mod tests {
         // An adapter initialized with the mock selector settles through the
         // router's entry for 0xffffffff, not the Groth16 one.
         let router_program = Pubkey::new_from_array([2; 32]);
-        let selector = [0xff; 4];
+        let selector = crate::MOCK_SELECTOR;
         let (router, entry) = derive_verifier_router_pdas(&router_program, selector);
         assert_eq!(
             router,

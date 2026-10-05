@@ -201,7 +201,7 @@ mod tests {
             .decode("ZveUniGZZF3/////7mKfmDSxMGCnyy/TbpmX7hTkzxHBC9Wi03rWqde0u7oA")
             .unwrap();
         let entry = decode_verifier_entry(&data).unwrap();
-        assert_eq!(entry.selector, [0xff; 4]);
+        assert_eq!(entry.selector, crate::MOCK_SELECTOR);
         assert!(!entry.paused);
         let mut paused = data.clone();
         paused[44] = 1;

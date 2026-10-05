@@ -23,10 +23,10 @@ pub const TXDATA_EXPIRY_SLOTS_DEFAULT: u64 = 300;
 /// Maximum supported commitment-tree depth. Mirrors the PA's tree cap.
 pub const MAX_TREE_DEPTH: usize = 32;
 
-/// The verifier router's selector for the Groth16 verifier: the `proof_selector`
-/// an adapter that settles real proofs is initialized with. Settlement derives
-/// the verifier entry from the adapter's stored `proof_selector`, not from this.
-pub const GROTH16_VERIFIER_SELECTOR: [u8; 4] = [0x73, 0xc4, 0x57, 0xba];
+/// The selector a mock seal carries, risc0's convention for a receipt that
+/// holds a claim digest instead of a proof. The local validator registers the
+/// mock verifier under it.
+pub const MOCK_SELECTOR: [u8; 4] = [0xff; 4];
 
 /// Anchor account-discriminator prefix length (constant across all Anchor programs).
 pub const ANCHOR_DISCRIMINATOR_LEN: usize = 8;

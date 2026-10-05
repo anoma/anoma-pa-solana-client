@@ -20,11 +20,11 @@ export const TXDATA_EXPIRY_SLOTS_DEFAULT = 300n;
 export const MAX_TREE_DEPTH = 32;
 
 /**
- * The verifier router's selector for the Groth16 verifier: the `proof_selector`
- * an adapter that settles real proofs is initialized with. Settlement derives
- * the verifier entry from the adapter's stored `proof_selector`, not from this.
+ * The selector a mock seal carries, risc0's convention for a receipt that
+ * holds a claim digest instead of a proof. The local validator registers the
+ * mock verifier under it.
  */
-export const GROTH16_VERIFIER_SELECTOR = new Uint8Array([0x73, 0xc4, 0x57, 0xba]);
+export const MOCK_SELECTOR = new Uint8Array([0xff, 0xff, 0xff, 0xff]);
 
 /** Anchor account-discriminator prefix length (constant across all Anchor programs). */
 export const ANCHOR_DISCRIMINATOR_LEN = 8;

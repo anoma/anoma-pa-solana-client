@@ -194,8 +194,7 @@ pub fn adapter_settlement_lookup_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const MOCK_SELECTOR: [u8; 4] = [0xff; 4];
+    use crate::constants::MOCK_SELECTOR;
 
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])

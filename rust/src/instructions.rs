@@ -436,7 +436,7 @@ mod tests {
             Pubkey::new_unique(),
             Pubkey::new_unique(),
         );
-        let selector = [0xff; 4];
+        let selector = crate::MOCK_SELECTOR;
         let ix = initialize_ix(&pa, &payer, &owner, &router, selector);
 
         let args = [owner.to_bytes().as_slice(), &router.to_bytes(), &selector].concat();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
+import { MOCK_SELECTOR } from "./constants.js";
 import { deriveEventAuthorityPda, derivePaStatePda, deriveVerifierRouterPdas } from "./pda.js";
 import { PA_PROGRAM_ID } from "./programIds.js";
 
@@ -24,7 +25,7 @@ describe("PDA derivation", () => {
     // An adapter initialized with the mock selector settles through the
     // router's entry for 0xffffffff, not the Groth16 one.
     const routerProgram = Keypair.generate().publicKey;
-    const selector = new Uint8Array([0xff, 0xff, 0xff, 0xff]);
+    const selector = MOCK_SELECTOR;
     const { router, entry } = deriveVerifierRouterPdas(routerProgram, selector);
     const [expectedRouter] = PublicKey.findProgramAddressSync([new TextEncoder().encode("router")], routerProgram);
     const [expectedEntry] = PublicKey.findProgramAddressSync([new TextEncoder().encode("verifier"), selector], routerProgram);
