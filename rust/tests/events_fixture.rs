@@ -3,6 +3,7 @@
 //! package runs the same fixture (`ts/src/events.test.ts`).
 
 use anoma_pa_solana_client::events::{decode_event_instruction, PaEvent, PayloadEvent};
+use anoma_pa_solana_client::U256;
 use base64::Engine;
 
 fn hex(s: &str) -> Vec<u8> {
@@ -28,7 +29,7 @@ fn check_payload(ev: &PayloadEvent, exp: &serde_json::Value, entry: &str) {
     assert_eq!(ev.tag, hex32(exp["tag"].as_str().unwrap()), "{entry}: tag");
     assert_eq!(
         ev.index,
-        hex32(exp["index"].as_str().unwrap()),
+        U256(hex32(exp["index"].as_str().unwrap())),
         "{entry}: index"
     );
     assert_eq!(ev.blob, hex(exp["blob"].as_str().unwrap()), "{entry}: blob");

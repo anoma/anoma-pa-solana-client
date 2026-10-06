@@ -13,18 +13,19 @@
 use crate::constants::ANCHOR_DISCRIMINATOR_LEN;
 use crate::cursor::{Cursor, Truncated};
 use crate::discriminator::anchor_event_disc;
+use crate::u256::U256;
 
 /// `anchor_lang::event::EVENT_IX_TAG_LE`: the u64 `0x1d9acb512ea545e4` little-endian.
 pub const EVENT_IX_TAG: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
 
 /// Body shared by the four payload events. `tag` is the resource tag the
 /// payload belongs to; `index` is the entry's position within its category's
-/// payload list for that resource, a `u256` (pa-evm's `uint256`) as its 32
-/// little-endian bytes; `blob` is the payload bytes.
+/// payload list for that resource, a `u256` (pa-evm's `uint256`); `blob` is
+/// the payload bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PayloadEvent {
     pub tag: [u8; 32],
-    pub index: [u8; 32],
+    pub index: U256,
     pub blob: Vec<u8>,
 }
 
@@ -279,7 +280,7 @@ pub fn decode_upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeE
 fn payload(c: &mut Cursor<'_>) -> Result<PayloadEvent, EventDecodeError> {
     Ok(PayloadEvent {
         tag: c.array_32("tag")?,
-        index: c.array_32("index")?,
+        index: U256(c.array_32("index")?),
         blob: c.vec_u8("blob")?,
     })
 }
