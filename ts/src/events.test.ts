@@ -51,7 +51,7 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
           expect(hex(ev.transactionId), entry).toBe(exp.transaction_id);
           break;
         case "ForwarderCallExecutedEvent":
-          expect(hex(ev.forwarder), entry).toBe(exp.forwarder);
+          expect(hex(ev.untrustedForwarder), entry).toBe(exp.untrusted_forwarder);
           expect(hex(ev.input), entry).toBe(exp.input);
           expect(hex(ev.output), entry).toBe(exp.output);
           break;

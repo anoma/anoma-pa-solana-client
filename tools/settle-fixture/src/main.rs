@@ -336,7 +336,7 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
                 }
                 PaEvent::ForwarderCallExecuted(e) => println!(
                     "event ForwarderCallExecuted: forwarder {} input {} B output {} B",
-                    Pubkey::from(e.forwarder),
+                    Pubkey::from(e.untrusted_forwarder),
                     e.input.len(),
                     e.output.len()
                 ),

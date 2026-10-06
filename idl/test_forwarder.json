@@ -60,16 +60,16 @@
       "code": 6003,
       "name": "LogLineCountMissing",
       "msg": "Log mode needs the number of lines to log"
-    }
-  ],
-  "constants": [
+    },
     {
-      "name": "MODE_LOG",
-      "docs": [
-        "Called directly by the integration suite, which reads it from the IDL."
-      ],
-      "type": "u8",
-      "value": "3"
+      "code": 6004,
+      "name": "WriteTargetMissing",
+      "msg": "Write mode needs the account to write as its first account"
+    },
+    {
+      "code": 6005,
+      "name": "WriteTargetTooSmall",
+      "msg": "Write mode's account is smaller than the bytes to write"
     }
   ]
 }

@@ -32,7 +32,7 @@
       "name": "ForwarderCallExecutedEvent",
       "data_b64": "5EWlLlHLmh0oIg1dc7VrCCknv5Zu5k1JmYvmcnEdpB0LyVDvelUNPdXV90b+OM5OCAAAAP//////////AQAAAAA=",
       "expected": {
-        "forwarder": "2927bf966ee64d49998be672711da41d0bc950ef7a550d3dd5d5f746fe38ce4e",
+        "untrusted_forwarder": "2927bf966ee64d49998be672711da41d0bc950ef7a550d3dd5d5f746fe38ce4e",
         "input": "ffffffffffffffff",
         "output": "00"
       }
@@ -78,7 +78,7 @@
       "name": "ForwarderCallExecutedEvent",
       "data_b64": "5EWlLlHLmh0oIg1dc7VrCCknv5Zu5k1JmYvmcnEdpB0LyVDvelUNPdXV90b+OM5OCAAAAP//////////AQAAAAA=",
       "expected": {
-        "forwarder": "2927bf966ee64d49998be672711da41d0bc950ef7a550d3dd5d5f746fe38ce4e",
+        "untrusted_forwarder": "2927bf966ee64d49998be672711da41d0bc950ef7a550d3dd5d5f746fe38ce4e",
         "input": "ffffffffffffffff",
         "output": "00"
       }
@@ -124,7 +124,7 @@
       "name": "ForwarderCallExecutedEvent",
       "data_b64": "5EWlLlHLmh0oIg1dc7VrCCknv5Zu5k1JmYvmcnEdpB0LyVDvelUNPdXV90b+OM5OCAAAAP//////////AQAAAAA=",
       "expected": {
-        "forwarder": "2927bf966ee64d49998be672711da41d0bc950ef7a550d3dd5d5f746fe38ce4e",
+        "untrusted_forwarder": "2927bf966ee64d49998be672711da41d0bc950ef7a550d3dd5d5f746fe38ce4e",
         "input": "ffffffffffffffff",
         "output": "00"
       }
