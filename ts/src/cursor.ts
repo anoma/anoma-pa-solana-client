@@ -48,6 +48,11 @@ export class Cursor {
     return new DataView(b.buffer, b.byteOffset, 8).getBigUint64(0, true);
   }
 
+  /** A `u256`: 32 little-endian bytes. */
+  u256Le(field: string): bigint {
+    return this.take(HASH_LEN, field).reduceRight((n, byte) => (n << 8n) | BigInt(byte), 0n);
+  }
+
   array32(field: string): Uint8Array {
     return this.take(HASH_LEN, field);
   }

@@ -37,7 +37,7 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
         case "ExternalPayloadEvent":
         case "ApplicationPayloadEvent":
           expect(hex(ev.tag), entry).toBe(exp.tag);
-          expect(ev.index, entry).toBe(exp.index);
+          expect(ev.index, entry).toBe(BigInt(exp.index));
           expect(hex(ev.blob), entry).toBe(exp.blob);
           break;
         case "ActionExecutedEvent":

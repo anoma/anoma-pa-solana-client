@@ -19,11 +19,12 @@ pub const EVENT_IX_TAG: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1
 
 /// Body shared by the four payload events. `tag` is the resource tag the
 /// payload belongs to; `index` is the entry's position within its category's
-/// payload list for that resource; `blob` is the payload bytes.
+/// payload list for that resource, a `u256` (pa-evm's `uint256`) as its 32
+/// little-endian bytes; `blob` is the payload bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PayloadEvent {
     pub tag: [u8; 32],
-    pub index: u32,
+    pub index: [u8; 32],
     pub blob: Vec<u8>,
 }
 
@@ -278,7 +279,7 @@ pub fn decode_upgraded(c: &mut Cursor<'_>) -> Result<UpgradedEvent, EventDecodeE
 fn payload(c: &mut Cursor<'_>) -> Result<PayloadEvent, EventDecodeError> {
     Ok(PayloadEvent {
         tag: c.array_32("tag")?,
-        index: c.u32_le("index")?,
+        index: c.array_32("index")?,
         blob: c.vec_u8("blob")?,
     })
 }

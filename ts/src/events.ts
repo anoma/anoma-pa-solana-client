@@ -18,12 +18,13 @@ export const EVENT_IX_TAG = new Uint8Array([0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 
 /**
  * Body shared by the four payload events. `tag` is the resource tag the
  * payload belongs to; `index` is the entry's position within its category's
- * payload list for that resource; `blob` is the payload bytes.
+ * payload list for that resource, a `u256` (pa-evm's `uint256`); `blob` is
+ * the payload bytes.
  */
 export interface PayloadEvent {
   name: "ResourcePayloadEvent" | "DiscoveryPayloadEvent" | "ExternalPayloadEvent" | "ApplicationPayloadEvent";
   tag: Uint8Array;
-  index: number;
+  index: bigint;
   blob: Uint8Array;
 }
 
@@ -170,7 +171,7 @@ export function decodeEventInstruction(data: Uint8Array): PaEvent {
 function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
   for (const name of PAYLOAD_EVENT_NAMES) {
     if (bytesEqual(disc, anchorEventDisc(name))) {
-      return { name, tag: c.array32("tag"), index: c.u32Le("index"), blob: c.vecU8("blob") };
+      return { name, tag: c.array32("tag"), index: c.u256Le("index"), blob: c.vecU8("blob") };
     }
   }
   if (bytesEqual(disc, anchorEventDisc("ActionExecutedEvent"))) {
