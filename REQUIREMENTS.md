@@ -83,7 +83,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 ### 3.7 Event decoders
 
 - Decoders for every Anchor event emitted by the PA:
-  - `ResourcePayloadEvent`, `DiscoveryPayloadEvent`, `ExternalPayloadEvent`, `ApplicationPayloadEvent` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is 32 little-endian bytes, `[u8; 32]` in Rust and a `bigint` in TypeScript
+  - `ResourcePayloadEvent`, `DiscoveryPayloadEvent`, `ExternalPayloadEvent`, `ApplicationPayloadEvent` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is a `U256` in Rust (its 32 little-endian bytes, converted to `u32` with a range check) and a `bigint` in TypeScript
   - `ActionExecutedEvent { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
   - `TransactionExecutedEvent { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
   - `ForwarderCallExecutedEvent { untrusted_forwarder, input, output }`
@@ -93,25 +93,29 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 - The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: one helper takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.
 - The indexer consumes the IDL file (`idl/protocol_adapter.json`) for the same decoding in non-Rust/TS contexts.
 
-### 3.8 External call construction
+### 3.8 Errors
+
+- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): `PaError` with `PaError::from_code` and `code()` in Rust, `PA_ERRORS` with `paErrorFromCode` and `paErrorCode` in TypeScript. A test checks both against the IDL's names and codes, so a caller matches errors by type, never by name or log text.
+
+### 3.9 External call construction
 
 - `SolanaExternalCall { program_id: [u8; 32], instruction_data: Vec<u8>, expected_output: Vec<u8>, output_mode: OutputMode, num_accounts: u8 }` — exact match for the PA's `solana-pa-prototype/src/types.rs`.
 - `OutputMode = ReturnData`.
 
-### 3.9 Commitment tree primitives
+### 3.10 Commitment tree primitives
 
 - `hash_two(left: [u8; 32], right: [u8; 32]) -> [u8; 32]` — SHA-256 over the concatenation, matching the PA's `hash_two`.
 - `padding_leaf() -> [u8; 32]` and the zero-hash sequence `[H_0, H_1, ..., H_31]` precomputed.
 - `CommitmentTreeState` type wrapping `{ root, next_index, current_depth, frontier }` with an `append(commitment)` method that updates the state and returns the new root. Used by backend to derive the new root-marker PDA for a settlement.
 
-### 3.10 Constants
+### 3.11 Constants
 
 - `MIN_COMPUTE_UNIT_LIMIT` — the minimum CU value the settle ix requires (currently 500,000). Source of truth.
 - `MIN_HEAP_FRAME_BYTES` — the minimum heap frame the settle ix requires (currently 262,144). Source of truth.
 - `TXDATA_WRITE_CHUNK_BYTES` — the chunk size for `txdata_write` (currently 900).
 - These must change here when they change in the PA. The integrator imports them; bumping the PA without bumping this package is a release-process error.
 
-### 3.11 IDL files
+### 3.12 IDL files
 
 - `idl/protocol_adapter.json` — Anchor IDL for the PA program at this version.
 - Regenerated from the PA repo on every release. The integrator's indexer (Elixir or any other non-Rust/TS consumer) reads it directly.
@@ -201,7 +205,7 @@ Smallest useful version. Ship these and integrators can start adopting:
 - PDA derivation helpers for the PDAs in §3.5.
 - `decode_pa_state` cursor-based decoder.
 - `SolanaExternalCall` type + `OutputMode` enum.
-- Constants in §3.10.
+- Constants in §3.11.
 - IDL files in `idl/`.
 - Basic README pointing at this REQUIREMENTS.md.
 

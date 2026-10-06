@@ -9,5 +9,6 @@ export * from "./pda.js";
 export * from "./codecs.js";
 export * from "./accounts.js";
 export * from "./events.js";
+export * from "./errors.js";
 export * from "./confirmation.js";
 export * from "./labelValueRef.js";

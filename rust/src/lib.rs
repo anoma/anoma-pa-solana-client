@@ -9,11 +9,13 @@ pub mod accounts;
 pub mod constants;
 pub mod cursor;
 pub mod discriminator;
+pub mod errors;
 pub mod events;
 pub mod external_call;
 pub mod merkle;
 #[cfg(feature = "arm")]
 pub mod settlement_input;
+pub mod u256;
 
 #[cfg(feature = "solana")]
 pub mod instructions;
@@ -30,6 +32,7 @@ pub use accounts::{
 };
 pub use constants::*;
 pub use discriminator::{anchor_account_disc, anchor_event_disc, anchor_instruction_disc};
+pub use errors::{PaError, ANCHOR_ERROR_CODE_OFFSET};
 pub use events::{
     decode_cpi_event, decode_event_instruction, decode_ownership_transferred, decode_upgraded,
     ActionExecutedEvent, CommitmentTreeRootAddedEvent, EventDecodeError,
@@ -42,6 +45,7 @@ pub use merkle::{
     depth_for_leaves, hash_two, merkle_path, path_root, zero_hashes, CommitmentTreeState,
     MerkleError, PADDING_LEAF,
 };
+pub use u256::{U256OutOfRange, U256};
 
 #[cfg(feature = "solana")]
 pub use instructions::{
