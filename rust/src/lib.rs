@@ -25,8 +25,8 @@ pub mod program_ids;
 pub mod settlement;
 
 pub use accounts::{
-    decode_pa_state, decode_verifier_entry, DecodeError, PAStateAccount, VerifierEntryAccount,
-    PA_STATE_SCHEMA_VERSION,
+    decode_pa_state, decode_verifier_entry, encode_pa_state, DecodeError, PAStateAccount,
+    VerifierEntryAccount, PA_STATE_SCHEMA_VERSION,
 };
 pub use constants::*;
 pub use discriminator::{anchor_account_disc, anchor_event_disc, anchor_instruction_disc};
