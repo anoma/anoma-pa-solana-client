@@ -5,6 +5,7 @@
 
 use crate::constants::{ANCHOR_DISCRIMINATOR_LEN, MAX_TREE_DEPTH};
 use crate::cursor::{Cursor, Truncated};
+use crate::discriminator::anchor_account_disc;
 use crate::merkle::CommitmentTreeState;
 
 /// The `PAStateAccount` layout number this decoder reads. The PA stores it at
@@ -149,6 +150,39 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
     })
 }
 
+/// Encode `state` as the PA stores it: the `PAStateAccount` discriminator,
+/// then the fields `decode_pa_state` reads, in its order. A test runtime
+/// writes this over an adapter's state account (an account's allocation can
+/// exceed the encoding; the PA ignores the bytes after it).
+pub fn encode_pa_state(state: &PAStateAccount) -> Vec<u8> {
+    let mut data = anchor_account_disc("PAStateAccount").to_vec();
+    data.push(state.schema_version);
+    data.push(state.bump);
+    data.extend_from_slice(&state.owner);
+    data.extend_from_slice(&state.verifier_router);
+    data.extend_from_slice(&state.proof_selector);
+    data.extend_from_slice(&state.kind_table_commitment);
+    data.push(u8::from(state.paused));
+    data.extend_from_slice(&state.root);
+    data.extend_from_slice(&state.next_index.to_le_bytes());
+    data.push(state.current_depth);
+    push_vec_array_32(&mut data, &state.frontier);
+    data.extend_from_slice(&state.min_expiry_slots.to_le_bytes());
+    data.extend_from_slice(&state.max_expiry_slots.to_le_bytes());
+    push_vec_array_32(&mut data, &state.denied_logic_refs);
+    data
+}
+
+/// Appends `list` as Borsh writes a `Vec<[u8; 32]>`: its length, then its
+/// entries.
+fn push_vec_array_32(data: &mut Vec<u8>, list: &[[u8; 32]]) {
+    let len = u32::try_from(list.len()).expect("a PA state list fits a Borsh length");
+    data.extend_from_slice(&len.to_le_bytes());
+    for entry in list {
+        data.extend_from_slice(entry);
+    }
+}
+
 impl From<Truncated> for DecodeError {
     fn from(t: Truncated) -> Self {
         DecodeError::Truncated { field: t.field }
@@ -272,6 +306,30 @@ mod tests {
         assert_eq!(s.min_expiry_slots, 100);
         assert_eq!(s.max_expiry_slots, 216_000);
         assert_eq!(s.denied_logic_refs, vec![[0xDD; 32]]);
+    }
+
+    #[test]
+    fn encodes_what_it_decodes_under_the_adapters_discriminator() {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../idl/protocol_adapter.json"
+        )))
+        .unwrap();
+        let discriminator: Vec<u8> = serde_json::from_value(
+            idl["accounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|account| account["name"] == "PAStateAccount")
+                .unwrap()["discriminator"]
+                .clone(),
+        )
+        .unwrap();
+        let mut data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32], [0xEE; 32]]);
+        data[..ANCHOR_DISCRIMINATOR_LEN].copy_from_slice(&discriminator);
+
+        let state = decode_pa_state(&data).expect("decode");
+        assert_eq!(encode_pa_state(&state), data);
     }
 
     #[test]

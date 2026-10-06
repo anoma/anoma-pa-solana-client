@@ -75,6 +75,36 @@ pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
     )
 }
 
+/// Build the PA's `unpause`: the owner `authority` resumes settlement.
+pub fn unpause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
+    owner_ix(
+        pa_program,
+        authority,
+        anchor_instruction_disc("unpause").to_vec(),
+    )
+}
+
+/// Build the PA's `deny_logic_ref`: the owner `authority` denies `logic_ref`,
+/// so no settlement consumes or creates a resource carrying it again, and
+/// pays for the entry.
+pub fn deny_logic_ref_ix(
+    pa_program: &Pubkey,
+    authority: &Pubkey,
+    logic_ref: [u8; 32],
+) -> Instruction {
+    Instruction {
+        program_id: *pa_program,
+        accounts: vec![
+            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
+            AccountMeta::new(*authority, true),
+            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
+            AccountMeta::new_readonly(*pa_program, false),
+        ],
+        data: [&anchor_instruction_disc("deny_logic_ref")[..], &logic_ref].concat(),
+    }
+}
+
 /// Build the PA's `set_kind_table_commitment`: the owner `authority` replaces
 /// the kind-table commitment settled transactions must be proven against.
 pub fn set_kind_table_commitment_ix(
@@ -464,6 +494,12 @@ mod tests {
         let commitment = [7; 32];
         for (ix, name, args) in [
             (pause_ix(&pa, &authority), "pause", &[][..]),
+            (unpause_ix(&pa, &authority), "unpause", &[][..]),
+            (
+                deny_logic_ref_ix(&pa, &authority, commitment),
+                "deny_logic_ref",
+                &commitment[..],
+            ),
             (
                 set_kind_table_commitment_ix(&pa, &authority, commitment),
                 "set_kind_table_commitment",

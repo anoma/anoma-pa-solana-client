@@ -25,8 +25,8 @@ pub mod program_ids;
 pub mod settlement;
 
 pub use accounts::{
-    decode_pa_state, decode_verifier_entry, DecodeError, PAStateAccount, VerifierEntryAccount,
-    PA_STATE_SCHEMA_VERSION,
+    decode_pa_state, decode_verifier_entry, encode_pa_state, DecodeError, PAStateAccount,
+    VerifierEntryAccount, PA_STATE_SCHEMA_VERSION,
 };
 pub use constants::*;
 pub use discriminator::{anchor_account_disc, anchor_event_disc, anchor_instruction_disc};
@@ -45,8 +45,8 @@ pub use merkle::{
 
 #[cfg(feature = "solana")]
 pub use instructions::{
-    initialize_ix, pause_ix, set_kind_table_commitment_ix, settle_from_txdata_ix, txdata_close_ix,
-    txdata_init_ix, txdata_write_ix,
+    deny_logic_ref_ix, initialize_ix, pause_ix, set_kind_table_commitment_ix,
+    settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix, unpause_ix,
 };
 #[cfg(feature = "solana")]
 pub use pda::{
