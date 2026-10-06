@@ -5,6 +5,7 @@
 # Format: the full 40-character commit SHA on its own line. Comments allowed.
 
 # solana-protocol-adapter anthony/evm-error-names: protocol-adapter 2.0.0-rc.3
-# with pa-evm's error and ForwarderCallExecuted field names. The three IDL files
+# with pa-evm's error and ForwarderCallExecuted field names and its single
+# spent-nullifier error. The three IDL files
 # are its production builds' IDLs.
-5ecf09792c2b2d6b739b2dafd8d6852234c9637a
+3d276c8c59821b486fb8a25f20db6057a377408c
