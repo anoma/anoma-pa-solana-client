@@ -28,7 +28,7 @@ fn check_payload(ev: &PayloadEvent, exp: &serde_json::Value, entry: &str) {
     assert_eq!(ev.tag, hex32(exp["tag"].as_str().unwrap()), "{entry}: tag");
     assert_eq!(
         ev.index,
-        exp["index"].as_u64().unwrap() as u32,
+        hex32(exp["index"].as_str().unwrap()),
         "{entry}: index"
     );
     assert_eq!(ev.blob, hex(exp["blob"].as_str().unwrap()), "{entry}: blob");

@@ -1855,7 +1855,11 @@
           },
           {
             "name": "index",
-            "type": "u32"
+            "type": {
+              "defined": {
+                "name": "U256"
+              }
+            }
           },
           {
             "name": "blob",
@@ -1902,7 +1906,11 @@
           },
           {
             "name": "index",
-            "type": "u32"
+            "type": {
+              "defined": {
+                "name": "U256"
+              }
+            }
           },
           {
             "name": "blob",
@@ -1927,7 +1935,11 @@
           },
           {
             "name": "index",
-            "type": "u32"
+            "type": {
+              "defined": {
+                "name": "U256"
+              }
+            }
           },
           {
             "name": "blob",
@@ -2202,7 +2214,11 @@
           },
           {
             "name": "index",
-            "type": "u32"
+            "type": {
+              "defined": {
+                "name": "U256"
+              }
+            }
           },
           {
             "name": "blob",
@@ -2273,6 +2289,16 @@
             "type": "bytes"
           }
         ]
+      }
+    },
+    {
+      "name": "U256",
+      "docs": [
+        "A 256-bit unsigned integer: 32 little-endian bytes."
+      ],
+      "type": {
+        "kind": "type",
+        "alias": "u256"
       }
     },
     {

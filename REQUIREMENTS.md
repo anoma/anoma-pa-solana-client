@@ -83,10 +83,10 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 ### 3.7 Event decoders
 
 - Decoders for every Anchor event emitted by the PA:
-  - `ResourcePayloadEvent`, `DiscoveryPayloadEvent`, `ExternalPayloadEvent`, `ApplicationPayloadEvent` — `{ tag: [u8; 32], index: u32, blob: Vec<u8> }`
+  - `ResourcePayloadEvent`, `DiscoveryPayloadEvent`, `ExternalPayloadEvent`, `ApplicationPayloadEvent` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is 32 little-endian bytes, `[u8; 32]` in Rust and a `bigint` in TypeScript
   - `ActionExecutedEvent { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
   - `TransactionExecutedEvent { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
-  - `ForwarderCallExecutedEvent { forwarder, input, output }`
+  - `ForwarderCallExecutedEvent { untrusted_forwarder, input, output }`
   - `CommitmentTreeRootAddedEvent { root }`, `KindTableCommitmentUpdatedEvent { kind_table_commitment }`, `LogicRefDeniedEvent { logic_ref }`
   - `PausedEvent { account }`, `UnpausedEvent { account }`
   - `OwnershipTransferredEvent { previous_owner, new_owner }`, `UpgradedEvent { executable_hash: [u8; 32] }`
