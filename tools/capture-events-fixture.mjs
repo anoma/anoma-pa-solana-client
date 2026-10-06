@@ -14,13 +14,14 @@
 // independent of this package's. Every event type in the IDL that none of
 // the transactions emitted gets one entry encoded by that coder from fixed
 // values, so the fixture covers the IDL's whole event set. Byte fields are
-// recorded as lowercase hex.
+// recorded as lowercase hex, u256 fields as their 32 little-endian bytes in
+// lowercase hex.
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(new URL("../ts/package.json", import.meta.url));
-const { BorshCoder } = require("@anchor-lang/core");
+const { BN, BorshCoder } = require("@anchor-lang/core");
 const { Connection, PublicKey } = require("@solana/web3.js");
 const bs58 = require("bs58").default;
 
@@ -35,13 +36,21 @@ if (!url || (url !== "--recorded" && signatures.length === 0)) {
 }
 const CODER_SOURCE = "anchor BorshCoder.types.encode";
 
-// A decoded value in the fixture's form: byte arrays and keys as hex, numbers
-// as numbers, vectors element by element.
-function plain(value) {
+// Whether an IDL type is a u256, directly or through a type alias.
+function isU256(type) {
+  return type === "u256" || (type.defined && idl.types.find((t) => t.name === type.defined.name).type.alias === "u256");
+}
+
+// A decoded value of an IDL type in the fixture's form: byte arrays, keys and
+// u256s as hex, numbers as numbers, vectors element by element.
+function plain(value, type) {
+  if (isU256(type)) return value.toArrayLike(Buffer, "le", 32).toString("hex");
   if (value instanceof PublicKey) return value.toBuffer().toString("hex");
   if (Buffer.isBuffer(value) || value instanceof Uint8Array) return Buffer.from(value).toString("hex");
   if (Array.isArray(value)) {
-    return value.every((v) => typeof v === "number") ? Buffer.from(value).toString("hex") : value.map(plain);
+    return value.every((v) => typeof v === "number")
+      ? Buffer.from(value).toString("hex")
+      : value.map((v) => plain(v, type.vec));
   }
   if (typeof value === "number") return value;
   if (value && typeof value.toNumber === "function") return value.toNumber();
@@ -51,12 +60,12 @@ function plain(value) {
 function entry(source, data) {
   const decoded = coder.events.decode(data.subarray(EVENT_IX_TAG.length).toString("base64"));
   if (!decoded) throw new Error(`${source}: no IDL event has this discriminator`);
-  const fields = idl.types.find((t) => t.name === decoded.name).type.fields.map((f) => f.name);
+  const fields = idl.types.find((t) => t.name === decoded.name).type.fields;
   const expected = Object.fromEntries(
     fields.map((f) => {
-      const v = decoded.data[f];
-      if (v === undefined) throw new Error(`${source}: ${decoded.name} has no field ${f}`);
-      return [f, plain(v)];
+      const v = decoded.data[f.name];
+      if (v === undefined) throw new Error(`${source}: ${decoded.name} has no field ${f.name}`);
+      return [f.name, plain(v, f.type)];
     }),
   );
   return { source, name: decoded.name, data_b64: data.toString("base64"), expected };
@@ -88,6 +97,8 @@ for (const signature of url === "--recorded" ? [] : signatures) {
 function sample(type) {
   if (type === "pubkey") return new PublicKey(Buffer.alloc(32, 0x11));
   if (type === "u32") return 7;
+  // Sets the top byte, so a decoder that drops any of the 32 bytes fails.
+  if (isU256(type)) return new BN(1).shln(255).addn(7);
   if (type === "bytes") return Buffer.from([1, 2, 3]);
   if (type.array) return Array(32).fill(0x22);
   if (type.vec) return [sample(type.vec)];

@@ -26,9 +26,11 @@ fn fixture() -> serde_json::Value {
 
 fn check_payload(ev: &PayloadEvent, exp: &serde_json::Value, entry: &str) {
     assert_eq!(ev.tag, hex32(exp["tag"].as_str().unwrap()), "{entry}: tag");
-    let mut index = [0u8; 32];
-    index[..8].copy_from_slice(&exp["index"].as_u64().unwrap().to_le_bytes());
-    assert_eq!(ev.index, index, "{entry}: index");
+    assert_eq!(
+        ev.index,
+        hex32(exp["index"].as_str().unwrap()),
+        "{entry}: index"
+    );
     assert_eq!(ev.blob, hex(exp["blob"].as_str().unwrap()), "{entry}: blob");
 }
 

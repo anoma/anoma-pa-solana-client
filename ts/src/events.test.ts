@@ -37,7 +37,10 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
         case "ExternalPayloadEvent":
         case "ApplicationPayloadEvent":
           expect(hex(ev.tag), entry).toBe(exp.tag);
-          expect(ev.index, entry).toBe(BigInt(exp.index));
+          // exp.index: the u256's 32 little-endian bytes.
+          expect(ev.index, entry).toBe(
+            BigInt(`0x${Buffer.from(exp.index as string, "hex").reverse().toString("hex")}`),
+          );
           expect(hex(ev.blob), entry).toBe(exp.blob);
           break;
         case "ActionExecutedEvent":
