@@ -264,7 +264,7 @@ mod tests {
     /// next_index, current_depth, frontier, min/max expiry, denied_logic_refs.
     fn build_fixture(schema_version: u8, paused: u8, denied: &[[u8; 32]]) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&[9u8; 8]); // discriminator
+        data.extend_from_slice(&anchor_account_disc("PAStateAccount"));
         data.push(schema_version);
         data.push(255); // bump
         data.extend_from_slice(&[1u8; 32]); // owner
@@ -309,27 +309,12 @@ mod tests {
     }
 
     #[test]
-    fn encodes_what_it_decodes_under_the_adapters_discriminator() {
-        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../idl/protocol_adapter.json"
-        )))
-        .unwrap();
-        let discriminator: Vec<u8> = serde_json::from_value(
-            idl["accounts"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|account| account["name"] == "PAStateAccount")
-                .unwrap()["discriminator"]
-                .clone(),
-        )
-        .unwrap();
-        let mut data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32], [0xEE; 32]]);
-        data[..ANCHOR_DISCRIMINATOR_LEN].copy_from_slice(&discriminator);
-
-        let state = decode_pa_state(&data).expect("decode");
-        assert_eq!(encode_pa_state(&state), data);
+    fn encodes_what_it_decodes() {
+        let data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32], [0xEE; 32]]);
+        assert_eq!(
+            encode_pa_state(&decode_pa_state(&data).expect("decode")),
+            data
+        );
     }
 
     #[test]
