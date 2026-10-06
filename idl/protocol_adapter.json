@@ -1532,7 +1532,7 @@
   "errors": [
     {
       "code": 6000,
-      "name": "DuplicateNullifier",
+      "name": "PreExistingNullifier",
       "msg": "Duplicate nullifier detected"
     },
     {
@@ -1607,7 +1607,7 @@
     },
     {
       "code": 6015,
-      "name": "InvalidProofSelector",
+      "name": "RiscZeroVerifierSelectorMismatch",
       "msg": "Proof selector does not match expected selector"
     },
     {
@@ -1622,7 +1622,7 @@
     },
     {
       "code": 6018,
-      "name": "ExternalCallOutputMismatch",
+      "name": "ForwarderCallOutputMismatch",
       "msg": "External call output verification failed"
     },
     {
@@ -1647,7 +1647,7 @@
     },
     {
       "code": 6023,
-      "name": "DeltaPointNotOnCurve",
+      "name": "PointNotOnCurve",
       "msg": "Delta point not on secp256k1 curve"
     },
     {
@@ -1667,7 +1667,7 @@
     },
     {
       "code": 6027,
-      "name": "ZeroKindTableCommitment",
+      "name": "ZeroKindTableCommitmentNotAllowed",
       "msg": "Zero kind-table commitment not allowed"
     },
     {
@@ -1752,12 +1752,12 @@
     },
     {
       "code": 6044,
-      "name": "ZeroVerifierRouterNotAllowed",
+      "name": "ZeroRiscZeroVerifierRouterNotAllowed",
       "msg": "Zero verifier router not allowed"
     },
     {
       "code": 6045,
-      "name": "ZeroProofSelectorNotAllowed",
+      "name": "ZeroRiscZeroVerifierSelectorNotAllowed",
       "msg": "Zero proof selector not allowed"
     },
     {
@@ -1950,7 +1950,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "forwarder",
+            "name": "untrusted_forwarder",
             "type": "pubkey"
           },
           {

@@ -108,7 +108,7 @@ export interface UpgradedEvent {
 /** Emitted once per external call, in call order. */
 export interface ForwarderCallExecutedEvent {
   name: "ForwarderCallExecutedEvent";
-  forwarder: Uint8Array;
+  untrustedForwarder: Uint8Array;
   input: Uint8Array;
   output: Uint8Array;
 }
@@ -209,7 +209,7 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
   if (bytesEqual(disc, anchorEventDisc("ForwarderCallExecutedEvent"))) {
     return {
       name: "ForwarderCallExecutedEvent",
-      forwarder: c.array32("forwarder"),
+      untrustedForwarder: c.array32("untrusted_forwarder"),
       input: c.vecU8("input"),
       output: c.vecU8("output"),
     };

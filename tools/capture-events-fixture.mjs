@@ -2,10 +2,14 @@
 // Rust and TS event decoders.
 //
 //   node tools/capture-events-fixture.mjs <rpc url> <signature>...
+//   node tools/capture-events-fixture.mjs --recorded
 //
 // Each listed transaction's adapter event self-invocations (inner
 // instructions to the adapter whose data starts with Anchor's event tag) are
-// recorded as they ran on chain. The expected values come from
+// recorded as they ran on chain. `--recorded` takes the transactions' events
+// the fixture already records instead, with their sources, and decodes them
+// anew: for an IDL change that keeps the events' layout (a renamed field)
+// once the transactions are no longer on chain. The expected values come from
 // @anchor-lang/core's BorshCoder against idl/protocol_adapter.json, a decoder
 // independent of this package's. Every event type in the IDL that none of
 // the transactions emitted gets one entry encoded by that coder from fixed
@@ -26,9 +30,10 @@ const coder = new BorshCoder(idl);
 const EVENT_IX_TAG = Buffer.from("e445a52e51cb9a1d", "hex");
 
 const [url, ...signatures] = process.argv.slice(2);
-if (!url || signatures.length === 0) {
-  throw new Error("usage: capture-events-fixture.mjs <rpc url> <signature>...");
+if (!url || (url !== "--recorded" && signatures.length === 0)) {
+  throw new Error("usage: capture-events-fixture.mjs <rpc url> <signature>... | --recorded");
 }
+const CODER_SOURCE = "anchor BorshCoder.types.encode";
 
 // A decoded value in the fixture's form: byte arrays and keys as hex, numbers
 // as numbers, vectors element by element.
@@ -57,9 +62,15 @@ function entry(source, data) {
   return { source, name: decoded.name, data_b64: data.toString("base64"), expected };
 }
 
-const connection = new Connection(url, "confirmed");
 const events = [];
-for (const signature of signatures) {
+if (url === "--recorded") {
+  const recorded = JSON.parse(readFileSync(repo("fixtures/events_fixture.json"), "utf8")).events;
+  for (const e of recorded) {
+    if (e.source !== CODER_SOURCE) events.push(entry(e.source, Buffer.from(e.data_b64, "base64")));
+  }
+}
+const connection = url === "--recorded" ? null : new Connection(url, "confirmed");
+for (const signature of url === "--recorded" ? [] : signatures) {
   const tx = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
   if (!tx) throw new Error(`transaction ${signature} not found`);
   const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses });
@@ -87,7 +98,7 @@ for (const event of idl.events) {
   const def = idl.types.find((t) => t.name === event.name);
   const value = Object.fromEntries(def.type.fields.map((f) => [f.name, sample(f.type)]));
   const body = coder.types.encode(event.name, value);
-  events.push(entry("anchor BorshCoder.types.encode", Buffer.concat([EVENT_IX_TAG, Buffer.from(event.discriminator), body])));
+  events.push(entry(CODER_SOURCE, Buffer.concat([EVENT_IX_TAG, Buffer.from(event.discriminator), body])));
 }
 
 writeFileSync(

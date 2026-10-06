@@ -4,7 +4,7 @@
 #
 # Format: the full 40-character commit SHA on its own line. Comments allowed.
 
-# solana-protocol-adapter anthony/arm-v2-port at the merge of #122:
-# protocol-adapter 2.0.0-rc.3, the program devnet runs. The three IDL files are
-# its production builds' IDLs.
-17229f62a4781bd08c7180fe3b9bd3887b6fd15c
+# solana-protocol-adapter anthony/evm-error-names: protocol-adapter 2.0.0-rc.3
+# with pa-evm's error and ForwarderCallExecuted field names. The three IDL files
+# are its production builds' IDLs.
+5ecf09792c2b2d6b739b2dafd8d6852234c9637a

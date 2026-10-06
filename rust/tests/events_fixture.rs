@@ -97,7 +97,11 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
                 assert_eq!(ev.transaction_id, h32("transaction_id"), "{entry}");
             }
             ("ForwarderCallExecutedEvent", PaEvent::ForwarderCallExecuted(ev)) => {
-                assert_eq!(ev.forwarder, h32("forwarder"), "{entry}");
+                assert_eq!(
+                    ev.untrusted_forwarder,
+                    h32("untrusted_forwarder"),
+                    "{entry}"
+                );
                 assert_eq!(ev.input, hex(exp["input"].as_str().unwrap()), "{entry}");
                 assert_eq!(ev.output, hex(exp["output"].as_str().unwrap()), "{entry}");
             }

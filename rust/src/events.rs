@@ -97,7 +97,7 @@ pub struct UpgradedEvent {
 /// Emitted once per external call, in call order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForwarderCallExecutedEvent {
-    pub forwarder: [u8; 32],
+    pub untrusted_forwarder: [u8; 32],
     pub input: Vec<u8>,
     pub output: Vec<u8>,
 }
@@ -247,7 +247,7 @@ fn pa_event_body(
         PaEvent::Upgraded(decode_upgraded(c)?)
     } else if disc == anchor_event_disc("ForwarderCallExecutedEvent") {
         PaEvent::ForwarderCallExecuted(ForwarderCallExecutedEvent {
-            forwarder: c.array_32("forwarder")?,
+            untrusted_forwarder: c.array_32("untrusted_forwarder")?,
             input: c.vec_u8("input")?,
             output: c.vec_u8("output")?,
         })

@@ -49,7 +49,7 @@ cargo run -p settle-fixture -- \
 
 The settle step is a v0 transaction against the deployment's settlement lookup table (`--lookup-table`, default `SETTLE_LOOKUP_TABLE`, the devnet table). The tool prints the wire size and how many keys the table absorbed; the adapter repo's `dev.sh lookup-table` command creates a deployment's table.
 
-`fixtures/events_fixture.json`, the cross-package check of the event decoders, is regenerated from such a run by `node tools/capture-events-fixture.mjs <rpc url> <signature>...`: it records the adapter events of the listed transactions with the values @anchor-lang/core's BorshCoder decodes from them, and encodes one entry for each IDL event type the transactions did not emit.
+`fixtures/events_fixture.json`, the cross-package check of the event decoders, is regenerated from such a run by `node tools/capture-events-fixture.mjs <rpc url> <signature>...`: it records the adapter events of the listed transactions with the values @anchor-lang/core's BorshCoder decodes from them, and encodes one entry for each IDL event type the transactions did not emit. After an IDL change that keeps the events' layout, `node tools/capture-events-fixture.mjs --recorded` decodes the events the fixture already records anew.
 
 ## Release coupling
 
