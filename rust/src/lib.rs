@@ -45,8 +45,8 @@ pub use merkle::{
 
 #[cfg(feature = "solana")]
 pub use instructions::{
-    initialize_ix, pause_ix, set_kind_table_commitment_ix, settle_from_txdata_ix, txdata_close_ix,
-    txdata_init_ix, txdata_write_ix,
+    deny_logic_ref_ix, initialize_ix, pause_ix, set_kind_table_commitment_ix,
+    settle_from_txdata_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix, unpause_ix,
 };
 #[cfg(feature = "solana")]
 pub use pda::{
