@@ -4,8 +4,9 @@
 #
 # Format: the full 40-character commit SHA on its own line. Comments allowed.
 
-# solana-protocol-adapter anthony/payload-index-u256: protocol-adapter 2.0.0-rc.3
-# with pa-evm's error and ForwarderCallExecuted field names, its single
-# spent-nullifier error and its u256 payload index. The three IDL files
-# are its production builds' IDLs.
-3f2780a93c3e6c6f7cbdffb434e1fc85563c1b53
+# solana-protocol-adapter anthony/rc8-parity: protocol-adapter 2.0.0-rc.4,
+# with pa-evm rc.7's kind-table rule and empty-transaction check, rc.8's two
+# logic-ref denylists (PAState schema 4, migrate_state), and forward_call
+# returning bytes. The protocol adapter and block-time forwarder IDLs are its
+# production builds' IDLs; the test forwarder's is unchanged.
+aa16244c844ea943e2e199ccedae46619b7177d7

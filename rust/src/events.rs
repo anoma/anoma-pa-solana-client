@@ -64,10 +64,12 @@ pub struct KindTableCommitmentUpdatedEvent {
     pub kind_table_commitment: [u8; 32],
 }
 
-/// A logic ref the owner denied for good.
+/// A logic ref the owner added to the denylist for consumed resources
+/// (`consumed`) or to the one for created resources, for good.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogicRefDeniedEvent {
     pub logic_ref: [u8; 32],
+    pub consumed: bool,
 }
 
 /// The owner (`account`) paused or unpaused settlement, as OpenZeppelin
@@ -134,6 +136,8 @@ pub enum EventDecodeError {
     Truncated { field: &'static str },
     /// Bytes remain after the event body.
     TrailingBytes(usize),
+    /// A Borsh `bool` field held a byte other than 0 or 1.
+    InvalidBool { field: &'static str, byte: u8 },
 }
 
 impl core::fmt::Display for EventDecodeError {
@@ -154,6 +158,9 @@ impl core::fmt::Display for EventDecodeError {
             EventDecodeError::TrailingBytes(n) => {
                 write!(f, "{n} trailing byte(s) after the event body")
             }
+            EventDecodeError::InvalidBool { field, byte } => {
+                write!(f, "invalid bool byte {byte} for event field {field}")
+            }
         }
     }
 }
@@ -163,6 +170,15 @@ impl std::error::Error for EventDecodeError {}
 impl From<Truncated> for EventDecodeError {
     fn from(t: Truncated) -> Self {
         EventDecodeError::Truncated { field: t.field }
+    }
+}
+
+/// A Borsh `bool`: one byte, 0 or 1.
+fn bool_field(c: &mut Cursor<'_>, field: &'static str) -> Result<bool, EventDecodeError> {
+    match c.u8(field)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        byte => Err(EventDecodeError::InvalidBool { field, byte }),
     }
 }
 
@@ -234,6 +250,7 @@ fn pa_event_body(
     } else if disc == anchor_event_disc("LogicRefDeniedEvent") {
         PaEvent::LogicRefDenied(LogicRefDeniedEvent {
             logic_ref: c.array_32("logic_ref")?,
+            consumed: bool_field(c, "consumed")?,
         })
     } else if disc == anchor_event_disc("PausedEvent") {
         PaEvent::Paused(PauseEvent {

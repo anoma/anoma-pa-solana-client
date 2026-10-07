@@ -2,28 +2,31 @@
   "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc",
   "metadata": {
     "name": "protocol_adapter",
-    "version": "2.0.0-rc.3",
+    "version": "2.0.0-rc.4",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
   },
   "instructions": [
     {
-      "name": "deny_logic_ref",
+      "name": "deny_logic_refs",
       "docs": [
-        "Deny a logic ref: no settlement consumes or creates a resource",
-        "carrying it again. Mirrors pa-evm's `denyLogicRef`: owner-only, the",
-        "zero ref and a ref already denied are rejected, and a denial cannot",
-        "be undone. The authority pays for the entry."
+        "Add logic refs to the denylists, each to the one for consumed",
+        "resources (`consumed`) or to the one for created resources. Mirrors",
+        "pa-evm's `denyLogicRefs`: owner-only, the zero ref and a ref already on",
+        "its denylist are rejected, no entry is ever removed, and each addition",
+        "emits `LogicRefDeniedEvent`. A ref on the created side only is",
+        "deprecated: transactions still consume its resources. A ref on both is",
+        "denied. The owner pays for the entries."
       ],
       "discriminator": [
-        86,
-        156,
-        128,
-        109,
-        77,
-        196,
-        161,
-        79
+        151,
+        201,
+        65,
+        31,
+        31,
+        141,
+        84,
+        202
       ],
       "accounts": [
         {
@@ -50,7 +53,7 @@
         {
           "name": "authority",
           "docs": [
-            "The owner, which pays for the denylist's growth."
+            "The owner, which pays for the denylists' growth."
           ],
           "writable": true,
           "signer": true
@@ -68,12 +71,13 @@
       ],
       "args": [
         {
-          "name": "logic_ref",
+          "name": "logic_refs",
           "type": {
-            "array": [
-              "u8",
-              32
-            ]
+            "vec": {
+              "defined": {
+                "name": "DeniedLogicRef"
+              }
+            }
           }
         }
       ]
@@ -212,6 +216,78 @@
           }
         }
       ]
+    },
+    {
+      "name": "migrate_state",
+      "docs": [
+        "Bring a state account in the previous schema version, which held one",
+        "denylist for consumed and created resources alike, to this one. Each",
+        "logic ref it held goes on both denylists and is announced on each",
+        "with `LogicRefDeniedEvent`, as `deny_logic_refs` would. The",
+        "counterpart of the call pa-evm's owner passes to `upgradeToAndCall`:",
+        "run once by the owner, after the in-place upgrade and before any other",
+        "instruction, which all refuse the previous version. It parses the",
+        "previous layout rather than reinterpreting its bytes, and the owner",
+        "pays for the account's growth."
+      ],
+      "discriminator": [
+        34,
+        189,
+        226,
+        222,
+        218,
+        156,
+        19,
+        213
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The owner the previous layout stores, which pays for the account's",
+            "growth; the handler checks it, since the typed account cannot read the",
+            "previous layout."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pa_state",
+          "docs": [
+            "as owner and the previous schema's layout, which the typed account",
+            "cannot read."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
     },
     {
       "name": "pause",
@@ -1592,123 +1668,123 @@
     },
     {
       "code": 6012,
+      "name": "EmptyTransactionNotAllowed",
+      "msg": "The transaction has no actions"
+    },
+    {
+      "code": 6013,
       "name": "InvalidProof",
       "msg": "Invalid proof"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "VerifierRouterFailed",
       "msg": "Verifier router call failed (verifier may be estopped)"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "AggregationRequired",
       "msg": "Aggregation required: non-aggregated proofs not enabled"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "RiscZeroVerifierSelectorMismatch",
       "msg": "Proof selector does not match expected selector"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "InvalidExternalCallBlob",
       "msg": "Invalid external call blob encoding"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "UnregisteredForwarder",
       "msg": "Forwarder account does not match the program the external call names"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "ForwarderCallOutputMismatch",
       "msg": "External call output verification failed"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "ExternalCallCpiFailed",
       "msg": "External call CPI failed"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "DeltaProofVerificationFailed",
       "msg": "Delta proof verification failed"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "DeltaMismatch",
       "msg": "Delta mismatch: transaction is not balanced"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "InvalidDeltaProof",
       "msg": "Invalid delta proof format"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "PointNotOnCurve",
       "msg": "Delta point not on secp256k1 curve"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "ExpectedDeltaProof",
       "msg": "Expected delta proof, got witness"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "ComplianceKeyMismatch",
       "msg": "Aggregation instance compliance key does not match the compliance circuit VK"
     },
     {
-      "code": 6026,
-      "name": "KindTableCommitmentMismatch",
-      "msg": "Aggregation instance kind-table commitment does not match the configured table"
+      "code": 6027,
+      "name": "UnacceptedKindTableCommitment",
+      "msg": "The transaction's kind-table commitment is neither the stored one nor the empty table's"
     },
     {
-      "code": 6027,
+      "code": 6028,
       "name": "ZeroKindTableCommitmentNotAllowed",
       "msg": "Zero kind-table commitment not allowed"
     },
     {
-      "code": 6028,
+      "code": 6029,
       "name": "Unauthorized",
       "msg": "Unauthorized: the signer does not hold the authority this instruction requires"
     },
     {
-      "code": 6029,
+      "code": 6030,
       "name": "EnforcedPause",
       "msg": "The protocol adapter is paused"
     },
     {
-      "code": 6030,
+      "code": 6031,
       "name": "ExpectedPause",
       "msg": "The protocol adapter is not paused"
     },
     {
-      "code": 6031,
+      "code": 6032,
       "name": "RiscZeroVerifierPaused",
       "msg": "The RISC Zero verifier for this deployment's selector is paused"
     },
     {
-      "code": 6032,
+      "code": 6033,
       "name": "InvalidVerifierEntry",
       "msg": "Account is not the verifier router's entry for this deployment's selector"
     },
     {
-      "code": 6033,
+      "code": 6034,
       "name": "TreeMaxDepthReached",
       "msg": "Tree has reached maximum depth (32 levels)"
     },
     {
-      "code": 6034,
+      "code": 6035,
       "name": "InvalidMarker",
       "msg": "Account is not owned by this program"
-    },
-    {
-      "code": 6035,
-      "name": "EmptyExpectedOutput",
-      "msg": "External call expected_output must be non-empty: Solana cannot represent an explicit empty return"
     },
     {
       "code": 6036,
@@ -1722,8 +1798,8 @@
     },
     {
       "code": 6038,
-      "name": "RootMarkerAlreadyExists",
-      "msg": "Root marker already exists: the commitment tree produced a repeated root"
+      "name": "PreExistingRoot",
+      "msg": "The commitment tree root is already stored"
     },
     {
       "code": 6039,
@@ -1732,41 +1808,46 @@
     },
     {
       "code": 6040,
+      "name": "NotPreviousSchema",
+      "msg": "PAState is not a state account in the previous schema version"
+    },
+    {
+      "code": 6041,
       "name": "ZeroLogicRefNotAllowed",
       "msg": "Zero logic ref not allowed"
     },
     {
-      "code": 6041,
-      "name": "LogicRefAlreadyDenied",
-      "msg": "Logic ref is already denied"
-    },
-    {
       "code": 6042,
-      "name": "DeniedLogicRef",
-      "msg": "A resource carries a denied logic ref"
+      "name": "LogicRefAlreadyDenied",
+      "msg": "Logic ref is already on that denylist"
     },
     {
       "code": 6043,
+      "name": "ResourceWithDeniedLogicRef",
+      "msg": "A resource's logic ref is on the denylist for its side"
+    },
+    {
+      "code": 6044,
       "name": "ZeroRiscZeroVerifierRouterNotAllowed",
       "msg": "Zero verifier router not allowed"
     },
     {
-      "code": 6044,
+      "code": 6045,
       "name": "ZeroRiscZeroVerifierSelectorNotAllowed",
       "msg": "Zero proof selector not allowed"
     },
     {
-      "code": 6045,
+      "code": 6046,
       "name": "OwnableUnauthorizedAccount",
       "msg": "The signer is not the adapter's owner"
     },
     {
-      "code": 6046,
+      "code": 6047,
       "name": "OwnableInvalidOwner",
       "msg": "The zero key cannot be the owner"
     },
     {
-      "code": 6047,
+      "code": 6048,
       "name": "InvalidUpgradeBuffer",
       "msg": "Buffer is not a loader buffer holding a program"
     }
@@ -1891,6 +1972,32 @@
       }
     },
     {
+      "name": "DeniedLogicRef",
+      "docs": [
+        "A logic ref to add to a denylist, as pa-evm's `DeniedLogicRef`:",
+        "`consumed` names the denylist for consumed resources, else the one for",
+        "created resources."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "logic_ref",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "consumed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "DiscoveryPayloadEvent",
       "type": {
         "kind": "struct",
@@ -1994,7 +2101,8 @@
     {
       "name": "LogicRefDeniedEvent",
       "docs": [
-        "Mirrors pa-evm: `event LogicRefDenied(bytes32 indexed logicRef);`"
+        "Mirrors pa-evm: `event LogicRefDenied(bytes32 indexed logicRef, bool",
+        "consumed);`"
       ],
       "type": {
         "kind": "struct",
@@ -2007,6 +2115,10 @@
                 32
               ]
             }
+          },
+          {
+            "name": "consumed",
+            "type": "bool"
           }
         ]
       }
@@ -2049,11 +2161,11 @@
               "every layout: a later binary that changes the layout reads this byte",
               "through an unchecked account to decide whether it may migrate. Every",
               "instruction that reads this account — all but `initialize`, which",
-              "creates it, and the development-only `dev_set_schema_version` —",
-              "refuses an account whose version is not `SCHEMA_VERSION`. A layout",
-              "change bumps the constant and may add, remove or reorder the other",
-              "fields: the release that makes it ships a migration that parses the",
-              "previous layout explicitly."
+              "creates it, `migrate_state`, which requires the previous version, and",
+              "the development-only `dev_set_schema_version` — refuses an account",
+              "whose version is not `SCHEMA_VERSION`. A layout change bumps the",
+              "constant and may add, remove or reorder the other fields:",
+              "`migrate_state` parses the previous layout explicitly."
             ],
             "type": "u8"
           },
@@ -2096,11 +2208,11 @@
           {
             "name": "kind_table_commitment",
             "docs": [
-              "Kind-table commitment every settled aggregation instance must carry:",
-              "the empty table's at initialization, replaced by",
-              "`set_kind_table_commitment`. The aggregation circuit binds each transaction",
-              "to one kind table; this pin decides which table this deployment",
-              "accepts (sha256 of the concatenated entries; the empty table hashes",
+              "The stored kind-table commitment: the empty table's at initialization,",
+              "replaced by `set_kind_table_commitment`. The aggregation circuit binds",
+              "each transaction to one kind table; a transaction settles when that is",
+              "this table or the empty one (`is_kind_table_commitment_accepted`), as",
+              "in pa-evm (sha256 of the concatenated entries; the empty table hashes",
               "to sha256 of zero bytes)."
             ],
             "type": {
@@ -2164,12 +2276,27 @@
             "type": "u64"
           },
           {
-            "name": "denied_logic_refs",
+            "name": "denied_consumed_logic_refs",
             "docs": [
-              "Logic refs the authority denied (`deny_logic_ref`), as pa-evm's",
-              "logic-ref denylist: no settlement consumes or creates a resource",
-              "carrying one. Only ever grows; the account grows by one entry per",
-              "denial."
+              "The denylist for consumed resources, as pa-evm's: no settlement",
+              "consumes a resource whose logic ref the owner added to it",
+              "(`deny_logic_refs`). Only ever grows, by one 32-byte entry per denial."
+            ],
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "denied_created_logic_refs",
+            "docs": [
+              "The denylist for created resources, as pa-evm's: no settlement",
+              "creates a resource whose logic ref the owner added to it. Only ever",
+              "grows, by one 32-byte entry per denial."
             ],
             "type": {
               "vec": {
@@ -2395,6 +2522,14 @@
       "value": "[112, 97, 95, 115, 116, 97, 116, 101]"
     },
     {
+      "name": "PREVIOUS_SCHEMA_VERSION",
+      "docs": [
+        "The schema version `migrate_state` migrates from."
+      ],
+      "type": "u8",
+      "value": "3"
+    },
+    {
       "name": "ROOT_SEED",
       "docs": [
         "Seeds prefix for root marker PDA derivation."
@@ -2409,7 +2544,7 @@
         "Bumped on every change to the account layout; unrelated to release names."
       ],
       "type": "u8",
-      "value": "3"
+      "value": "4"
     },
     {
       "name": "SEVEN_DAYS_SLOTS",

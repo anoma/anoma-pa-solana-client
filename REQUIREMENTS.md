@@ -76,7 +76,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.6 Account decoders
 
-- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly (schema version 3): `schema_version: u8`, `bump`, `owner: [u8; 32]`, `verifier_router`, `proof_selector: [u8; 4]`, `kind_table_commitment: [u8; 32]`, `paused: bool`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`, `denied_logic_refs: Vec<[u8; 32]>`. The decoder refuses any other schema version.
+- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly (schema version 4): `schema_version: u8`, `bump`, `owner: [u8; 32]`, `verifier_router`, `proof_selector: [u8; 4]`, `kind_table_commitment: [u8; 32]`, `paused: bool`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`, `denied_consumed_logic_refs: Vec<[u8; 32]>`, `denied_created_logic_refs: Vec<[u8; 32]>`. The decoder refuses any other schema version.
 - `decode_verifier_entry(bytes) -> VerifierEntryAccount` — the verifier router's `VerifierEntry` (`selector: [u8; 4]`, `verifier`, `paused: bool`), cursor-based likewise: the verifier program a settlement passes for the adapter's selector.
 - The schema is sourced from the PA repository at the commit tagged by this package's version. When the PA's struct changes, the new struct shape ships in the next release.
 
@@ -87,7 +87,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
   - `ActionExecutedEvent { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
   - `TransactionExecutedEvent { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
   - `ForwarderCallExecutedEvent { untrusted_forwarder, input, output }`
-  - `CommitmentTreeRootAddedEvent { root }`, `KindTableCommitmentUpdatedEvent { kind_table_commitment }`, `LogicRefDeniedEvent { logic_ref }`
+  - `CommitmentTreeRootAddedEvent { root }`, `KindTableCommitmentUpdatedEvent { kind_table_commitment }`, `LogicRefDeniedEvent { logic_ref, consumed }`
   - `PausedEvent { account }`, `UnpausedEvent { account }`
   - `OwnershipTransferredEvent { previous_owner, new_owner }`, `UpgradedEvent { executable_hash: [u8; 32] }`
 - The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: one helper takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.

@@ -216,7 +216,8 @@ mod tests {
             frontier: tree.frontier,
             min_expiry_slots: 10,
             max_expiry_slots: 1000,
-            denied_logic_refs: vec![],
+            denied_consumed_logic_refs: vec![],
+            denied_created_logic_refs: vec![],
         }
     }
 

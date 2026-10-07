@@ -118,6 +118,7 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
             }
             ("LogicRefDeniedEvent", PaEvent::LogicRefDenied(ev)) => {
                 assert_eq!(ev.logic_ref, h32("logic_ref"), "{entry}");
+                assert_eq!(Some(ev.consumed), exp["consumed"].as_bool(), "{entry}");
             }
             ("PausedEvent", PaEvent::Paused(ev)) | ("UnpausedEvent", PaEvent::Unpaused(ev)) => {
                 assert_eq!(ev.account, h32("account"), "{entry}");

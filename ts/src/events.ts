@@ -70,10 +70,11 @@ export interface KindTableCommitmentUpdatedEvent {
   kindTableCommitment: Uint8Array;
 }
 
-/** A logic ref the owner denied for good. */
+/** A logic ref the owner added to the denylist for consumed resources (`consumed`) or to the one for created resources, for good. */
 export interface LogicRefDeniedEvent {
   name: "LogicRefDeniedEvent";
   logicRef: Uint8Array;
+  consumed: boolean;
 }
 
 /**
@@ -140,6 +141,13 @@ const PAYLOAD_EVENT_NAMES: PayloadEvent["name"][] = [
   "ApplicationPayloadEvent",
 ];
 
+/** A Borsh `bool`: one byte, 0 or 1. */
+function boolField(c: Cursor, field: string): boolean {
+  const byte = c.u8(field);
+  if (byte !== 0 && byte !== 1) throw new EventDecodeError(`invalid bool byte ${byte} for event field ${field}`);
+  return byte === 1;
+}
+
 const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((v, i) => v === b[i]);
 
@@ -194,7 +202,7 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
     return { name: "KindTableCommitmentUpdatedEvent", kindTableCommitment: c.array32("kind_table_commitment") };
   }
   if (bytesEqual(disc, anchorEventDisc("LogicRefDeniedEvent"))) {
-    return { name: "LogicRefDeniedEvent", logicRef: c.array32("logic_ref") };
+    return { name: "LogicRefDeniedEvent", logicRef: c.array32("logic_ref"), consumed: boolField(c, "consumed") };
   }
   for (const name of ["PausedEvent", "UnpausedEvent"] as const) {
     if (bytesEqual(disc, anchorEventDisc(name))) {

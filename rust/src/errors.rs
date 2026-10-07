@@ -33,6 +33,8 @@ pub enum PaError {
     InvalidExpiryConfig,
     /// Invalid transaction data.
     InvalidTransactionData,
+    /// The transaction has no actions.
+    EmptyTransactionNotAllowed,
     /// Invalid proof.
     InvalidProof,
     /// Verifier router call failed (verifier may be estopped).
@@ -61,8 +63,8 @@ pub enum PaError {
     ExpectedDeltaProof,
     /// Aggregation instance compliance key does not match the compliance circuit VK.
     ComplianceKeyMismatch,
-    /// Aggregation instance kind-table commitment does not match the configured table.
-    KindTableCommitmentMismatch,
+    /// The transaction's kind-table commitment is neither the stored one nor the empty table's.
+    UnacceptedKindTableCommitment,
     /// Zero kind-table commitment not allowed.
     ZeroKindTableCommitmentNotAllowed,
     /// Unauthorized: the signer does not hold the authority this instruction requires.
@@ -79,22 +81,22 @@ pub enum PaError {
     TreeMaxDepthReached,
     /// Account is not owned by this program.
     InvalidMarker,
-    /// External call expected_output must be non-empty: Solana cannot represent an explicit empty return.
-    EmptyExpectedOutput,
     /// Marker address is held by an unexpected owner.
     MarkerUnexpectedOwner,
     /// Marker address already contains data.
     MarkerUnexpectedData,
-    /// Root marker already exists: the commitment tree produced a repeated root.
-    RootMarkerAlreadyExists,
+    /// The commitment tree root is already stored.
+    PreExistingRoot,
     /// PAState schema version is not the one this program binary reads; migrate the account first.
     UnsupportedStateSchema,
+    /// PAState is not a state account in the previous schema version.
+    NotPreviousSchema,
     /// Zero logic ref not allowed.
     ZeroLogicRefNotAllowed,
-    /// Logic ref is already denied.
+    /// Logic ref is already on that denylist.
     LogicRefAlreadyDenied,
-    /// A resource carries a denied logic ref.
-    DeniedLogicRef,
+    /// A resource's logic ref is on the denylist for its side.
+    ResourceWithDeniedLogicRef,
     /// Zero verifier router not allowed.
     ZeroRiscZeroVerifierRouterNotAllowed,
     /// Zero proof selector not allowed.
@@ -109,7 +111,7 @@ pub enum PaError {
 
 impl PaError {
     /// Every error, in code order.
-    pub const ALL: [PaError; 48] = [
+    pub const ALL: [PaError; 49] = [
         PaError::PreExistingNullifier,
         PaError::NullifierPdaMismatch,
         PaError::NonExistingRoot,
@@ -122,6 +124,7 @@ impl PaError {
         PaError::TxDataNotExpired,
         PaError::InvalidExpiryConfig,
         PaError::InvalidTransactionData,
+        PaError::EmptyTransactionNotAllowed,
         PaError::InvalidProof,
         PaError::VerifierRouterFailed,
         PaError::AggregationRequired,
@@ -136,7 +139,7 @@ impl PaError {
         PaError::PointNotOnCurve,
         PaError::ExpectedDeltaProof,
         PaError::ComplianceKeyMismatch,
-        PaError::KindTableCommitmentMismatch,
+        PaError::UnacceptedKindTableCommitment,
         PaError::ZeroKindTableCommitmentNotAllowed,
         PaError::Unauthorized,
         PaError::EnforcedPause,
@@ -145,14 +148,14 @@ impl PaError {
         PaError::InvalidVerifierEntry,
         PaError::TreeMaxDepthReached,
         PaError::InvalidMarker,
-        PaError::EmptyExpectedOutput,
         PaError::MarkerUnexpectedOwner,
         PaError::MarkerUnexpectedData,
-        PaError::RootMarkerAlreadyExists,
+        PaError::PreExistingRoot,
         PaError::UnsupportedStateSchema,
+        PaError::NotPreviousSchema,
         PaError::ZeroLogicRefNotAllowed,
         PaError::LogicRefAlreadyDenied,
-        PaError::DeniedLogicRef,
+        PaError::ResourceWithDeniedLogicRef,
         PaError::ZeroRiscZeroVerifierRouterNotAllowed,
         PaError::ZeroRiscZeroVerifierSelectorNotAllowed,
         PaError::OwnableUnauthorizedAccount,
