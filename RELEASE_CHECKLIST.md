@@ -3,7 +3,7 @@
 The Rust crate `anoma-pa-solana-client` (crates.io) and the npm package `@anomaorg/pa-solana-client` release together, at one version, from a commit on `main`, and every release pairs with one adapter commit.
 
 1. On the branch to release: set the version in `Cargo.toml` (`[workspace.package]`) and in `ts/package.json` and `ts/package-lock.json` to the same value; record the adapter commit the release pairs with in `PA_COMMIT.txt`, with the IDL files regenerated from it. CI's release-readiness job checks that the versions agree and that both packages pack.
-2. Merge into `main` and tag the merge commit `vMAJOR.MINOR.PATCH`.
+2. Merge into `main` and tag the merge commit `bindings/vMAJOR.MINOR.PATCH`, as pa-evm tags its bindings.
 3. Publish, from that commit, with the organization's registry credentials:
 
    ```sh
