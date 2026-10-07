@@ -128,7 +128,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 - SemVer. Major version bump on any wire-incompatible PA change.
 - Rust crate version and TS package version must match exactly per release.
-- Git tags follow `vMAJOR.MINOR.PATCH` and produce both a Cargo publish and an npm publish.
+- Git tags follow `bindings/vMAJOR.MINOR.PATCH` and produce both a Cargo publish and an npm publish.
 
 ### 4.2 Source-of-truth coupling to the PA
 
