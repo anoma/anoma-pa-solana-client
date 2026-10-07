@@ -12,7 +12,7 @@ use crate::merkle::CommitmentTreeState;
 /// byte 8 of the account data, right after the Anchor discriminator, in every
 /// layout, and refuses every instruction on an account whose number is not its
 /// own; a mismatch seen by a client is a deployment mid-migration.
-pub const PA_STATE_SCHEMA_VERSION: u8 = 3;
+pub const PA_STATE_SCHEMA_VERSION: u8 = 4;
 
 /// Decoded PA state account. Mirrors the on-chain `PAStateAccount` field by field.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +24,8 @@ pub struct PAStateAccount {
     pub owner: [u8; 32],
     pub verifier_router: [u8; 32],
     pub proof_selector: [u8; 4],
-    /// Kind-table commitment every settled aggregation instance must carry.
+    /// The stored kind-table commitment: a transaction settles when proven
+    /// against that table or against the empty one.
     pub kind_table_commitment: [u8; 32],
     /// Whether settlement is paused (the owner's `pause` / `unpause`).
     pub paused: bool,
@@ -34,9 +35,12 @@ pub struct PAStateAccount {
     pub frontier: Vec<[u8; 32]>,
     pub min_expiry_slots: u64,
     pub max_expiry_slots: u64,
-    /// Logic refs the owner denied: no settlement consumes or creates a
-    /// resource carrying one.
-    pub denied_logic_refs: Vec<[u8; 32]>,
+    /// The denylist for consumed resources: no settlement consumes a
+    /// resource whose logic ref the owner added to it.
+    pub denied_consumed_logic_refs: Vec<[u8; 32]>,
+    /// The denylist for created resources: no settlement creates a resource
+    /// whose logic ref the owner added to it.
+    pub denied_created_logic_refs: Vec<[u8; 32]>,
 }
 
 /// The commitment tree the adapter stores, to replay the leaves a settlement
@@ -130,7 +134,8 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
 
     let min_expiry_slots = c.u64_le("min_expiry_slots")?;
     let max_expiry_slots = c.u64_le("max_expiry_slots")?;
-    let denied_logic_refs = c.vec_array_32("denied_logic_refs")?;
+    let denied_consumed_logic_refs = c.vec_array_32("denied_consumed_logic_refs")?;
+    let denied_created_logic_refs = c.vec_array_32("denied_created_logic_refs")?;
 
     Ok(PAStateAccount {
         schema_version,
@@ -146,7 +151,8 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
         frontier,
         min_expiry_slots,
         max_expiry_slots,
-        denied_logic_refs,
+        denied_consumed_logic_refs,
+        denied_created_logic_refs,
     })
 }
 
@@ -169,7 +175,8 @@ pub fn encode_pa_state(state: &PAStateAccount) -> Vec<u8> {
     push_vec_array_32(&mut data, &state.frontier);
     data.extend_from_slice(&state.min_expiry_slots.to_le_bytes());
     data.extend_from_slice(&state.max_expiry_slots.to_le_bytes());
-    push_vec_array_32(&mut data, &state.denied_logic_refs);
+    push_vec_array_32(&mut data, &state.denied_consumed_logic_refs);
+    push_vec_array_32(&mut data, &state.denied_created_logic_refs);
     data
 }
 
@@ -259,10 +266,16 @@ mod tests {
         );
     }
 
-    /// The schema-3 `PAStateAccount` layout (state.rs): schema_version, bump,
+    /// The schema-4 `PAStateAccount` layout (state.rs): schema_version, bump,
     /// owner, verifier_router, proof_selector, kind_table_commitment, paused, root,
-    /// next_index, current_depth, frontier, min/max expiry, denied_logic_refs.
-    fn build_fixture(schema_version: u8, paused: u8, denied: &[[u8; 32]]) -> Vec<u8> {
+    /// next_index, current_depth, frontier, min/max expiry, then the denylists
+    /// for consumed and for created resources.
+    fn build_fixture(
+        schema_version: u8,
+        paused: u8,
+        denied_consumed: &[[u8; 32]],
+        denied_created: &[[u8; 32]],
+    ) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&anchor_account_disc("PAStateAccount"));
         data.push(schema_version);
@@ -281,16 +294,18 @@ mod tests {
         data.extend_from_slice(&[7u8; 32]);
         data.extend_from_slice(&100u64.to_le_bytes()); // min_expiry_slots
         data.extend_from_slice(&216_000u64.to_le_bytes()); // max_expiry_slots
-        data.extend_from_slice(&(denied.len() as u32).to_le_bytes());
-        for r in denied {
-            data.extend_from_slice(r);
+        for denylist in [denied_consumed, denied_created] {
+            data.extend_from_slice(&(denylist.len() as u32).to_le_bytes());
+            for r in denylist {
+                data.extend_from_slice(r);
+            }
         }
         data
     }
 
     #[test]
     fn decodes_every_field() {
-        let data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32]]);
+        let data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32]], &[[0xEE; 32]]);
         let s = decode_pa_state(&data).expect("decode");
         assert_eq!(s.schema_version, PA_STATE_SCHEMA_VERSION);
         assert_eq!(s.bump, 255);
@@ -305,12 +320,18 @@ mod tests {
         assert_eq!(s.frontier, vec![[5u8; 32], [6u8; 32], [7u8; 32]]);
         assert_eq!(s.min_expiry_slots, 100);
         assert_eq!(s.max_expiry_slots, 216_000);
-        assert_eq!(s.denied_logic_refs, vec![[0xDD; 32]]);
+        assert_eq!(s.denied_consumed_logic_refs, vec![[0xDD; 32]]);
+        assert_eq!(s.denied_created_logic_refs, vec![[0xEE; 32]]);
     }
 
     #[test]
     fn encodes_what_it_decodes() {
-        let data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32], [0xEE; 32]]);
+        let data = build_fixture(
+            PA_STATE_SCHEMA_VERSION,
+            1,
+            &[[0xDD; 32], [0xEE; 32]],
+            &[[0xEE; 32]],
+        );
         assert_eq!(
             encode_pa_state(&decode_pa_state(&data).expect("decode")),
             data
@@ -319,14 +340,16 @@ mod tests {
 
     #[test]
     fn decodes_an_unpaused_state_with_no_denied_refs() {
-        let s = decode_pa_state(&build_fixture(PA_STATE_SCHEMA_VERSION, 0, &[])).expect("decode");
+        let s =
+            decode_pa_state(&build_fixture(PA_STATE_SCHEMA_VERSION, 0, &[], &[])).expect("decode");
         assert!(!s.paused);
-        assert!(s.denied_logic_refs.is_empty());
+        assert!(s.denied_consumed_logic_refs.is_empty());
+        assert!(s.denied_created_logic_refs.is_empty());
     }
 
     #[test]
     fn rejects_an_invalid_paused_byte() {
-        let err = decode_pa_state(&build_fixture(PA_STATE_SCHEMA_VERSION, 2, &[]))
+        let err = decode_pa_state(&build_fixture(PA_STATE_SCHEMA_VERSION, 2, &[], &[]))
             .expect_err("must reject");
         assert_eq!(
             err,
@@ -342,19 +365,19 @@ mod tests {
         // The PA refuses every instruction on an account whose layout number
         // is not its own; a client reading another layout would misparse
         // every field after byte 8, so it must refuse too.
-        let data = build_fixture(2, 0, &[]);
+        let data = build_fixture(3, 0, &[], &[]);
         let err = decode_pa_state(&data).expect_err("must reject");
-        assert_eq!(err, DecodeError::UnsupportedSchemaVersion { found: 2 });
+        assert_eq!(err, DecodeError::UnsupportedSchemaVersion { found: 3 });
     }
 
     #[test]
     fn rejects_truncated_data() {
-        let data = build_fixture(PA_STATE_SCHEMA_VERSION, 0, &[[0xDD; 32]]);
+        let data = build_fixture(PA_STATE_SCHEMA_VERSION, 0, &[], &[[0xDD; 32]]);
         let err = decode_pa_state(&data[..data.len() - 1]).expect_err("must reject");
         assert!(matches!(
             err,
             DecodeError::Truncated {
-                field: "denied_logic_refs"
+                field: "denied_created_logic_refs"
             }
         ));
     }

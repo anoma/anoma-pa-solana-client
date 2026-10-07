@@ -84,14 +84,31 @@ pub fn unpause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
     )
 }
 
-/// Build the PA's `deny_logic_ref`: the owner `authority` denies `logic_ref`,
-/// so no settlement consumes or creates a resource carrying it again, and
-/// pays for the entry.
-pub fn deny_logic_ref_ix(
+/// A logic ref to add to a denylist, as the PA's `DeniedLogicRef`: the one
+/// for consumed resources when `consumed`, else the one for created
+/// resources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeniedLogicRef {
+    pub logic_ref: [u8; 32],
+    pub consumed: bool,
+}
+
+/// Build the PA's `deny_logic_refs`: the owner `authority` adds each entry
+/// to its denylist and pays for the entries. A logic ref on the created side
+/// only is deprecated (its resources are still consumed); one on both is
+/// denied.
+pub fn deny_logic_refs_ix(
     pa_program: &Pubkey,
     authority: &Pubkey,
-    logic_ref: [u8; 32],
+    logic_refs: &[DeniedLogicRef],
 ) -> Instruction {
+    let count = u32::try_from(logic_refs.len()).expect("a denial list fits a Borsh length");
+    let mut data = anchor_instruction_disc("deny_logic_refs").to_vec();
+    data.extend_from_slice(&count.to_le_bytes());
+    for entry in logic_refs {
+        data.extend_from_slice(&entry.logic_ref);
+        data.push(u8::from(entry.consumed));
+    }
     Instruction {
         program_id: *pa_program,
         accounts: vec![
@@ -101,7 +118,7 @@ pub fn deny_logic_ref_ix(
             AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
             AccountMeta::new_readonly(*pa_program, false),
         ],
-        data: [&anchor_instruction_disc("deny_logic_ref")[..], &logic_ref].concat(),
+        data,
     }
 }
 
@@ -496,9 +513,16 @@ mod tests {
             (pause_ix(&pa, &authority), "pause", &[][..]),
             (unpause_ix(&pa, &authority), "unpause", &[][..]),
             (
-                deny_logic_ref_ix(&pa, &authority, commitment),
-                "deny_logic_ref",
-                &commitment[..],
+                deny_logic_refs_ix(
+                    &pa,
+                    &authority,
+                    &[DeniedLogicRef {
+                        logic_ref: commitment,
+                        consumed: false,
+                    }],
+                ),
+                "deny_logic_refs",
+                &[&[1, 0, 0, 0][..], &commitment, &[0]].concat()[..],
             ),
             (
                 set_kind_table_commitment_ix(&pa, &authority, commitment),

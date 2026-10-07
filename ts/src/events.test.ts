@@ -66,6 +66,7 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
           break;
         case "LogicRefDeniedEvent":
           expect(hex(ev.logicRef), entry).toBe(exp.logic_ref);
+          expect(ev.consumed, entry).toBe(exp.consumed);
           break;
         case "PausedEvent":
         case "UnpausedEvent":

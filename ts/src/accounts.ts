@@ -12,7 +12,7 @@ import { Cursor, TruncatedError } from "./cursor.js";
  * layout, and refuses every instruction on an account whose number is not its
  * own; a mismatch seen by a client is a deployment mid-migration.
  */
-export const PA_STATE_SCHEMA_VERSION = 3;
+export const PA_STATE_SCHEMA_VERSION = 4;
 
 /** Decoded PA state account. */
 export interface PAStateAccount {
@@ -22,7 +22,7 @@ export interface PAStateAccount {
   owner: Uint8Array;
   verifierRouter: Uint8Array;
   proofSelector: Uint8Array;
-  /** Kind-table commitment every settled aggregation instance must carry. */
+  /** The stored kind-table commitment: a transaction settles when proven against that table or against the empty one. */
   kindTableCommitment: Uint8Array;
   /** Whether settlement is paused (the owner's `pause` / `unpause`). */
   paused: boolean;
@@ -32,8 +32,10 @@ export interface PAStateAccount {
   frontier: Uint8Array[];
   minExpirySlots: bigint;
   maxExpirySlots: bigint;
-  /** Logic refs the owner denied: no settlement consumes or creates a resource carrying one. */
-  deniedLogicRefs: Uint8Array[];
+  /** The denylist for consumed resources: no settlement consumes a resource whose logic ref the owner added to it. */
+  deniedConsumedLogicRefs: Uint8Array[];
+  /** The denylist for created resources: no settlement creates a resource whose logic ref the owner added to it. */
+  deniedCreatedLogicRefs: Uint8Array[];
 }
 
 export class PAStateDecodeError extends Error {
@@ -95,7 +97,8 @@ function decode(c: Cursor): PAStateAccount {
 
   const minExpirySlots = c.u64Le("min_expiry_slots");
   const maxExpirySlots = c.u64Le("max_expiry_slots");
-  const deniedLogicRefs = c.vecArray32("denied_logic_refs");
+  const deniedConsumedLogicRefs = c.vecArray32("denied_consumed_logic_refs");
+  const deniedCreatedLogicRefs = c.vecArray32("denied_created_logic_refs");
 
   return {
     schemaVersion,
@@ -111,6 +114,7 @@ function decode(c: Cursor): PAStateAccount {
     frontier,
     minExpirySlots,
     maxExpirySlots,
-    deniedLogicRefs,
+    deniedConsumedLogicRefs,
+    deniedCreatedLogicRefs,
   };
 }

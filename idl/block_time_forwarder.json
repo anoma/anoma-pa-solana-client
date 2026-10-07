@@ -10,8 +10,8 @@
     {
       "name": "forward_call",
       "docs": [
-        "Sets return data to a single byte: LT(0), EQ(1), or GT(2) comparing the",
-        "expected unix timestamp (`input` as i64 LE) against the current clock."
+        "Returns a single byte: LT(0), EQ(1), or GT(2) comparing the expected",
+        "unix timestamp (`input` as i64 LE) against the current clock."
       ],
       "discriminator": [
         159,
@@ -43,7 +43,8 @@
           "name": "input",
           "type": "bytes"
         }
-      ]
+      ],
+      "returns": "bytes"
     }
   ],
   "errors": [
