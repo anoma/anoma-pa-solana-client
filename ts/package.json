@@ -1,6 +1,6 @@
 {
   "name": "@anomaorg/pa-solana-client",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter",
   "license": "Apache-2.0",
   "repository": {

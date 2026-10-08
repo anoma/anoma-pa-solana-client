@@ -76,6 +76,9 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
           expect(hex(ev.previousOwner), entry).toBe(exp.previous_owner);
           expect(hex(ev.newOwner), entry).toBe(exp.new_owner);
           break;
+        case "InitializedEvent":
+          expect(ev.version.toString(), entry).toBe(exp.version);
+          break;
         case "UpgradedEvent":
           expect(hex(ev.executableHash), entry).toBe(exp.executable_hash);
           break;

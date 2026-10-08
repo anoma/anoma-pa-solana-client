@@ -98,6 +98,14 @@ pub struct UpgradedEvent {
     pub executable_hash: [u8; 32],
 }
 
+/// The adapter's state was initialized at schema version `version`: by
+/// `initialize`, or by `migrate_state` bringing it to that version, as
+/// OpenZeppelin Initializable's `Initialized(version)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InitializedEvent {
+    pub version: u64,
+}
+
 /// Emitted once per external call, in call order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForwarderCallExecutedEvent {
@@ -122,6 +130,7 @@ pub enum PaEvent {
     Paused(PauseEvent),
     Unpaused(PauseEvent),
     OwnershipTransferred(OwnershipTransferredEvent),
+    Initialized(InitializedEvent),
     Upgraded(UpgradedEvent),
 }
 
@@ -262,6 +271,10 @@ fn pa_event_body(
         })
     } else if disc == anchor_event_disc("OwnershipTransferredEvent") {
         PaEvent::OwnershipTransferred(decode_ownership_transferred(c)?)
+    } else if disc == anchor_event_disc("InitializedEvent") {
+        PaEvent::Initialized(InitializedEvent {
+            version: c.u64_le("version")?,
+        })
     } else if disc == anchor_event_disc("UpgradedEvent") {
         PaEvent::Upgraded(decode_upgraded(c)?)
     } else if disc == anchor_event_disc("ForwarderCallExecutedEvent") {

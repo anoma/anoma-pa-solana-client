@@ -127,6 +127,10 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
                 assert_eq!(ev.previous_owner, h32("previous_owner"), "{entry}");
                 assert_eq!(ev.new_owner, h32("new_owner"), "{entry}");
             }
+            ("InitializedEvent", PaEvent::Initialized(ev)) => {
+                let version: u64 = exp["version"].as_str().unwrap().parse().unwrap();
+                assert_eq!(ev.version, version, "{entry}");
+            }
             ("UpgradedEvent", PaEvent::Upgraded(ev)) => {
                 assert_eq!(ev.executable_hash, h32("executable_hash"), "{entry}");
             }

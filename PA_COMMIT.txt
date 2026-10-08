@@ -4,9 +4,9 @@
 #
 # Format: the full 40-character commit SHA on its own line. Comments allowed.
 
-# solana-protocol-adapter anthony/rc8-parity: protocol-adapter 2.0.0-rc.4,
-# with pa-evm rc.7's kind-table rule and empty-transaction check, rc.8's two
-# logic-ref denylists (PAState schema 4, migrate_state), and forward_call
-# returning bytes. The protocol adapter and block-time forwarder IDLs are its
-# production builds' IDLs; the test forwarder's is unchanged.
-aa16244c844ea943e2e199ccedae46619b7177d7
+# solana-protocol-adapter anthony/arm-v2-port at the merge of #135 (tag
+# contracts/v2.0.0-rc.5): protocol-adapter 2.0.0-rc.5, whose initialize and
+# migrate_state announce the schema version with InitializedEvent. The
+# protocol adapter IDL is its production build's IDL; the block-time and test
+# forwarders' are unchanged.
+fa2867d476840b41d5f7ac23a4c36ce0f246649f

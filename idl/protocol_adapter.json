@@ -2,7 +2,7 @@
   "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc",
   "metadata": {
     "name": "protocol_adapter",
-    "version": "2.0.0-rc.4",
+    "version": "2.0.0-rc.5",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
   },
@@ -223,7 +223,8 @@
         "Bring a state account in the previous schema version, which held one",
         "denylist for consumed and created resources alike, to this one. Each",
         "logic ref it held goes on both denylists and is announced on each",
-        "with `LogicRefDeniedEvent`, as `deny_logic_refs` would. The",
+        "with `LogicRefDeniedEvent`, as `deny_logic_refs` would, and then the",
+        "new version with `InitializedEvent`. The",
         "counterpart of the call pa-evm's owner passes to `upgradeToAndCall`:",
         "run once by the owner, after the in-place upgrade and before any other",
         "instruction, which all refuse the previous version. It parses the",
@@ -1501,6 +1502,19 @@
       ]
     },
     {
+      "name": "InitializedEvent",
+      "discriminator": [
+        136,
+        202,
+        63,
+        120,
+        152,
+        146,
+        41,
+        79
+      ]
+    },
+    {
       "name": "KindTableCommitmentUpdatedEvent",
       "discriminator": [
         18,
@@ -2074,6 +2088,23 @@
           {
             "name": "output",
             "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializedEvent",
+      "docs": [
+        "Mirrors OpenZeppelin Initializable: `event Initialized(uint64 version);`.",
+        "`initialize` announces the state's schema version, and `migrate_state`",
+        "the version it brings the state to, as a `reinitializer(n)` would."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u64"
           }
         ]
       }
