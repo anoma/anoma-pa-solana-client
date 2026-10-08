@@ -36,9 +36,9 @@ pub use errors::{PaError, ANCHOR_ERROR_CODE_OFFSET};
 pub use events::{
     decode_cpi_event, decode_event_instruction, decode_ownership_transferred, decode_upgraded,
     ActionExecutedEvent, CommitmentTreeRootAddedEvent, EventDecodeError,
-    ForwarderCallExecutedEvent, KindTableCommitmentUpdatedEvent, LogicRefDeniedEvent,
-    OwnershipTransferredEvent, PaEvent, PauseEvent, PayloadEvent, TransactionExecutedEvent,
-    UpgradedEvent, EVENT_IX_TAG,
+    ForwarderCallExecutedEvent, InitializedEvent, KindTableCommitmentUpdatedEvent,
+    LogicRefDeniedEvent, OwnershipTransferredEvent, PaEvent, PauseEvent, PayloadEvent,
+    TransactionExecutedEvent, UpgradedEvent, EVENT_IX_TAG,
 };
 pub use external_call::{OutputMode, SolanaExternalCall};
 pub use merkle::{

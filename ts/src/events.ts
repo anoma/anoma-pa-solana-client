@@ -107,6 +107,16 @@ export interface UpgradedEvent {
   executableHash: Uint8Array;
 }
 
+/**
+ * The adapter's state was initialized at schema version `version`: by
+ * `initialize`, or by `migrate_state` bringing it to that version, as
+ * OpenZeppelin Initializable's `Initialized(version)`.
+ */
+export interface InitializedEvent {
+  name: "InitializedEvent";
+  version: bigint;
+}
+
 /** Emitted once per external call, in call order. */
 export interface ForwarderCallExecutedEvent {
   name: "ForwarderCallExecutedEvent";
@@ -125,6 +135,7 @@ export type PaEvent =
   | LogicRefDeniedEvent
   | PauseEvent
   | OwnershipTransferredEvent
+  | InitializedEvent
   | UpgradedEvent;
 
 export class EventDecodeError extends Error {
@@ -211,6 +222,9 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
   }
   if (bytesEqual(disc, anchorEventDisc("OwnershipTransferredEvent"))) {
     return { name: "OwnershipTransferredEvent", previousOwner: c.array32("previous_owner"), newOwner: c.array32("new_owner") };
+  }
+  if (bytesEqual(disc, anchorEventDisc("InitializedEvent"))) {
+    return { name: "InitializedEvent", version: c.u64Le("version") };
   }
   if (bytesEqual(disc, anchorEventDisc("UpgradedEvent"))) {
     return { name: "UpgradedEvent", executableHash: c.array32("executable_hash") };
