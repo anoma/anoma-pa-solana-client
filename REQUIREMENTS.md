@@ -192,7 +192,7 @@ These need resolution before implementation begins.
 5. **Anchor version compatibility.** Different consumers may want different Anchor versions in their toolchain. Decision: pin to one Anchor version per release, or support multiple?
 6. **Solana SDK major version.** `solana-sdk` 2.x is current; will the package support 1.x backports?
 7. **CI for cross-package consistency.** A test that builds the Rust crate and the TS package against the same PA fixture and confirms every shared constant matches byte-for-byte. Worth setting up as part of v0.1.
-8. **License.** Match the PA's license (likely Apache-2.0 or MIT, pending PA team confirmation).
+8. **License.** Resolved: MIT, as pa-evm's bindings; the crate and the npm package each ship the license text (`rust/LICENSE`, `ts/LICENSE`).
 
 ---
 

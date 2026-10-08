@@ -2,7 +2,7 @@
   "name": "@anomaorg/pa-solana-client",
   "version": "0.6.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/anoma/anoma-pa-solana-client"
