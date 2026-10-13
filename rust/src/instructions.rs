@@ -674,7 +674,7 @@ mod tests {
     fn the_owner_instructions_match_the_adapters_idl() {
         let pa = crate::program_ids::PA_PROGRAM_ID;
         let authority = Pubkey::new_unique();
-        let commitment = [7; 32];
+        let bytes = [7; 32];
         for (ix, name, args) in [
             (pause_ix(&pa, &authority), "pause", &[][..]),
             (unpause_ix(&pa, &authority), "unpause", &[][..]),
@@ -683,17 +683,17 @@ mod tests {
                     &pa,
                     &authority,
                     &[DeniedLogicRef {
-                        logic_ref: commitment,
+                        logic_ref: bytes,
                         consumed: false,
                     }],
                 ),
                 "deny_logic_refs",
-                &[&[1, 0, 0, 0][..], &commitment, &[0]].concat()[..],
+                &[&[1, 0, 0, 0][..], &bytes, &[0]].concat()[..],
             ),
             (
-                set_kind_table_root_ix(&pa, &authority, commitment),
+                set_kind_table_root_ix(&pa, &authority, bytes),
                 "set_kind_table_root",
-                &commitment[..],
+                &bytes[..],
             ),
         ] {
             let by_name = assert_matches_the_adapters_idl(&ix, name, args);
