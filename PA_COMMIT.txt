@@ -10,3 +10,10 @@
 # protocol adapter IDL is its production build's IDL; the block-time and test
 # forwarders' are unchanged.
 d4eec1107c1199f739a2cc5decd1774f74f0cc55
+# at the merge of #139 (simulate_execute) on arm-risc0 2.0.0-rc.7, whose kind
+# table is a Merkle tree: the kind-table root names of pa-evm 2.0.0-rc.11
+# (set_kind_table_root, KindTableRootUpdatedEvent, UnacceptedKindTableRoot,
+# ZeroKindTableRootNotAllowed, EMPTY_KIND_TABLE_ROOT). The protocol adapter
+# IDL is its production build's IDL; the block-time and test forwarders' are
+# unchanged.
+9f8b2cd080fd1c2354b5befe9059f6993858b745

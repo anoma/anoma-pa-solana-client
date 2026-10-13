@@ -95,7 +95,7 @@
         "unconditionally, so transactions built against the initial tree stay",
         "valid without a genesis marker. Like pa-evm's initializer, it sets the",
         "owner, starts on the empty kind table, and announces both;",
-        "`set_kind_table_commitment` installs any other table."
+        "`set_kind_table_root` installs any other table."
       ],
       "discriminator": [
         175,
@@ -449,23 +449,23 @@
       "returns": "bool"
     },
     {
-      "name": "set_kind_table_commitment",
+      "name": "set_kind_table_root",
       "docs": [
-        "Replace the kind-table commitment every settled aggregation instance",
-        "must carry. Mirrors pa-evm's `setKindTableCommitment`: authority only,",
+        "Replace the kind-table root every settled aggregation instance",
+        "must carry. Mirrors pa-evm's `setKindTableRoot`: authority only,",
         "zero rejected, the change emitted. A table changes whenever a token or",
         "a circuit version is listed, and transactions proven against the",
         "previous table are rejected from this point on."
       ],
       "discriminator": [
-        220,
-        91,
-        90,
-        229,
-        116,
-        234,
-        179,
-        126
+        143,
+        218,
+        29,
+        58,
+        98,
+        236,
+        57,
+        73
       ],
       "accounts": [
         {
@@ -502,7 +502,7 @@
       ],
       "args": [
         {
-          "name": "new_kind_table_commitment",
+          "name": "new_kind_table_root",
           "type": {
             "array": [
               "u8",
@@ -1606,16 +1606,16 @@
       ]
     },
     {
-      "name": "KindTableCommitmentUpdatedEvent",
+      "name": "KindTableRootUpdatedEvent",
       "discriminator": [
-        18,
-        93,
-        115,
-        146,
-        39,
-        50,
-        248,
-        248
+        83,
+        150,
+        97,
+        87,
+        254,
+        91,
+        121,
+        196
       ]
     },
     {
@@ -1848,13 +1848,13 @@
     },
     {
       "code": 6027,
-      "name": "UnacceptedKindTableCommitment",
-      "msg": "The transaction's kind-table commitment is neither the stored one nor the empty table's"
+      "name": "UnacceptedKindTableRoot",
+      "msg": "The transaction's kind-table root is neither the stored one nor the empty table's"
     },
     {
       "code": 6028,
-      "name": "ZeroKindTableCommitmentNotAllowed",
-      "msg": "Zero kind-table commitment not allowed"
+      "name": "ZeroKindTableRootNotAllowed",
+      "msg": "Zero kind-table root not allowed"
     },
     {
       "code": 6029,
@@ -2206,15 +2206,15 @@
       }
     },
     {
-      "name": "KindTableCommitmentUpdatedEvent",
+      "name": "KindTableRootUpdatedEvent",
       "docs": [
-        "Mirrors pa-evm: `event KindTableCommitmentUpdated(bytes32 kindTableCommitment);`"
+        "Mirrors pa-evm: `event KindTableRootUpdated(bytes32 indexed kindTableRoot);`"
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "kind_table_commitment",
+            "name": "kind_table_root",
             "type": {
               "array": [
                 "u8",
@@ -2333,14 +2333,13 @@
             }
           },
           {
-            "name": "kind_table_commitment",
+            "name": "kind_table_root",
             "docs": [
-              "The stored kind-table commitment: the empty table's at initialization,",
-              "replaced by `set_kind_table_commitment`. The aggregation circuit binds",
-              "each transaction to one kind table; a transaction settles when that is",
-              "this table or the empty one (`is_kind_table_commitment_accepted`), as",
-              "in pa-evm (sha256 of the concatenated entries; the empty table hashes",
-              "to sha256 of zero bytes)."
+              "The stored kind-table root: the empty table's at initialization,",
+              "replaced by `set_kind_table_root`. The aggregation circuit binds",
+              "each transaction to one kind table, by the Merkle root of its entries;",
+              "a transaction settles when that is this table or the empty one",
+              "(`is_kind_table_root_accepted`), as in pa-evm."
             ],
             "type": {
               "array": [
@@ -2597,11 +2596,12 @@
   ],
   "constants": [
     {
-      "name": "EMPTY_KIND_TABLE_COMMITMENT",
+      "name": "EMPTY_KIND_TABLE_ROOT",
       "docs": [
-        "The commitment of the empty kind table, under which every resource",
-        "kind is derived via hash-to-curve: the table every deployment starts",
-        "on, as pa-evm's `_EMPTY_KIND_TABLE_COMMITMENT`."
+        "The root of the empty kind table, under which every resource kind is",
+        "derived via hash-to-curve: the table every deployment starts on, as",
+        "pa-evm's `EMPTY_KIND_TABLE_ROOT`. A Merkle tree without entries has its",
+        "padding leaf as its root, `sha256(\"EMPTY\")`."
       ],
       "type": {
         "array": [
@@ -2609,7 +2609,7 @@
           32
         ]
       },
-      "value": "[227, 176, 196, 66, 152, 252, 28, 20, 154, 251, 244, 200, 153, 111, 185, 36, 39, 174, 65, 228, 100, 155, 147, 76, 164, 149, 153, 27, 120, 82, 184, 85]"
+      "value": "[204, 29, 47, 131, 132, 69, 219, 122, 236, 67, 29, 249, 238, 138, 135, 31, 64, 231, 170, 94, 6, 79, 192, 86, 99, 62, 248, 198, 15, 171, 123, 6]"
     },
     {
       "name": "MAX_EXPIRY_SLOTS",

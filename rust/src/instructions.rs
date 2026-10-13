@@ -122,16 +122,16 @@ pub fn deny_logic_refs_ix(
     }
 }
 
-/// Build the PA's `set_kind_table_commitment`: the owner `authority` replaces
-/// the kind-table commitment settled transactions must be proven against.
-pub fn set_kind_table_commitment_ix(
+/// Build the PA's `set_kind_table_root`: the owner `authority` replaces
+/// the kind-table root settled transactions must be proven against.
+pub fn set_kind_table_root_ix(
     pa_program: &Pubkey,
     authority: &Pubkey,
-    new_kind_table_commitment: [u8; 32],
+    new_kind_table_root: [u8; 32],
 ) -> Instruction {
     let data = [
-        &anchor_instruction_disc("set_kind_table_commitment")[..],
-        &new_kind_table_commitment,
+        &anchor_instruction_disc("set_kind_table_root")[..],
+        &new_kind_table_root,
     ]
     .concat();
     owner_ix(pa_program, authority, data)
@@ -674,7 +674,7 @@ mod tests {
     fn the_owner_instructions_match_the_adapters_idl() {
         let pa = crate::program_ids::PA_PROGRAM_ID;
         let authority = Pubkey::new_unique();
-        let commitment = [7; 32];
+        let bytes = [7; 32];
         for (ix, name, args) in [
             (pause_ix(&pa, &authority), "pause", &[][..]),
             (unpause_ix(&pa, &authority), "unpause", &[][..]),
@@ -683,17 +683,17 @@ mod tests {
                     &pa,
                     &authority,
                     &[DeniedLogicRef {
-                        logic_ref: commitment,
+                        logic_ref: bytes,
                         consumed: false,
                     }],
                 ),
                 "deny_logic_refs",
-                &[&[1, 0, 0, 0][..], &commitment, &[0]].concat()[..],
+                &[&[1, 0, 0, 0][..], &bytes, &[0]].concat()[..],
             ),
             (
-                set_kind_table_commitment_ix(&pa, &authority, commitment),
-                "set_kind_table_commitment",
-                &commitment[..],
+                set_kind_table_root_ix(&pa, &authority, bytes),
+                "set_kind_table_root",
+                &bytes[..],
             ),
         ] {
             let by_name = assert_matches_the_adapters_idl(&ix, name, args);

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { decodePaState, PA_STATE_SCHEMA_VERSION, PAStateDecodeError } from "./accounts.js";
 
 // The schema-4 `PAStateAccount` layout (state.rs): schema_version, bump,
-// owner, verifier_router, proof_selector, kind_table_commitment, paused, root,
+// owner, verifier_router, proof_selector, kind_table_root, paused, root,
 // next_index, current_depth, frontier, min/max expiry, then the denylists for
 // consumed and for created resources. Byte-identical to the Rust crate's test
 // fixture.
@@ -26,7 +26,7 @@ function buildFixture(
   push(...new Array(32).fill(1)); // owner
   push(...new Array(32).fill(2)); // verifier_router
   push(0xab, 0xcd, 0xef, 0x12); // proof_selector
-  push(...new Array(32).fill(8)); // kind_table_commitment
+  push(...new Array(32).fill(8)); // kind_table_root
   push(paused);
   push(...new Array(32).fill(4)); // root
   u64le(100n); // next_index
@@ -54,7 +54,7 @@ describe("decodePaState (schema 4)", () => {
     expect(s.owner).toEqual(filled(1));
     expect(s.verifierRouter).toEqual(filled(2));
     expect(s.proofSelector).toEqual(Uint8Array.from([0xab, 0xcd, 0xef, 0x12]));
-    expect(s.kindTableCommitment).toEqual(filled(8));
+    expect(s.kindTableRoot).toEqual(filled(8));
     expect(s.paused).toBe(true);
     expect(s.root).toEqual(filled(4));
     expect(s.nextIndex).toBe(100n);

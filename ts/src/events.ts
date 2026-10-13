@@ -62,12 +62,12 @@ export interface CommitmentTreeRootAddedEvent {
 }
 
 /**
- * The kind-table commitment the adapter now requires: the empty table's at
- * initialization, then each `set_kind_table_commitment`.
+ * The kind-table root the adapter now requires: the empty table's at
+ * initialization, then each `set_kind_table_root`.
  */
-export interface KindTableCommitmentUpdatedEvent {
-  name: "KindTableCommitmentUpdatedEvent";
-  kindTableCommitment: Uint8Array;
+export interface KindTableRootUpdatedEvent {
+  name: "KindTableRootUpdatedEvent";
+  kindTableRoot: Uint8Array;
 }
 
 /** A logic ref the owner added to the denylist for consumed resources (`consumed`) or to the one for created resources, for good. */
@@ -131,7 +131,7 @@ export type PaEvent =
   | TransactionExecutedEvent
   | ForwarderCallExecutedEvent
   | CommitmentTreeRootAddedEvent
-  | KindTableCommitmentUpdatedEvent
+  | KindTableRootUpdatedEvent
   | LogicRefDeniedEvent
   | PauseEvent
   | OwnershipTransferredEvent
@@ -209,8 +209,8 @@ function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
   if (bytesEqual(disc, anchorEventDisc("CommitmentTreeRootAddedEvent"))) {
     return { name: "CommitmentTreeRootAddedEvent", root: c.array32("root") };
   }
-  if (bytesEqual(disc, anchorEventDisc("KindTableCommitmentUpdatedEvent"))) {
-    return { name: "KindTableCommitmentUpdatedEvent", kindTableCommitment: c.array32("kind_table_commitment") };
+  if (bytesEqual(disc, anchorEventDisc("KindTableRootUpdatedEvent"))) {
+    return { name: "KindTableRootUpdatedEvent", kindTableRoot: c.array32("kind_table_root") };
   }
   if (bytesEqual(disc, anchorEventDisc("LogicRefDeniedEvent"))) {
     return { name: "LogicRefDeniedEvent", logicRef: c.array32("logic_ref"), consumed: boolField(c, "consumed") };
