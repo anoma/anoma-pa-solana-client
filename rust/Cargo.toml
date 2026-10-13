@@ -22,8 +22,9 @@ sha2 = "0.10"
 # riscv32im-risc0-zkvm-elf) can depend on this crate with `default-features =
 # false`. These are the Solana crate versions the programs build with (Anchor
 # 1.2): pubkey, instruction and sdk-ids 3.
-solana-compute-budget-interface = { version = "3", optional = true }
 solana-instruction = { version = "3", optional = true }
+# The settlement's v1 transaction messages.
+solana-message = { version = "4", optional = true }
 # `curve25519`: PDA derivation (`Pubkey::find_program_address`).
 solana-pubkey = { version = "3", optional = true, features = ["curve25519"] }
 solana-sdk-ids = { version = "3", optional = true }
@@ -40,14 +41,16 @@ base64 = "0.22"
 # Proves trivial actions for the settlement-input tests.
 anoma-pa-testkit = { version = "=1.0.0-rc.1", features = ["local", "fixtures"] }
 tokio = { version = "1", features = ["macros", "rt"] }
+# Serializes a v1 message to check `transaction_size` against it.
+solana-message = { version = "4", features = ["wincode"] }
 
 [features]
 default = ["solana"]
 # Enables the modules that depend on the Solana SDK: instruction builders,
 # settlement planning, PDA derivation and program IDs.
 solana = [
-  "dep:solana-compute-budget-interface",
   "dep:solana-instruction",
+  "dep:solana-message",
   "dep:solana-pubkey",
   "dep:solana-sdk-ids",
 ]

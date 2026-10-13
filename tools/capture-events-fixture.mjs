@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(new URL("../ts/package.json", import.meta.url));
 const { BN, BorshCoder } = require("@anchor-lang/core");
-const { Connection, PublicKey } = require("@solana/web3.js");
+const { PublicKey } = require("@solana/web3.js");
 const bs58 = require("bs58").default;
 
 const repo = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
@@ -79,14 +79,27 @@ if (mode === "--recorded") {
   if (!mode || signatures.length === 0) {
     throw new Error("usage: capture-events-fixture.mjs <rpc url> <signature>... | --recorded");
   }
-  const connection = new Connection(mode, "confirmed");
   for (const signature of signatures) {
-    const tx = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    // The JSON encoding lists the account keys and each inner instruction's
+    // program index and base58 data for every transaction version (settlements
+    // are v1), without a client library decoding the message.
+    const response = await fetch(mode, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getTransaction",
+        params: [signature, { commitment: "confirmed", encoding: "json", maxSupportedTransactionVersion: 1 }],
+      }),
+    });
+    const { result: tx, error } = await response.json();
+    if (error) throw new Error(`getTransaction ${signature}: ${JSON.stringify(error)}`);
     if (!tx) throw new Error(`transaction ${signature} not found`);
-    const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses });
+    const keys = tx.transaction.message.accountKeys;
     for (const group of tx.meta.innerInstructions ?? []) {
       for (const ix of group.instructions) {
-        if (keys.get(ix.programIdIndex).toBase58() !== idl.address) continue;
+        if (keys[ix.programIdIndex] !== idl.address) continue;
         const data = Buffer.from(bs58.decode(ix.data));
         if (!data.subarray(0, EVENT_IX_TAG.length).equals(EVENT_IX_TAG)) continue;
         events.push(entry(signature, data));

@@ -6,30 +6,28 @@
 //!
 //! ```text
 //! cargo run -p settle-fixture -- --url <rpc> --keypair <path> --fixture <path>
-//!     [--pa <program id>] [--lookup-table <address>] [--call-accounts <b58>,<b58>]...
+//!     [--pa <program id>] [--call-accounts <b58>,<b58>]...
 //! ```
 //!
 //! `--call-accounts` gives the account segment of one external call, in call
 //! order, starting with the forwarder program (the adapter repo's committed
 //! fixtures call the block-time forwarder with `[forwarder, clock sysvar]`).
-//! `--lookup-table` is the deployment's settlement lookup table (default: the
-//! devnet table `SETTLE_LOOKUP_TABLE`); the settle step is a v0 transaction
-//! against it, the shape every submitter sends.
+//! Every step is a v1 transaction, the shape every submitter sends: the
+//! settlement in one transaction when it fits, otherwise uploaded first.
 
 use std::str::FromStr;
 
 use anoma_pa_solana_client::{
     decode_event_instruction, decode_pa_state, decode_verifier_entry, derive_pa_state_pda,
-    derive_verifier_entry_pda, plan_settlement, PaEvent, SettlementRequest, EVENT_IX_TAG,
-    PA_PROGRAM_ID, SETTLE_LOOKUP_TABLE, TXDATA_EXPIRY_SLOTS_DEFAULT,
+    derive_verifier_entry_pda, plan_settlement, transaction_size, PaEvent, PlannedTransaction,
+    SettlementRequest, EVENT_IX_TAG, PA_PROGRAM_ID, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
-use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcTransactionConfig;
 use solana_commitment_config::CommitmentConfig;
-use solana_sdk::instruction::{AccountMeta, Instruction};
-use solana_sdk::message::{v0, AddressLookupTableAccount, VersionedMessage};
+use solana_sdk::instruction::AccountMeta;
+use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{read_keypair_file, Keypair, Signature, Signer};
 use solana_sdk::transaction::VersionedTransaction;
@@ -53,7 +51,6 @@ struct Args {
     keypair: String,
     fixture: String,
     pa: Pubkey,
-    lookup_table: Pubkey,
     call_accounts: Vec<Vec<Pubkey>>,
 }
 
@@ -62,7 +59,6 @@ fn parse_args() -> Args {
     let mut keypair = None;
     let mut fixture = None;
     let mut pa = PA_PROGRAM_ID;
-    let mut lookup_table = SETTLE_LOOKUP_TABLE;
     let mut call_accounts = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -72,9 +68,6 @@ fn parse_args() -> Args {
             "--keypair" => keypair = Some(value),
             "--fixture" => fixture = Some(value),
             "--pa" => pa = Pubkey::from_str(&value).expect("--pa is a base58 pubkey"),
-            "--lookup-table" => {
-                lookup_table = Pubkey::from_str(&value).expect("--lookup-table is a base58 pubkey")
-            }
             "--call-accounts" => call_accounts.push(
                 value
                     .split(',')
@@ -89,7 +82,6 @@ fn parse_args() -> Args {
         keypair: keypair.expect("--keypair is required"),
         fixture: fixture.expect("--fixture is required"),
         pa,
-        lookup_table,
         call_accounts,
     }
 }
@@ -107,54 +99,35 @@ fn b64_32s(fields: &[String]) -> Vec<[u8; 32]> {
         .collect()
 }
 
-/// The deployment's settlement lookup table, as the message compiler wants it.
-fn lookup_table(client: &RpcClient, address: Pubkey) -> AddressLookupTableAccount {
-    let data = client
-        .get_account_data(&address)
-        .unwrap_or_else(|e| panic!("lookup table {address} not found: {e}"));
-    let table = AddressLookupTable::deserialize(&data).expect("lookup table state");
-    AddressLookupTableAccount {
-        key: address,
-        addresses: table.addresses.to_vec(),
-    }
-}
-
-/// Send `ixs` as a v0 transaction compiled against `tables`, the shape every
-/// submitter sends (none for the upload steps, the settlement table for the
-/// settle). Prints the wire size and how many keys the tables absorbed.
+/// Send `transaction` as one v1 transaction, the shape every submitter
+/// sends. Prints the wire size and the accounts it names.
 fn send(
     client: &RpcClient,
     payer: &Keypair,
-    ixs: &[Instruction],
-    tables: &[AddressLookupTableAccount],
+    transaction: &PlannedTransaction,
     label: &str,
 ) -> Signature {
-    try_send(client, payer, ixs, tables, label).unwrap_or_else(|e| panic!("{e}"))
+    try_send(client, payer, transaction, label).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// `send`, returning the failure instead of panicking on it.
 fn try_send(
     client: &RpcClient,
     payer: &Keypair,
-    ixs: &[Instruction],
-    tables: &[AddressLookupTableAccount],
+    transaction: &PlannedTransaction,
     label: &str,
 ) -> Result<Signature, String> {
     let blockhash = client.get_latest_blockhash().expect("blockhash");
-    let message = v0::Message::try_compile(&payer.pubkey(), ixs, tables, blockhash)
-        .expect("compile v0 message");
-    let looked_up: usize = message
-        .address_table_lookups
-        .iter()
-        .map(|l| l.writable_indexes.len() + l.readonly_indexes.len())
-        .sum();
-    let static_keys = message.account_keys.len();
-    let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer]).expect("sign");
-    let size = bincode::serialized_size(&tx).expect("serialize");
+    let message = transaction
+        .message(&payer.pubkey(), blockhash)
+        .expect("compile v1 message");
+    let size = transaction_size(&message);
+    let keys = message.account_keys.len();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V1(message), &[payer]).expect("sign");
     let sig = client
         .send_and_confirm_transaction(&tx)
         .map_err(|e| format!("{label} failed: {e}"))?;
-    println!("{label}: {sig} ({size} bytes, {static_keys} static keys, {looked_up} looked up)");
+    println!("{label}: {sig} ({size} bytes, {keys} accounts)");
     Ok(sig)
 }
 
@@ -167,15 +140,13 @@ fn main() {
             .expect("fixture json");
     let tx_bytes = b64(&fixture.tx_b64);
     println!(
-        "payer {} | adapter {} | lookup table {} | fixture {} ({} bytes, selector {})",
+        "payer {} | adapter {} | fixture {} ({} bytes, selector {})",
         payer.pubkey(),
         args.pa,
-        args.lookup_table,
         args.fixture,
         tx_bytes.len(),
         fixture.selector
     );
-    let table = lookup_table(&client, args.lookup_table);
 
     // 1. Read and decode the adapter state with the crate's decoder.
     let (pa_state, _) = derive_pa_state_pda(&args.pa);
@@ -211,8 +182,9 @@ fn main() {
         })
         .collect();
 
-    // 3. Plan the settlement with the crate: the upload, the settle (the
-    //    remaining accounts, the predicted root and its marker) and the close.
+    // 3. Plan the settlement with the crate: one transaction, or the upload,
+    //    the settle and the close (the remaining accounts, the predicted root
+    //    and its marker either way).
     let upload_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -231,33 +203,27 @@ fn main() {
         consumed_roots: &b64_32s(&fixture.historical_roots_b64),
         created: &b64_32s(&fixture.created_commitments_b64),
         call_segments,
+        preceding: vec![],
     })
     .expect("plan the settlement");
     println!("predicted root {:?}", plan.new_root.map(|root| hex(&root)));
 
-    // 4. Upload, settle, then close the upload whatever the outcome, so a
-    //    refused settlement does not strand its rent.
-    send(&client, &payer, &[plan.init], &[], "txdata_init");
-    let settled = (|| {
-        for (i, write) in plan.writes.into_iter().enumerate() {
-            try_send(
-                &client,
-                &payer,
-                &[write],
-                &[],
-                &format!("txdata_write[{i}]"),
-            )?;
+    // 4. Settle: in one transaction, or upload, settle, then close the upload
+    //    whatever the outcome, so a refused settlement does not strand its rent.
+    let settle_sig = match &plan.upload {
+        None => send(&client, &payer, &plan.settle, "settle"),
+        Some(upload) => {
+            send(&client, &payer, &upload.init, "txdata_init");
+            let settled = (|| {
+                for (i, write) in upload.writes.iter().enumerate() {
+                    try_send(&client, &payer, write, &format!("txdata_write[{i}]"))?;
+                }
+                try_send(&client, &payer, &plan.settle, "settle_from_txdata")
+            })();
+            send(&client, &payer, &upload.close, "txdata_close");
+            settled.unwrap_or_else(|e| panic!("{e}"))
         }
-        try_send(
-            &client,
-            &payer,
-            &plan.settle,
-            std::slice::from_ref(&table),
-            "settle_from_txdata",
-        )
-    })();
-    send(&client, &payer, &[plan.close], &[], "txdata_close");
-    let settle_sig = settled.unwrap_or_else(|e| panic!("{e}"));
+    };
 
     // 5. Read back: the root moved to the prediction, and the events decode.
     let after = decode_pa_state(&client.get_account_data(&pa_state).expect("pa_state")).unwrap();
@@ -286,16 +252,16 @@ fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
 }
 
 fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
-    // The parsed encoding resolves lookup-table addresses and names each
-    // inner instruction's program; the adapter has no RPC parser, so its
-    // event self-invocations arrive partially decoded with base58 data.
+    // The parsed encoding names each inner instruction's program; the adapter
+    // has no RPC parser, so its event self-invocations arrive partially
+    // decoded with base58 data.
     let tx = client
         .get_transaction_with_config(
             sig,
             RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::JsonParsed),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                max_supported_transaction_version: Some(1),
             },
         )
         .expect("fetch settle transaction");
