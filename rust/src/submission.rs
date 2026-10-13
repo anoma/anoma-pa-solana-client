@@ -108,14 +108,14 @@ pub async fn read_adapter_state(
     })
 }
 
-/// The verifier program the router's entry for the adapter's selector names,
-/// as `state` records the router and the selector.
+/// The verifier program the entry of `router` for `selector` names; an
+/// adapter's are the router and the selector its state records.
 pub async fn read_verifier_program(
     rpc: &RpcClient,
-    state: &PAStateAccount,
+    router: &Pubkey,
+    selector: [u8; 4],
 ) -> Result<Pubkey, SubmissionError> {
-    let router = Pubkey::new_from_array(state.verifier_router);
-    let entry = derive_verifier_entry_pda(&router, state.proof_selector);
+    let entry = derive_verifier_entry_pda(router, selector);
     let data = rpc
         .get_account_data(&entry)
         .await
