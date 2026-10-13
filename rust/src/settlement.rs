@@ -285,79 +285,68 @@ pub fn plan_settlement(
     upload_id: u64,
     expires_slot: u64,
 ) -> Result<SettlementPlan, PlanError> {
-    let Settling {
-        pa_program,
-        pa_state,
-        payer,
-        new_root_marker,
-        verifier_router,
-        router,
-        verifier_entry,
-        verifier_program,
-        remaining,
-        new_root,
-        input,
-        preceding: mut instructions,
-    } = settling(request)?;
+    let s = settling(request)?;
+    let mut instructions = s.preceding;
     instructions.push(settle_ix(
-        &pa_program,
-        &pa_state,
-        &payer,
-        input,
-        new_root_marker.as_ref(),
-        &verifier_router,
-        &router,
-        &verifier_entry,
-        &verifier_program,
-        remaining.clone(),
+        &s.pa_program,
+        &s.pa_state,
+        &s.payer,
+        s.input,
+        s.new_root_marker.as_ref(),
+        &s.verifier_router,
+        &s.router,
+        &s.verifier_entry,
+        &s.verifier_program,
+        s.remaining.clone(),
     ));
     let mut settle = PlannedTransaction {
         instructions,
         config: SETTLE_TRANSACTION_CONFIG,
     };
     // The blockhash is a fixed 32 bytes, so any one gives the size.
-    let mut message = settle.message(&payer, Hash::default())?;
+    let mut message = settle.message(&s.payer, Hash::default())?;
     let upload = if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
         None
     } else {
-        let (tx_data, _) = derive_tx_data_pda(&pa_program, &payer, upload_id);
+        let (tx_data, _) = derive_tx_data_pda(&s.pa_program, &s.payer, upload_id);
         settle.instructions.pop();
         settle.instructions.push(settle_from_txdata_ix(
-            &pa_program,
-            &pa_state,
+            &s.pa_program,
+            &s.pa_state,
             &tx_data,
-            &payer,
+            &s.payer,
             upload_id,
-            new_root_marker.as_ref(),
-            &verifier_router,
-            &router,
-            &verifier_entry,
-            &verifier_program,
-            remaining,
+            s.new_root_marker.as_ref(),
+            &s.verifier_router,
+            &s.router,
+            &s.verifier_entry,
+            &s.verifier_program,
+            s.remaining,
         ));
-        message = settle.message(&payer, Hash::default())?;
+        message = settle.message(&s.payer, Hash::default())?;
         let upload_transaction = |ix| PlannedTransaction {
             instructions: vec![ix],
             config: UPLOAD_TRANSACTION_CONFIG,
         };
         Some(Upload {
             init: upload_transaction(txdata_init_ix(
-                &pa_program,
-                &pa_state,
+                &s.pa_program,
+                &s.pa_state,
                 &tx_data,
-                &payer,
+                &s.payer,
                 upload_id,
-                input.len() as u32,
+                s.input.len() as u32,
                 expires_slot,
             )),
-            writes: input
+            writes: s
+                .input
                 .chunks(TXDATA_CHUNK_SIZE)
                 .enumerate()
                 .map(|(i, chunk)| {
                     upload_transaction(txdata_write_ix(
-                        &pa_program,
+                        &s.pa_program,
                         &tx_data,
-                        &payer,
+                        &s.payer,
                         upload_id,
                         (i * TXDATA_CHUNK_SIZE) as u32,
                         chunk,
@@ -365,10 +354,10 @@ pub fn plan_settlement(
                 })
                 .collect(),
             close: upload_transaction(txdata_close_ix(
-                &pa_program,
+                &s.pa_program,
                 &tx_data,
-                &payer,
-                &payer,
+                &s.payer,
+                &s.payer,
                 upload_id,
             )),
         })
@@ -377,7 +366,7 @@ pub fn plan_settlement(
     Ok(SettlementPlan {
         upload,
         settle,
-        new_root,
+        new_root: s.new_root,
     })
 }
 
@@ -392,38 +381,26 @@ pub fn plan_simulation(
     request: SettlementRequest<'_>,
     skip_risc_zero_proof_verification: bool,
 ) -> Result<PlannedTransaction, PlanError> {
-    let Settling {
-        pa_program,
-        pa_state,
-        payer,
-        new_root_marker,
-        verifier_router,
-        router,
-        verifier_entry,
-        verifier_program,
-        remaining,
-        new_root: _,
-        input,
-        preceding: mut instructions,
-    } = settling(request)?;
+    let s = settling(request)?;
+    let mut instructions = s.preceding;
     instructions.push(simulate_execute_ix(
-        &pa_program,
-        &pa_state,
-        &payer,
-        input,
+        &s.pa_program,
+        &s.pa_state,
+        &s.payer,
+        s.input,
         skip_risc_zero_proof_verification,
-        new_root_marker.as_ref(),
-        &verifier_router,
-        &router,
-        &verifier_entry,
-        &verifier_program,
-        remaining,
+        s.new_root_marker.as_ref(),
+        &s.verifier_router,
+        &s.router,
+        &s.verifier_entry,
+        &s.verifier_program,
+        s.remaining,
     ));
     let simulation = PlannedTransaction {
         instructions,
         config: SETTLE_TRANSACTION_CONFIG,
     };
-    within_limits(&simulation.message(&payer, Hash::default())?)?;
+    within_limits(&simulation.message(&s.payer, Hash::default())?)?;
     Ok(simulation)
 }
 
