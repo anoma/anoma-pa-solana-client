@@ -793,11 +793,13 @@ mod tests {
             };
             assert_eq!(check, &preceding);
             assert_eq!(simulate.accounts, settle.accounts);
+            // The request's 5-byte input, then the skip flag.
             assert_eq!(
                 simulate.data,
                 [
                     &crate::discriminator::anchor_instruction_disc("simulate_execute")[..],
-                    &settle.data[8..],
+                    &5u32.to_le_bytes(),
+                    b"input",
                     &[u8::from(skip)],
                 ]
                 .concat()

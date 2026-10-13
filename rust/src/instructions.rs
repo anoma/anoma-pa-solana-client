@@ -304,27 +304,30 @@ pub fn simulate_execute_ix(
     verifier_program: &Pubkey,
     remaining_accounts: Vec<AccountMeta>,
 ) -> Instruction {
-    let mut ix = settle_ix(
-        pa_program,
-        pa_state,
-        payer,
-        input,
-        new_root_marker,
-        verifier_router_program,
-        router,
-        verifier_entry,
-        verifier_program,
-        remaining_accounts,
-    );
-    // `settle`'s data after its discriminator is the input, which
-    // `simulate_execute` takes first.
-    ix.data = [
-        &anchor_instruction_disc("simulate_execute")[..],
-        &ix.data[8..],
-        &[u8::from(skip_risc_zero_proof_verification)],
-    ]
-    .concat();
-    ix
+    let mut data = Vec::with_capacity(8 + 4 + input.len() + 1);
+    data.extend_from_slice(&anchor_instruction_disc("simulate_execute"));
+    // Anchor serializes Vec<u8> as 4-byte LE length prefix + bytes, and bool
+    // as one byte.
+    data.extend_from_slice(&(input.len() as u32).to_le_bytes());
+    data.extend_from_slice(input);
+    data.push(u8::from(skip_risc_zero_proof_verification));
+
+    Instruction {
+        program_id: *pa_program,
+        accounts: settlement_accounts(
+            pa_program,
+            pa_state,
+            None,
+            payer,
+            new_root_marker,
+            verifier_router_program,
+            router,
+            verifier_entry,
+            verifier_program,
+            remaining_accounts,
+        ),
+        data,
+    }
 }
 
 /// Build a PA `settle_from_txdata` instruction, which settles the input
