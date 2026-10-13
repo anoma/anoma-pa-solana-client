@@ -17,6 +17,8 @@ pub mod merkle;
 pub mod settlement_input;
 pub mod u256;
 
+#[cfg(feature = "rpc")]
+pub mod forwarders;
 #[cfg(feature = "solana")]
 pub mod instructions;
 #[cfg(feature = "solana")]
@@ -25,6 +27,8 @@ pub mod pda;
 pub mod program_ids;
 #[cfg(feature = "solana")]
 pub mod settlement;
+#[cfg(feature = "rpc")]
+pub mod submission;
 
 pub use accounts::{
     decode_pa_state, decode_verifier_entry, encode_pa_state, DecodeError, PAStateAccount,

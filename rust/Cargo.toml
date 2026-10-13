@@ -34,6 +34,15 @@ solana-sdk-ids = { version = "3", optional = true }
 anoma-rm-risc0 = { version = "2.0.0-rc.7", default-features = false, features = ["transaction"], optional = true }
 risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
 
+# Submission (`rpc` feature): the adapter's state and the forwarders' accounts
+# read over an RPC, and simulations run there.
+futures = { version = "0.3", optional = true }
+solana-rpc-client = { version = "4", optional = true }
+solana-rpc-client-api = { version = "4", optional = true }
+solana-signature = { version = "3", optional = true }
+solana-transaction = { version = "4", optional = true }
+solana-transaction-error = { version = "3", optional = true }
+
 [dev-dependencies]
 # Read the vendored IDL and the cross-package fixtures under `fixtures/`.
 serde_json = "1.0"
@@ -57,3 +66,15 @@ solana = [
 # The settlement input: a proven ARM transaction with its aggregation proof
 # re-encoded as the verifier-router seal the adapter decodes.
 arm = ["dep:anoma-rm-risc0", "dep:risc0-zkvm"]
+# Submission: the forwarder registry each forwarder's client plugs into, and
+# a settlement prepared, planned and simulated over an RPC.
+rpc = [
+  "solana",
+  "arm",
+  "dep:futures",
+  "dep:solana-rpc-client",
+  "dep:solana-rpc-client-api",
+  "dep:solana-signature",
+  "dep:solana-transaction",
+  "dep:solana-transaction-error",
+]
