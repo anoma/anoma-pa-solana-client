@@ -168,8 +168,8 @@ pub fn txdata_init_ix(
 
 /// Build a PA `txdata_write` instruction for a single chunk.
 ///
-/// `chunk.len()` is bounded by `TXDATA_CHUNK_SIZE` so the resulting tx fits
-/// within Solana's 1232-byte transaction limit.
+/// `chunk.len()` is bounded by `TXDATA_CHUNK_SIZE`, the largest chunk whose
+/// write transaction fits a v1 transaction.
 pub fn txdata_write_ix(
     pa_program: &Pubkey,
     tx_data: &Pubkey,
@@ -197,7 +197,9 @@ pub fn txdata_write_ix(
     }
 }
 
-/// Build a PA `settle_from_txdata` instruction.
+/// The named accounts of a settlement after the input's source (`tx_data`
+/// for `settle_from_txdata`, nothing for `settle`) and the payer, then the
+/// remaining accounts.
 ///
 /// `remaining_accounts` is the caller-assembled slice covering nullifier PDAs,
 /// per-call forwarder CPI segments, and historical root markers. The
@@ -211,6 +213,81 @@ pub fn txdata_write_ix(
 /// two named accounts after `verifier_program`: the event authority PDA and
 /// the PA program itself. Both are derived from `pa_program` here, so the
 /// caller never supplies them.
+#[allow(clippy::too_many_arguments)]
+fn settlement_accounts(
+    pa_program: &Pubkey,
+    pa_state: &Pubkey,
+    tx_data: Option<&Pubkey>,
+    authority: &Pubkey,
+    new_root_marker: Option<&Pubkey>,
+    verifier_router_program: &Pubkey,
+    router: &Pubkey,
+    verifier_entry: &Pubkey,
+    verifier_program: &Pubkey,
+    remaining_accounts: Vec<AccountMeta>,
+) -> Vec<AccountMeta> {
+    let mut accounts = vec![AccountMeta::new(*pa_state, false)];
+    accounts.extend(tx_data.map(|tx_data| AccountMeta::new_readonly(*tx_data, false)));
+    accounts.extend([
+        AccountMeta::new(*authority, true),
+        AccountMeta::new_readonly(system_program::id(), false),
+        match new_root_marker {
+            Some(marker) => AccountMeta::new(*marker, false),
+            None => AccountMeta::new_readonly(*pa_program, false),
+        },
+        AccountMeta::new_readonly(*verifier_router_program, false),
+        AccountMeta::new_readonly(*router, false),
+        AccountMeta::new_readonly(*verifier_entry, false),
+        AccountMeta::new_readonly(*verifier_program, false),
+        AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
+        AccountMeta::new_readonly(*pa_program, false),
+    ]);
+    accounts.extend(remaining_accounts);
+    accounts
+}
+
+/// Build a PA `settle` instruction, which carries the settlement input
+/// itself. Its accounts are `settle_from_txdata_ix`'s without the upload.
+#[allow(clippy::too_many_arguments)]
+pub fn settle_ix(
+    pa_program: &Pubkey,
+    pa_state: &Pubkey,
+    payer: &Pubkey,
+    input: &[u8],
+    new_root_marker: Option<&Pubkey>,
+    verifier_router_program: &Pubkey,
+    router: &Pubkey,
+    verifier_entry: &Pubkey,
+    verifier_program: &Pubkey,
+    remaining_accounts: Vec<AccountMeta>,
+) -> Instruction {
+    let disc = anchor_instruction_disc("settle");
+    let mut data = Vec::with_capacity(8 + 4 + input.len());
+    data.extend_from_slice(&disc);
+    // Anchor serializes Vec<u8> as 4-byte LE length prefix + bytes.
+    data.extend_from_slice(&(input.len() as u32).to_le_bytes());
+    data.extend_from_slice(input);
+
+    Instruction {
+        program_id: *pa_program,
+        accounts: settlement_accounts(
+            pa_program,
+            pa_state,
+            None,
+            payer,
+            new_root_marker,
+            verifier_router_program,
+            router,
+            verifier_entry,
+            verifier_program,
+            remaining_accounts,
+        ),
+        data,
+    }
+}
+
+/// Build a PA `settle_from_txdata` instruction, which settles the input
+/// uploaded to `tx_data`. See `settlement_accounts` for the accounts.
 #[allow(clippy::too_many_arguments)]
 pub fn settle_from_txdata_ix(
     pa_program: &Pubkey,
@@ -230,27 +307,20 @@ pub fn settle_from_txdata_ix(
     data.extend_from_slice(&disc);
     data.extend_from_slice(&upload_id.to_le_bytes());
 
-    let mut accounts = vec![
-        AccountMeta::new(*pa_state, false),
-        AccountMeta::new_readonly(*tx_data, false),
-        AccountMeta::new(*authority, true),
-        AccountMeta::new_readonly(system_program::id(), false),
-        match new_root_marker {
-            Some(marker) => AccountMeta::new(*marker, false),
-            None => AccountMeta::new_readonly(*pa_program, false),
-        },
-        AccountMeta::new_readonly(*verifier_router_program, false),
-        AccountMeta::new_readonly(*router, false),
-        AccountMeta::new_readonly(*verifier_entry, false),
-        AccountMeta::new_readonly(*verifier_program, false),
-        AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-        AccountMeta::new_readonly(*pa_program, false),
-    ];
-    accounts.extend(remaining_accounts);
-
     Instruction {
         program_id: *pa_program,
-        accounts,
+        accounts: settlement_accounts(
+            pa_program,
+            pa_state,
+            Some(tx_data),
+            authority,
+            new_root_marker,
+            verifier_router_program,
+            router,
+            verifier_entry,
+            verifier_program,
+            remaining_accounts,
+        ),
         data,
     }
 }

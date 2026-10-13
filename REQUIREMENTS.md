@@ -35,7 +35,6 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 ### 3.1 Program identifiers
 
 - `PA_PROGRAM_ID` — the on-chain address of the Protocol Adapter.
-- `SETTLE_LOOKUP_TABLE` — the deployment's settlement address lookup table (created per deployment by the adapter repo's `lookup-table` command).
 - These are environment-parameterizable (devnet vs mainnet) with sensible defaults shipped per release.
 
 ### 3.2 Anchor discriminators
@@ -49,6 +48,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 - `initialize` (the deployer, as the program's upgrade authority, sets the owner, verifier router and proof selector)
 - `txdata_init`
 - `txdata_write` (chunked; chunk size constant is shipped from this package)
+- `settle` (the settlement input in the instruction itself)
 - `settle_from_txdata`
 - `txdata_close`
 
@@ -56,11 +56,9 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.4 Settle transaction orchestration
 
-- The settle transaction is a v0 message compiled against `SETTLE_LOOKUP_TABLE`. The table holds the settlement accounts that are fixed per deployment; signers, invoked programs and per-transaction accounts (upload, markers, the external calls' accounts) stay static.
-- A helper that assembles the full settle transaction: `SetComputeUnitLimit`, `RequestHeapFrame`, and the `settle_from_txdata` ix with correct `remaining_accounts`.
-- Chunked upload helper: splits the settlement input into appropriately-sized chunks and returns the sequence of `txdata_init` / N × `txdata_write` / `settle_from_txdata` / `txdata_close` instructions (`plan_settlement`). The `settle_from_txdata` remaining accounts are the nullifier PDAs, then the external-call segments, then the root marker of every consumed root other than the padding leaf; the new root is predicted from the adapter's stored frontier.
+- Every transaction is a v1 transaction (SIMD-0385: up to 4,096 bytes, no lookup tables, the compute budget in the message header). `transaction_message` compiles one with its settings: `SETTLE_TRANSACTION_CONFIG` for the settlement, `UPLOAD_TRANSACTION_CONFIG` for an upload's other transactions. Both state the loaded-account-data limit, which a v1 transaction does not default.
+- `plan_settlement` plans one settlement from its input, the adapter's state, the resources it touches, the external calls' account segments and the instructions that precede the adapter's (a forwarder's signature checks and account creations). When the settlement fits one transaction (`transaction_size` at most 4,096 bytes), it is that transaction: the preceding instructions, then `settle` with the input. Otherwise it is the upload: `txdata_init`, N × `txdata_write`, the preceding instructions then `settle_from_txdata`, and `txdata_close`. The settlement's remaining accounts are the nullifier PDAs, then the external-call segments, then the root marker of every consumed root other than the padding leaf; the new root is predicted from the adapter's stored frontier. A settlement naming more accounts than a transaction locks (64) is refused.
 - The settlement input (the `arm` feature): a proven ARM `Transaction` with its aggregation proof re-encoded as the verifier-router seal, bincode-serialized (`settlement_input`), the nullifiers, consumed roots and created commitments its settlement touches (`settled_resources`), and the external calls it runs, in the adapter's order (`external_calls`), whose CPI accounts the submitter supplies.
-- The adapter's part of a deployment's settlement lookup table (`adapter_settlement_lookup_keys`).
 
 ### 3.5 PDA derivation
 
@@ -110,9 +108,11 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.11 Constants
 
-- `MIN_COMPUTE_UNIT_LIMIT` — the minimum CU value the settle ix requires (currently 500,000). Source of truth.
-- `MIN_HEAP_FRAME_BYTES` — the minimum heap frame the settle ix requires (currently 262,144). Source of truth.
-- `TXDATA_WRITE_CHUNK_BYTES` — the chunk size for `txdata_write` (currently 900).
+- `SETTLE_COMPUTE_UNIT_LIMIT` — the compute units the settlement transaction requests (currently 500,000). Source of truth.
+- `SETTLE_HEAP_FRAME_BYTES` — the heap frame the settlement transaction requests (currently 262,144). Source of truth.
+- `UPLOAD_COMPUTE_UNIT_LIMIT` — the compute units an upload's other transactions request (currently 200,000, the runtime's default for one instruction).
+- `MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES` — the account data every transaction may load (64 MiB, the runtime's maximum).
+- `TXDATA_CHUNK_SIZE` — the chunk size for `txdata_write`: the largest whose write transaction fits a v1 transaction (currently 3,856).
 - These must change here when they change in the PA. The integrator imports them; bumping the PA without bumping this package is a release-process error.
 
 ### 3.12 IDL files

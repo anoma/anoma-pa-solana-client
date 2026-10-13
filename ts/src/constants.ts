@@ -10,8 +10,21 @@ export const SETTLE_COMPUTE_UNIT_LIMIT = 500_000;
 /** Minimum heap-frame bytes the settle transaction must request. */
 export const SETTLE_HEAP_FRAME_BYTES = 256 * 1024;
 
-/** Chunk size for `txdata_write` instructions. */
-export const TXDATA_CHUNK_SIZE = 900;
+/**
+ * The compute-unit limit of an upload's init, write and close transactions, each
+ * one adapter instruction: the runtime's default budget for one instruction,
+ * which a v1 transaction states rather than defaults to.
+ */
+export const UPLOAD_COMPUTE_UNIT_LIMIT = 200_000;
+
+/**
+ * The account data a transaction may load: the runtime's maximum (64 MiB), which
+ * a v1 transaction must state (unset, it is 0).
+ */
+export const MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES = 64 * 1024 * 1024;
+
+/** Chunk size for `txdata_write` instructions: the largest whose write transaction fits a v1 transaction. */
+export const TXDATA_CHUNK_SIZE = 3856;
 
 /** Default expiry window (in slots) for a `tx_data` upload PDA. */
 export const TXDATA_EXPIRY_SLOTS_DEFAULT = 300n;

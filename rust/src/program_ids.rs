@@ -1,4 +1,4 @@
-//! The adapter's program id and its deployment's settlement lookup table.
+//! The adapter's program id.
 //!
 //! Devnet defaults are baked in as `pub const` values. For mainnet or alternative
 //! cluster deployments, integrators should override at the call site rather than
@@ -8,13 +8,6 @@ use solana_pubkey::{pubkey, Pubkey};
 
 /// Anoma Protocol Adapter program ID (devnet/localnet default).
 pub const PA_PROGRAM_ID: Pubkey = pubkey!("5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc");
-
-/// The devnet V2 deployment's settlement lookup table: the accounts every
-/// settlement carries that are fixed for the deployment. Settle transactions
-/// are v0 messages compiled against it. The adapter repo's `lookup-table`
-/// command creates one per deployment; its operations runbook lists the keys
-/// and its deployment record names the table.
-pub const SETTLE_LOOKUP_TABLE: Pubkey = pubkey!("4UFsq2ks2DcC29ErmEeHxqXWKLRWo26vs4W65S89bpWn");
 
 #[cfg(test)]
 mod tests {
