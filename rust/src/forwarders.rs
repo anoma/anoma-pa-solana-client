@@ -11,40 +11,37 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use crate::external_call::SolanaExternalCall;
-
-/// What a settlement passes a forwarder for its calls.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CallAccounts {
-    /// Each call's CPI segment, in call order: the forwarder program, then
-    /// the accounts its instruction takes.
-    pub segments: Vec<Vec<AccountMeta>>,
-    /// Instructions the settlement transaction carries before the settlement
-    /// (an ed25519 signature check, an account a call needs), in the order the
-    /// calls' instruction data names them.
-    pub preceding: Vec<Instruction>,
-}
+use crate::settlement::CallAccounts;
 
 /// Why a forwarder could not give its calls' accounts.
 pub type ForwarderError = Box<dyn std::error::Error + Send + Sync>;
+
+/// The accounts a forwarder gives, once it has read what it needs.
+pub type CallAccountsFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<CallAccounts, ForwarderError>> + Send + 'a>>;
 
 /// How a submitter supplies a forwarder's calls with their accounts.
 pub trait Forwarder: Send + Sync {
     /// The accounts a settlement passes this forwarder for `calls`, all of
     /// the settlement's calls to it in call order, as the chain behind `rpc`
-    /// stands.
+    /// stands. The settlement transaction carries this forwarder's preceding
+    /// instructions from index `preceding_start` on, which is where a call
+    /// naming the absolute index of one finds it.
     fn call_accounts<'a>(
         &'a self,
         rpc: &'a RpcClient,
         calls: &'a [SolanaExternalCall],
-    ) -> BoxFuture<'a, Result<CallAccounts, ForwarderError>>;
+        preceding_start: usize,
+    ) -> CallAccountsFuture<'a>;
 }
 
 /// Why a settlement's calls have no accounts.
@@ -136,7 +133,7 @@ impl fmt::Display for AccountsError {
 impl std::error::Error for AccountsError {}
 
 /// The forwarders registered with a submitter, by program.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct Forwarders(HashMap<Pubkey, Arc<dyn Forwarder>>);
 
 impl Forwarders {
@@ -145,15 +142,16 @@ impl Forwarders {
         self.0.insert(program, forwarder);
     }
 
-    /// The accounts of `calls`, in the order the adapter runs them: the
-    /// instructions that precede the settlement, each forwarder's in the
-    /// order of its first call, and each call's CPI segment. Each forwarder
-    /// is asked once, for all its calls.
+    /// The accounts of `calls`: each call's CPI segment, in call order, and
+    /// the instructions that precede the settlement, each forwarder's in the
+    /// order of its first call. Each forwarder is asked once, for all its
+    /// calls, and told where its preceding instructions start, after those
+    /// of the forwarders before it.
     pub async fn accounts(
         &self,
         rpc: &RpcClient,
         calls: &[SolanaExternalCall],
-    ) -> Result<(Vec<Instruction>, Vec<Vec<AccountMeta>>), AccountsError> {
+    ) -> Result<CallAccounts, AccountsError> {
         // Each forwarder's calls by index, the forwarders in the order of
         // their first call.
         let mut by_forwarder: Vec<(Pubkey, Vec<usize>)> = Vec::new();
@@ -175,7 +173,7 @@ impl Forwarders {
             let its_calls: Vec<SolanaExternalCall> =
                 indices.iter().map(|&i| calls[i].clone()).collect();
             let accounts = forwarder
-                .call_accounts(rpc, &its_calls)
+                .call_accounts(rpc, &its_calls, preceding.len())
                 .await
                 .map_err(|error| AccountsError::Forwarder {
                     calls: indices.clone(),
@@ -210,7 +208,10 @@ impl Forwarders {
             }
             preceding.extend(accounts.preceding);
         }
-        Ok((preceding, segments))
+        Ok(CallAccounts {
+            segments,
+            preceding,
+        })
     }
 }
 
@@ -218,22 +219,27 @@ impl Forwarders {
 mod tests {
     use super::*;
     use crate::external_call::OutputMode;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use solana_instruction::Instruction;
+    use std::sync::Mutex;
 
     /// A forwarder whose calls take the forwarder and `extra` accounts, and
     /// one preceding instruction per call naming its first instruction byte;
-    /// it counts the times it is asked.
+    /// it records the preceding start it is given each time it is asked.
     struct Fixed {
         extra: Vec<Pubkey>,
-        asked: AtomicUsize,
+        starts: Mutex<Vec<usize>>,
     }
 
     impl Fixed {
         fn new(extra: Vec<Pubkey>) -> Arc<Self> {
             Arc::new(Fixed {
                 extra,
-                asked: 0.into(),
+                starts: Mutex::default(),
             })
+        }
+
+        fn starts(&self) -> Vec<usize> {
+            self.starts.lock().unwrap().clone()
         }
     }
 
@@ -242,9 +248,10 @@ mod tests {
             &'a self,
             _rpc: &'a RpcClient,
             calls: &'a [SolanaExternalCall],
-        ) -> BoxFuture<'a, Result<CallAccounts, ForwarderError>> {
+            preceding_start: usize,
+        ) -> CallAccountsFuture<'a> {
             Box::pin(async move {
-                self.asked.fetch_add(1, Ordering::SeqCst);
+                self.starts.lock().unwrap().push(preceding_start);
                 let mut accounts = CallAccounts {
                     segments: vec![],
                     preceding: vec![],
@@ -273,7 +280,8 @@ mod tests {
             &'a self,
             _rpc: &'a RpcClient,
             calls: &'a [SolanaExternalCall],
-        ) -> BoxFuture<'a, Result<CallAccounts, ForwarderError>> {
+            _preceding_start: usize,
+        ) -> CallAccountsFuture<'a> {
             Box::pin(async move {
                 Ok(CallAccounts {
                     segments: vec![vec![]; calls.len()],
@@ -310,12 +318,16 @@ mod tests {
         forwarders.register(a, fixed_a.clone());
         forwarders.register(b, fixed_b.clone());
 
-        let (preceding, segments) = forwarders
+        let CallAccounts {
+            preceding,
+            segments,
+        } = forwarders
             .accounts(&rpc(), &[call(a, 7, 2), call(b, 8, 1), call(a, 9, 2)])
             .await
             .unwrap();
-        let asked = |f: &Fixed| f.asked.load(Ordering::SeqCst);
-        assert_eq!((asked(&fixed_a), asked(&fixed_b)), (1, 1));
+        // Each forwarder is asked once, told where its preceding instructions
+        // start: `a`'s two come first, so `b`'s start at 2.
+        assert_eq!((fixed_a.starts(), fixed_b.starts()), (vec![0], vec![2]));
         // Each forwarder's preceding instructions, in the order of its first
         // call; the segments in call order.
         assert_eq!(

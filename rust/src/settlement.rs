@@ -65,6 +65,18 @@ pub fn transaction_size(message: &v1::Message) -> usize {
     1 + message.size() + 64 * usize::from(message.header.num_required_signatures)
 }
 
+/// What a settlement passes the forwarders for their calls.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallAccounts {
+    /// Each call's CPI segment, in call order: the forwarder program, then
+    /// the accounts its instruction takes.
+    pub segments: Vec<Vec<AccountMeta>>,
+    /// Instructions the settlement transaction carries first, before the
+    /// adapter's (an ed25519 signature check, an account a call needs), in the
+    /// order the calls' instruction data names them.
+    pub preceding: Vec<Instruction>,
+}
+
 /// What one settlement needs.
 pub struct SettlementRequest<'a> {
     pub pa_program: Pubkey,

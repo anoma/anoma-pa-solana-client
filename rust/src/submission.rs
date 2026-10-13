@@ -1,12 +1,11 @@
 //! A settlement as every submitter prepares it, whatever the application: the
 //! adapter's state read from the chain, each external call's accounts from
-//! the forwarder registered for its program, and the settlement or its
-//! simulation planned from them. Sending is the submitter's own.
+//! the forwarder registered for its program, and the settlement planned or
+//! simulated from them. Sending is the submitter's own.
 
 use std::fmt;
 
 use anoma_rm_risc0::transaction::Transaction;
-use solana_instruction::{AccountMeta, Instruction};
 use solana_message::{Hash, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
@@ -20,8 +19,7 @@ use crate::errors::PaError;
 use crate::forwarders::{AccountsError, Forwarders};
 use crate::pda::{derive_pa_state_pda, derive_verifier_entry_pda};
 use crate::settlement::{
-    plan_settlement, plan_simulation, PlanError, PlannedTransaction, SettlementPlan,
-    SettlementRequest,
+    plan_settlement, plan_simulation, CallAccounts, PlanError, SettlementPlan, SettlementRequest,
 };
 use crate::settlement_input::{
     external_calls, settled_resources, settlement_input, simulation_input, SettledResources,
@@ -33,6 +31,8 @@ use crate::settlement_input::{
 pub enum SubmissionError {
     /// An RPC request failed: retrying may succeed.
     Rpc { what: String, error: String },
+    /// An account the settlement reads does not exist.
+    MissingAccount { what: String },
     /// An account the chain holds does not decode.
     Decode { what: String, error: String },
     /// The transaction's calls have no accounts.
@@ -51,6 +51,7 @@ impl fmt::Display for SubmissionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Rpc { what, error } => write!(f, "failed to fetch {what}: {error}"),
+            Self::MissingAccount { what } => write!(f, "{what} does not exist"),
             Self::Decode { what, error } => write!(f, "{what} does not decode: {error}"),
             Self::Accounts(e) => write!(f, "the external calls' accounts: {e}"),
             Self::Input(e) => write!(f, "the transaction: {e}"),
@@ -83,13 +84,33 @@ impl From<PlanError> for SubmissionError {
     }
 }
 
-fn rpc_error(
-    what: impl fmt::Display,
-) -> impl FnOnce(solana_rpc_client_api::client_error::Error) -> SubmissionError {
-    move |error| SubmissionError::Rpc {
-        what: what.to_string(),
-        error: error.to_string(),
-    }
+/// The account at `address`, `what` the settlement reads, as `decode` reads
+/// it, at the RPC client's commitment.
+async fn read_account<T, E: fmt::Display>(
+    rpc: &RpcClient,
+    address: &Pubkey,
+    what: String,
+    decode: impl FnOnce(&[u8]) -> Result<T, E>,
+) -> Result<T, SubmissionError> {
+    let account = match rpc
+        .get_account_with_commitment(address, rpc.commitment())
+        .await
+    {
+        Ok(response) => response.value,
+        Err(error) => {
+            return Err(SubmissionError::Rpc {
+                what,
+                error: error.to_string(),
+            })
+        }
+    };
+    let Some(account) = account else {
+        return Err(SubmissionError::MissingAccount { what });
+    };
+    decode(&account.data).map_err(|e| SubmissionError::Decode {
+        what,
+        error: e.to_string(),
+    })
 }
 
 /// The state of the adapter `pa_program`.
@@ -98,14 +119,8 @@ pub async fn read_adapter_state(
     pa_program: &Pubkey,
 ) -> Result<PAStateAccount, SubmissionError> {
     let (address, _) = derive_pa_state_pda(pa_program);
-    let data = rpc
-        .get_account_data(&address)
-        .await
-        .map_err(rpc_error(format_args!("the adapter's state {address}")))?;
-    decode_pa_state(&data).map_err(|e| SubmissionError::Decode {
-        what: format!("the adapter's state {address}"),
-        error: format!("{e:?}"),
-    })
+    let what = format!("the adapter's state {address}");
+    read_account(rpc, &address, what, decode_pa_state).await
 }
 
 /// The verifier program the entry of `router` for `selector` names; an
@@ -116,16 +131,8 @@ pub async fn read_verifier_program(
     selector: [u8; 4],
 ) -> Result<Pubkey, SubmissionError> {
     let entry = derive_verifier_entry_pda(router, selector);
-    let data = rpc
-        .get_account_data(&entry)
-        .await
-        .map_err(rpc_error(format_args!(
-            "the router's verifier entry {entry}"
-        )))?;
-    let decoded = decode_verifier_entry(&data).map_err(|e| SubmissionError::Decode {
-        what: format!("the router's verifier entry {entry}"),
-        error: format!("{e:?}"),
-    })?;
+    let what = format!("the router's verifier entry {entry}");
+    let decoded = read_account(rpc, &entry, what, decode_verifier_entry).await?;
     Ok(Pubkey::new_from_array(decoded.verifier))
 }
 
@@ -138,8 +145,7 @@ pub struct Submission {
     state: PAStateAccount,
     transaction: Transaction,
     resources: SettledResources,
-    preceding: Vec<Instruction>,
-    call_segments: Vec<Vec<AccountMeta>>,
+    accounts: CallAccounts,
 }
 
 impl Submission {
@@ -159,7 +165,7 @@ impl Submission {
     ) -> Result<Self, SubmissionError> {
         let resources = settled_resources(&transaction)?;
         let calls = external_calls(&transaction)?;
-        let (preceding, call_segments) = forwarders.accounts(rpc, &calls).await?;
+        let accounts = forwarders.accounts(rpc, &calls).await?;
         Ok(Self {
             pa_program,
             payer,
@@ -167,8 +173,7 @@ impl Submission {
             state,
             transaction,
             resources,
-            preceding,
-            call_segments,
+            accounts,
         })
     }
 
@@ -192,8 +197,8 @@ impl Submission {
             nullifiers: &self.resources.nullifiers,
             consumed_roots: &self.resources.consumed_roots,
             created: &self.resources.created,
-            call_segments: self.call_segments.clone(),
-            preceding: self.preceding.clone(),
+            call_segments: self.accounts.segments.clone(),
+            preceding: self.accounts.preceding.clone(),
         }
     }
 
@@ -213,33 +218,68 @@ impl Submission {
         )?)
     }
 
-    /// The simulation of the settlement (pa-evm's `simulateExecute`),
-    /// skipping the RISC Zero proof's verification when
-    /// `skip_risc_zero_proof_verification`. An unproven transaction (its
-    /// aggregation proof empty) carries the adapter's proof selector instead.
-    pub fn plan_simulation(
+    /// Simulates the settlement (pa-evm's `simulateExecute`) on the state
+    /// behind `rpc` at its commitment, skipping the RISC Zero proof's
+    /// verification when `skip_risc_zero_proof_verification`: unsigned and on
+    /// the latest blockhash, which the RPC fills in. An unproven transaction
+    /// (its aggregation proof empty) carries the adapter's proof selector
+    /// instead.
+    pub async fn simulate(
         &self,
+        rpc: &RpcClient,
         skip_risc_zero_proof_verification: bool,
-    ) -> Result<PlannedTransaction, SubmissionError> {
+    ) -> Result<SimulationOutcome, SubmissionError> {
         let input = simulation_input(self.transaction.clone(), self.state.proof_selector)?;
-        Ok(plan_simulation(
-            self.request(&input),
-            skip_risc_zero_proof_verification,
-        )?)
+        let message = plan_simulation(self.request(&input), skip_risc_zero_proof_verification)?
+            .message(&self.payer, Hash::default())
+            .map_err(|e| SubmissionError::Plan(PlanError::Compile(e)))?;
+        let unsigned = VersionedTransaction {
+            signatures: vec![
+                Signature::default();
+                usize::from(message.header.num_required_signatures)
+            ],
+            message: VersionedMessage::V1(message),
+        };
+        let simulated = rpc
+            .simulate_transaction_with_config(
+                &unsigned,
+                RpcSimulateTransactionConfig {
+                    sig_verify: false,
+                    replace_recent_blockhash: true,
+                    commitment: Some(rpc.commitment()),
+                    ..RpcSimulateTransactionConfig::default()
+                },
+            )
+            .await
+            .map_err(|error| SubmissionError::Rpc {
+                what: "the simulation".to_owned(),
+                error: error.to_string(),
+            })?
+            .value;
+        let logs = simulated.logs.unwrap_or_default();
+        Ok(
+            match settlement_failure(&logs, &self.pa_program, &self.verifier_program)? {
+                Some(Failure::Adapter(PaError::Simulated)) => SimulationOutcome::Executable {
+                    units_consumed: simulated.units_consumed,
+                },
+                Some(failure) => SimulationOutcome::Failed(failure),
+                None => SimulationOutcome::Other {
+                    error: simulated.err.map(TransactionError::from),
+                    logs,
+                },
+            },
+        )
     }
 }
 
-/// How a simulation of the settlement of the adapter `pa_program` ended.
+/// How a simulation of a settlement ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimulationOutcome {
     /// `simulate_execute` ended with `Simulated`: the settlement would
     /// execute, using these compute units in all.
     Executable { units_consumed: Option<u64> },
-    /// The adapter refused the settlement with this error.
-    Refused(PaError),
-    /// Another program failed with custom error `code`: a forwarder, or the
-    /// verifier refusing the proof.
-    ProgramFailed { program: Pubkey, code: u32 },
+    /// The settlement would fail.
+    Failed(Failure),
     /// The transaction failed without any program's custom error, or did not
     /// fail at all, which `simulate_execute` never does.
     Other {
@@ -248,50 +288,39 @@ pub enum SimulationOutcome {
     },
 }
 
-/// Simulates `simulation`, a planned simulation paid for by `payer`, on the
-/// state behind `rpc` at its commitment: unsigned and on the latest
-/// blockhash, which the RPC fills in.
-pub async fn simulate(
-    rpc: &RpcClient,
+/// The failure that ended a settlement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Failure {
+    /// The adapter failed with this error of its own.
+    Adapter(PaError),
+    /// The verifier refused the aggregation proof with its custom error
+    /// `code`.
+    ProofRefused { code: u32 },
+    /// Another program failed with custom error `code`: a forwarder, or the
+    /// adapter with a code no `PaError` names.
+    Program { program: Pubkey, code: u32 },
+}
+
+/// The failure that ended a settlement of the adapter `pa_program`, whose
+/// proofs `verifier_program` verifies, from the runtime's log of it (a
+/// simulation's, or a send's preflight simulation): `None` when no program
+/// failed with a custom error.
+pub fn settlement_failure(
+    logs: &[String],
     pa_program: &Pubkey,
-    payer: &Pubkey,
-    simulation: &PlannedTransaction,
-) -> Result<SimulationOutcome, SubmissionError> {
-    let message = simulation
-        .message(payer, Hash::default())
-        .map_err(|e| SubmissionError::Plan(PlanError::Compile(e)))?;
-    let unsigned = VersionedTransaction {
-        signatures: vec![Signature::default(); usize::from(message.header.num_required_signatures)],
-        message: VersionedMessage::V1(message),
-    };
-    let simulated = rpc
-        .simulate_transaction_with_config(
-            &unsigned,
-            RpcSimulateTransactionConfig {
-                sig_verify: false,
-                replace_recent_blockhash: true,
-                commitment: Some(rpc.commitment()),
-                ..RpcSimulateTransactionConfig::default()
-            },
-        )
-        .await
-        .map_err(rpc_error("the simulation"))?
-        .value;
-    let logs = simulated.logs.unwrap_or_default();
-    Ok(match first_failure(&logs)? {
-        Some((program, code)) if program == *pa_program => match PaError::from_code(code) {
-            Some(PaError::Simulated) => SimulationOutcome::Executable {
-                units_consumed: simulated.units_consumed,
-            },
-            Some(error) => SimulationOutcome::Refused(error),
-            None => SimulationOutcome::ProgramFailed { program, code },
-        },
-        Some((program, code)) => SimulationOutcome::ProgramFailed { program, code },
-        None => SimulationOutcome::Other {
-            error: simulated.err.map(TransactionError::from),
-            logs,
-        },
-    })
+    verifier_program: &Pubkey,
+) -> Result<Option<Failure>, SubmissionError> {
+    Ok(first_failure(logs)?.map(|(program, code)| {
+        if program == *verifier_program {
+            Failure::ProofRefused { code }
+        } else if program == *pa_program {
+            PaError::from_code(code)
+                .map(Failure::Adapter)
+                .unwrap_or(Failure::Program { program, code })
+        } else {
+            Failure::Program { program, code }
+        }
+    }))
 }
 
 /// The program and custom error code of the failure that ended a transaction:
@@ -300,7 +329,7 @@ pub async fn simulate(
 /// program's own lines start `Program log: `). A log the runtime truncated is
 /// an error, since the first failure line left may then carry another
 /// program's code.
-pub fn first_failure(logs: &[String]) -> Result<Option<(Pubkey, u32)>, SubmissionError> {
+fn first_failure(logs: &[String]) -> Result<Option<(Pubkey, u32)>, SubmissionError> {
     if logs.iter().any(|line| line == "Log truncated") {
         return Err(SubmissionError::TruncatedLog);
     }
@@ -343,6 +372,44 @@ mod tests {
             failure(ADAPTER, code),
         ];
         assert_eq!(first_failure(&logs).unwrap(), Some((FORWARDER, 7)));
+    }
+
+    #[test]
+    fn a_settlements_failure_is_the_failing_programs() {
+        const VERIFIER: Pubkey = Pubkey::new_from_array([2; 32]);
+        let failure_of = |program: Pubkey, code: u32| {
+            let logs = [
+                invoke(ADAPTER, 1),
+                invoke(program, 2),
+                failure(program, code),
+            ];
+            settlement_failure(&logs, &ADAPTER, &VERIFIER).unwrap()
+        };
+        let code = PaError::NonExistingRoot.code();
+        assert_eq!(
+            failure_of(ADAPTER, code),
+            Some(Failure::Adapter(PaError::NonExistingRoot))
+        );
+        // 6600: the mock verifier's ClaimDigestMismatch.
+        assert_eq!(
+            failure_of(VERIFIER, 6600),
+            Some(Failure::ProofRefused { code: 6600 })
+        );
+        assert_eq!(
+            failure_of(FORWARDER, code),
+            Some(Failure::Program {
+                program: FORWARDER,
+                code
+            })
+        );
+        // A code of the adapter's that no `PaError` names.
+        assert_eq!(
+            failure_of(ADAPTER, 1),
+            Some(Failure::Program {
+                program: ADAPTER,
+                code: 1
+            })
+        );
     }
 
     #[test]

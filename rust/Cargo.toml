@@ -36,7 +36,6 @@ risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
 
 # Submission (`rpc` feature): the adapter's state and the forwarders' accounts
 # read over an RPC, and simulations run there.
-futures = { version = "0.3", optional = true }
 solana-rpc-client = { version = "4", optional = true }
 solana-rpc-client-api = { version = "4", optional = true }
 solana-signature = { version = "3", optional = true }
@@ -71,7 +70,6 @@ arm = ["dep:anoma-rm-risc0", "dep:risc0-zkvm"]
 rpc = [
   "solana",
   "arm",
-  "dep:futures",
   "dep:solana-rpc-client",
   "dep:solana-rpc-client-api",
   "dep:solana-signature",
