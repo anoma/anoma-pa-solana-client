@@ -15,7 +15,8 @@ use crate::constants::{
     TXDATA_CHUNK_SIZE, UPLOAD_COMPUTE_UNIT_LIMIT,
 };
 use crate::instructions::{
-    settle_from_txdata_ix, settle_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix,
+    settle_from_txdata_ix, settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix,
+    txdata_write_ix,
 };
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
 use crate::pda::{
@@ -70,10 +71,6 @@ pub struct SettlementRequest<'a> {
     /// Pays for the settlement (and owns the upload, when there is one), and
     /// signs every transaction.
     pub payer: Pubkey,
-    /// Tells the payer's concurrent uploads apart, when the input is uploaded.
-    pub upload_id: u64,
-    /// The slot after which an upload may be reclaimed.
-    pub expires_slot: u64,
     /// The settlement input (`settlement_input`, or a fixture's `tx_b64`).
     pub input: &'a [u8],
     /// The adapter's state before the settlement.
@@ -171,23 +168,36 @@ impl From<CompileError> for PlanError {
     }
 }
 
-/// The transactions of one settlement: one v1 transaction with the input
-/// inline when that transaction fits `v1::MAX_TRANSACTION_SIZE`, otherwise
-/// the upload's transactions and the settlement from the upload. A settlement
-/// whose transaction names more accounts than a transaction locks, or is too
-/// large even with its input uploaded, is refused.
+/// What every transaction settling one request carries: the adapter's
+/// accounts and remaining accounts, the input, and the instructions before
+/// the adapter's.
+struct Settling<'a> {
+    pa_program: Pubkey,
+    pa_state: Pubkey,
+    payer: Pubkey,
+    new_root_marker: Option<Pubkey>,
+    verifier_router: Pubkey,
+    router: Pubkey,
+    verifier_entry: Pubkey,
+    verifier_program: Pubkey,
+    remaining: Vec<AccountMeta>,
+    /// The root the settlement produces; `None` when it creates nothing.
+    new_root: Option<[u8; 32]>,
+    input: &'a [u8],
+    preceding: Vec<Instruction>,
+}
+
+/// What settling `request` carries.
 ///
 /// The settlement's remaining accounts are the nullifier PDAs, then the call
 /// segments, then the root marker of every consumed root other than the
 /// padding leaf. The adapter accepts its current root without a marker; the
 /// marker is passed anyway, so the settlement still lands when another one
 /// moves the root first.
-pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan, PlanError> {
+fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
     let SettlementRequest {
         pa_program,
         payer,
-        upload_id,
-        expires_slot,
         input,
         state,
         verifier_program,
@@ -231,8 +241,64 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
     let verifier_router = Pubkey::new_from_array(state.verifier_router);
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&verifier_router, state.proof_selector);
+    Ok(Settling {
+        pa_program,
+        pa_state,
+        payer,
+        new_root_marker,
+        verifier_router,
+        router,
+        verifier_entry,
+        verifier_program,
+        remaining,
+        new_root,
+        input,
+        preceding,
+    })
+}
 
-    let mut instructions = preceding;
+/// Refuses a settlement transaction, `message`, that names more accounts
+/// than a transaction locks or is larger than a transaction.
+fn within_limits(message: &v1::Message) -> Result<(), PlanError> {
+    let accounts = message.account_keys.len();
+    if accounts > usize::from(v1::MAX_ADDRESSES) {
+        return Err(PlanError::TooManyAccounts { accounts });
+    }
+    let bytes = transaction_size(message);
+    if bytes > v1::MAX_TRANSACTION_SIZE {
+        return Err(PlanError::TooLarge { bytes });
+    }
+    Ok(())
+}
+
+/// The transactions of one settlement: one v1 transaction with the input
+/// inline when that transaction fits `v1::MAX_TRANSACTION_SIZE`, otherwise
+/// the upload's transactions and the settlement from the upload. A settlement
+/// whose transaction names more accounts than a transaction locks, or is too
+/// large even with its input uploaded, is refused.
+///
+/// `upload_id` tells the payer's concurrent uploads apart, and
+/// `expires_slot` is the slot after which the upload may be reclaimed; both
+/// are used only when the input is uploaded.
+pub fn plan_settlement(
+    request: SettlementRequest<'_>,
+    upload_id: u64,
+    expires_slot: u64,
+) -> Result<SettlementPlan, PlanError> {
+    let Settling {
+        pa_program,
+        pa_state,
+        payer,
+        new_root_marker,
+        verifier_router,
+        router,
+        verifier_entry,
+        verifier_program,
+        remaining,
+        new_root,
+        input,
+        preceding: mut instructions,
+    } = settling(request)?;
     instructions.push(settle_ix(
         &pa_program,
         &pa_state,
@@ -307,19 +373,58 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
             )),
         })
     };
-    let accounts = message.account_keys.len();
-    if accounts > usize::from(v1::MAX_ADDRESSES) {
-        return Err(PlanError::TooManyAccounts { accounts });
-    }
-    let bytes = transaction_size(&message);
-    if bytes > v1::MAX_TRANSACTION_SIZE {
-        return Err(PlanError::TooLarge { bytes });
-    }
+    within_limits(&message)?;
     Ok(SettlementPlan {
         upload,
         settle,
         new_root,
     })
+}
+
+/// The transaction simulating one settlement (pa-evm's `simulateExecute`):
+/// the settlement's one transaction with `simulate_execute` in place of
+/// `settle`, verifying the RISC Zero proof unless
+/// `skip_risc_zero_proof_verification`. Sent to the RPC's simulation, it
+/// changes nothing and needs no signature. A simulation too large for one
+/// transaction is refused (`TooLarge`): unlike a settlement, it is never
+/// uploaded.
+pub fn plan_simulation(
+    request: SettlementRequest<'_>,
+    skip_risc_zero_proof_verification: bool,
+) -> Result<PlannedTransaction, PlanError> {
+    let Settling {
+        pa_program,
+        pa_state,
+        payer,
+        new_root_marker,
+        verifier_router,
+        router,
+        verifier_entry,
+        verifier_program,
+        remaining,
+        new_root: _,
+        input,
+        preceding: mut instructions,
+    } = settling(request)?;
+    instructions.push(simulate_execute_ix(
+        &pa_program,
+        &pa_state,
+        &payer,
+        input,
+        skip_risc_zero_proof_verification,
+        new_root_marker.as_ref(),
+        &verifier_router,
+        &router,
+        &verifier_entry,
+        &verifier_program,
+        remaining,
+    ));
+    let simulation = PlannedTransaction {
+        instructions,
+        config: SETTLE_TRANSACTION_CONFIG,
+    };
+    within_limits(&simulation.message(&payer, Hash::default())?)?;
+    Ok(simulation)
 }
 
 #[cfg(test)]
@@ -363,8 +468,6 @@ mod tests {
         SettlementRequest {
             pa_program: key(9),
             payer: key(8),
-            upload_id: 7,
-            expires_slot: 500,
             input,
             state,
             verifier_program: key(6),
@@ -399,7 +502,7 @@ mod tests {
     /// with nothing else in it.
     fn inline_size(state: &PAStateAccount, len: usize) -> usize {
         let input = vec![0u8; len];
-        let plan = plan_settlement(request(state, &input, &[], &[], &[], vec![])).unwrap();
+        let plan = plan_settlement(request(state, &input, &[], &[], &[], vec![]), 7, 500).unwrap();
         assert!(plan.upload.is_none(), "an input of {len} bytes uploads");
         transaction_size(&plan.settle.message(&key(8), Hash::default()).unwrap())
     }
@@ -431,14 +534,18 @@ mod tests {
 
         // The same remaining accounts whether the input is inline or uploaded.
         for input in [vec![1u8; 5], vec![1u8; v1::MAX_TRANSACTION_SIZE]] {
-            let plan = plan_settlement(request(
-                &state,
-                &input,
-                &nullifiers,
-                &roots,
-                &[],
-                vec![segment.clone()],
-            ))
+            let plan = plan_settlement(
+                request(
+                    &state,
+                    &input,
+                    &nullifiers,
+                    &roots,
+                    &[],
+                    vec![segment.clone()],
+                ),
+                7,
+                500,
+            )
             .unwrap();
             let (settle, named) = settle_instruction(&plan);
             assert_eq!(
@@ -454,7 +561,12 @@ mod tests {
     fn a_settlement_that_creates_commitments_names_the_marker_of_the_root_it_produces() {
         let state = state_with(&[[3; 32]]);
         let created = [[5; 32], [6; 32]];
-        let plan = plan_settlement(request(&state, b"input", &[], &[], &created, vec![])).unwrap();
+        let plan = plan_settlement(
+            request(&state, b"input", &[], &[], &created, vec![]),
+            7,
+            500,
+        )
+        .unwrap();
         let expected_root = CommitmentTreeState::over(&[[3; 32], [5; 32], [6; 32]])
             .unwrap()
             .root;
@@ -465,7 +577,8 @@ mod tests {
         let (settle, _) = settle_instruction(&plan);
         assert_eq!(settle.accounts[3], AccountMeta::new(marker, false));
 
-        let none = plan_settlement(request(&state, b"input", &[], &[], &[], vec![])).unwrap();
+        let none =
+            plan_settlement(request(&state, b"input", &[], &[], &[], vec![]), 7, 500).unwrap();
         assert_eq!(none.new_root, None);
         // Anchor marks an absent optional account by the program's own address.
         let (settle, _) = settle_instruction(&none);
@@ -478,7 +591,7 @@ mod tests {
         let preceding = Instruction::new_with_bytes(key(30), b"check", vec![]);
         let mut req = request(&state, b"input", &[], &[], &[], vec![]);
         req.preceding = vec![preceding.clone()];
-        let plan = plan_settlement(req).unwrap();
+        let plan = plan_settlement(req, 7, 500).unwrap();
         assert!(plan.upload.is_none(), "a 5-byte input uploads");
         assert_eq!(plan.settle.config, SETTLE_TRANSACTION_CONFIG);
         let transaction = &plan.settle.instructions;
@@ -509,7 +622,7 @@ mod tests {
         let largest = v1::MAX_TRANSACTION_SIZE - inline_size(&state, 0);
         assert_eq!(inline_size(&state, largest), v1::MAX_TRANSACTION_SIZE);
         let input = vec![0u8; largest + 1];
-        let plan = plan_settlement(request(&state, &input, &[], &[], &[], vec![])).unwrap();
+        let plan = plan_settlement(request(&state, &input, &[], &[], &[], vec![]), 7, 500).unwrap();
         assert!(
             plan.upload.is_some(),
             "an input one byte over the inline limit is uploaded"
@@ -523,7 +636,7 @@ mod tests {
         let preceding = Instruction::new_with_bytes(key(30), b"check", vec![]);
         let mut req = request(&state, &input, &[], &[], &[], vec![]);
         req.preceding = vec![preceding.clone()];
-        let plan = plan_settlement(req).unwrap();
+        let plan = plan_settlement(req, 7, 500).unwrap();
         let Some(Upload {
             init,
             writes,
@@ -595,7 +708,11 @@ mod tests {
                 nf
             })
             .collect();
-        let result = plan_settlement(request(&state, b"input", &nullifiers, &[], &[], vec![]));
+        let result = plan_settlement(
+            request(&state, b"input", &nullifiers, &[], &[], vec![]),
+            7,
+            500,
+        );
         assert!(
             matches!(result, Err(PlanError::TooManyAccounts { accounts }) if accounts > usize::from(v1::MAX_ADDRESSES)),
             "{}",
@@ -617,7 +734,8 @@ mod tests {
         };
         let accounts = |nullifiers: &[[u8; 32]], input: &[u8]| {
             let plan =
-                plan_settlement(request(&state, input, nullifiers, &[], &[], vec![])).unwrap();
+                plan_settlement(request(&state, input, nullifiers, &[], &[], vec![]), 7, 500)
+                    .unwrap();
             assert!(plan.upload.is_none(), "a 5-byte input uploads");
             plan.settle
                 .message(&key(8), Hash::default())
@@ -633,7 +751,11 @@ mod tests {
             usize::from(v1::MAX_ADDRESSES)
         );
         let input = vec![0u8; v1::MAX_TRANSACTION_SIZE];
-        let result = plan_settlement(request(&state, &input, &nullifiers, &[], &[], vec![]));
+        let result = plan_settlement(
+            request(&state, &input, &nullifiers, &[], &[], vec![]),
+            7,
+            500,
+        );
         assert!(
             matches!(result, Err(PlanError::TooManyAccounts { accounts }) if accounts == usize::from(v1::MAX_ADDRESSES) + 1),
             "an upload whose settlement names {} accounts is planned: {}",
@@ -652,12 +774,73 @@ mod tests {
             &vec![0u8; v1::MAX_TRANSACTION_SIZE],
             vec![],
         )];
-        let result = plan_settlement(req);
+        let result = plan_settlement(req, 7, 500);
         assert!(
             matches!(result, Err(PlanError::TooLarge { bytes }) if bytes > v1::MAX_TRANSACTION_SIZE),
             "a settlement transaction over {} bytes is planned: {}",
             v1::MAX_TRANSACTION_SIZE,
             outcome(&result)
+        );
+    }
+
+    #[test]
+    fn a_simulation_is_the_settlement_transaction_with_simulate_execute_for_settle() {
+        let state = state_with(&[[3; 32]]);
+        let nullifiers = [[10; 32]];
+        let roots = [state.root];
+        let created = [[5; 32]];
+        let segment = vec![AccountMeta::new(key(21), false)];
+        let preceding = Instruction::new_with_bytes(key(30), b"check", vec![]);
+        let request = || {
+            let mut req = request(
+                &state,
+                b"input",
+                &nullifiers,
+                &roots,
+                &created,
+                vec![segment.clone()],
+            );
+            req.preceding = vec![preceding.clone()];
+            req
+        };
+        let settlement = plan_settlement(request(), 7, 500).unwrap();
+        assert!(settlement.upload.is_none(), "a 5-byte input uploads");
+        for skip in [false, true] {
+            let simulation = plan_simulation(request(), skip).unwrap();
+            assert_eq!(simulation.config, settlement.settle.config);
+            let [check, simulate] = &simulation.instructions[..] else {
+                panic!("{} instructions", simulation.instructions.len());
+            };
+            let [_, settle] = &settlement.settle.instructions[..] else {
+                panic!("{} instructions", settlement.settle.instructions.len());
+            };
+            assert_eq!(check, &preceding);
+            assert_eq!(simulate.accounts, settle.accounts);
+            assert_eq!(
+                simulate.data,
+                [
+                    &crate::discriminator::anchor_instruction_disc("simulate_execute")[..],
+                    &settle.data[8..],
+                    &[u8::from(skip)],
+                ]
+                .concat()
+            );
+        }
+    }
+
+    #[test]
+    fn a_simulation_too_large_for_one_transaction_is_refused() {
+        let state = state_with(&[]);
+        let input = vec![0u8; v1::MAX_TRANSACTION_SIZE];
+        let result = plan_simulation(request(&state, &input, &[], &[], &[], vec![]), true);
+        assert!(
+            matches!(result, Err(PlanError::TooLarge { bytes }) if bytes > v1::MAX_TRANSACTION_SIZE),
+            "a simulation over {} bytes is planned: {}",
+            v1::MAX_TRANSACTION_SIZE,
+            match &result {
+                Ok(_) => "a transaction".to_string(),
+                Err(e) => e.to_string(),
+            }
         );
     }
 
@@ -678,7 +861,8 @@ mod tests {
     #[test]
     fn the_transaction_size_is_the_serialized_message_and_its_signatures() {
         let state = state_with(&[]);
-        let plan = plan_settlement(request(&state, b"input", &[], &[], &[], vec![])).unwrap();
+        let plan =
+            plan_settlement(request(&state, b"input", &[], &[], &[], vec![]), 7, 500).unwrap();
         let message = plan.settle.message(&key(8), Hash::default()).unwrap();
         assert_eq!(
             transaction_size(&message),

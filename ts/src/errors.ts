@@ -58,6 +58,7 @@ export const PA_ERRORS = [
   "OwnableUnauthorizedAccount",
   "OwnableInvalidOwner",
   "InvalidUpgradeBuffer",
+  "Simulated",
 ] as const;
 
 /** An error the adapter returns. */

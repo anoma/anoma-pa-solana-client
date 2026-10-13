@@ -107,11 +107,14 @@ pub enum PaError {
     OwnableInvalidOwner,
     /// Buffer is not a loader buffer holding a program.
     InvalidUpgradeBuffer,
+    /// `simulate_execute` ends with it whenever the transaction would execute
+    /// (pa-evm's `Simulated`).
+    Simulated,
 }
 
 impl PaError {
     /// Every error, in code order.
-    pub const ALL: [PaError; 49] = [
+    pub const ALL: [PaError; 50] = [
         PaError::PreExistingNullifier,
         PaError::NullifierPdaMismatch,
         PaError::NonExistingRoot,
@@ -161,6 +164,7 @@ impl PaError {
         PaError::OwnableUnauthorizedAccount,
         PaError::OwnableInvalidOwner,
         PaError::InvalidUpgradeBuffer,
+        PaError::Simulated,
     ];
 
     /// The error the adapter returns as custom program error `code`, if any.

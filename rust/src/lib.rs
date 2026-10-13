@@ -50,8 +50,8 @@ pub use u256::{U256OutOfRange, U256};
 #[cfg(feature = "solana")]
 pub use instructions::{
     deny_logic_refs_ix, initialize_ix, pause_ix, set_kind_table_commitment_ix,
-    settle_from_txdata_ix, settle_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix, unpause_ix,
-    DeniedLogicRef,
+    settle_from_txdata_ix, settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix,
+    txdata_write_ix, unpause_ix, DeniedLogicRef,
 };
 #[cfg(feature = "solana")]
 pub use pda::{
@@ -63,6 +63,6 @@ pub use pda::{
 pub use program_ids::*;
 #[cfg(feature = "solana")]
 pub use settlement::{
-    plan_settlement, transaction_size, PlanError, PlannedTransaction, SettlementPlan,
-    SettlementRequest, Upload,
+    plan_settlement, plan_simulation, transaction_size, PlanError, PlannedTransaction,
+    SettlementPlan, SettlementRequest, Upload,
 };
