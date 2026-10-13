@@ -57,11 +57,11 @@ pub struct CommitmentTreeRootAddedEvent {
     pub root: [u8; 32],
 }
 
-/// The kind-table commitment the adapter now requires: the empty table's at
-/// initialization, then each `set_kind_table_commitment`.
+/// The kind-table root the adapter now requires: the empty table's at
+/// initialization, then each `set_kind_table_root`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct KindTableCommitmentUpdatedEvent {
-    pub kind_table_commitment: [u8; 32],
+pub struct KindTableRootUpdatedEvent {
+    pub kind_table_root: [u8; 32],
 }
 
 /// A logic ref the owner added to the denylist for consumed resources
@@ -125,7 +125,7 @@ pub enum PaEvent {
     TransactionExecuted(TransactionExecutedEvent),
     ForwarderCallExecuted(ForwarderCallExecutedEvent),
     CommitmentTreeRootAdded(CommitmentTreeRootAddedEvent),
-    KindTableCommitmentUpdated(KindTableCommitmentUpdatedEvent),
+    KindTableRootUpdated(KindTableRootUpdatedEvent),
     LogicRefDenied(LogicRefDeniedEvent),
     Paused(PauseEvent),
     Unpaused(PauseEvent),
@@ -252,9 +252,9 @@ fn pa_event_body(
         PaEvent::CommitmentTreeRootAdded(CommitmentTreeRootAddedEvent {
             root: c.array_32("root")?,
         })
-    } else if disc == anchor_event_disc("KindTableCommitmentUpdatedEvent") {
-        PaEvent::KindTableCommitmentUpdated(KindTableCommitmentUpdatedEvent {
-            kind_table_commitment: c.array_32("kind_table_commitment")?,
+    } else if disc == anchor_event_disc("KindTableRootUpdatedEvent") {
+        PaEvent::KindTableRootUpdated(KindTableRootUpdatedEvent {
+            kind_table_root: c.array_32("kind_table_root")?,
         })
     } else if disc == anchor_event_disc("LogicRefDeniedEvent") {
         PaEvent::LogicRefDenied(LogicRefDeniedEvent {
