@@ -286,6 +286,50 @@ pub fn settle_ix(
     }
 }
 
+/// Build a PA `simulate_execute` instruction (pa-evm's `simulateExecute`):
+/// `settle_ix`'s accounts and input, and whether to skip verifying the RISC
+/// Zero proof. It always fails: with `Simulated` when the settlement would
+/// execute, otherwise with the error `settle` would.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_execute_ix(
+    pa_program: &Pubkey,
+    pa_state: &Pubkey,
+    payer: &Pubkey,
+    input: &[u8],
+    skip_risc_zero_proof_verification: bool,
+    new_root_marker: Option<&Pubkey>,
+    verifier_router_program: &Pubkey,
+    router: &Pubkey,
+    verifier_entry: &Pubkey,
+    verifier_program: &Pubkey,
+    remaining_accounts: Vec<AccountMeta>,
+) -> Instruction {
+    let mut data = Vec::with_capacity(8 + 4 + input.len() + 1);
+    data.extend_from_slice(&anchor_instruction_disc("simulate_execute"));
+    // Anchor serializes Vec<u8> as 4-byte LE length prefix + bytes, and bool
+    // as one byte.
+    data.extend_from_slice(&(input.len() as u32).to_le_bytes());
+    data.extend_from_slice(input);
+    data.push(u8::from(skip_risc_zero_proof_verification));
+
+    Instruction {
+        program_id: *pa_program,
+        accounts: settlement_accounts(
+            pa_program,
+            pa_state,
+            None,
+            payer,
+            new_root_marker,
+            verifier_router_program,
+            router,
+            verifier_entry,
+            verifier_program,
+            remaining_accounts,
+        ),
+        data,
+    }
+}
+
 /// Build a PA `settle_from_txdata` instruction, which settles the input
 /// uploaded to `tx_data`. See `settlement_accounts` for the accounts.
 #[allow(clippy::too_many_arguments)]
@@ -572,6 +616,58 @@ mod tests {
             derive_event_authority_pda(&pa).0
         );
         assert_eq!(by_name("program"), pa);
+    }
+
+    #[test]
+    fn the_inline_settlement_instructions_match_the_adapters_idl() {
+        let pa = crate::program_ids::PA_PROGRAM_ID;
+        let (pa_state, _) = crate::pda::derive_pa_state_pda(&pa);
+        let (payer, marker, router_program, router, entry, verifier) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let input = b"input";
+        let encoded_input = [&5u32.to_le_bytes()[..], input].concat();
+        let settle = settle_ix(
+            &pa,
+            &pa_state,
+            &payer,
+            input,
+            Some(&marker),
+            &router_program,
+            &router,
+            &entry,
+            &verifier,
+            vec![],
+        );
+        for skip in [false, true] {
+            let simulate = simulate_execute_ix(
+                &pa,
+                &pa_state,
+                &payer,
+                input,
+                skip,
+                Some(&marker),
+                &router_program,
+                &router,
+                &entry,
+                &verifier,
+                vec![],
+            );
+            let args = [&encoded_input[..], &[u8::from(skip)]].concat();
+            let by_name = assert_matches_the_adapters_idl(&simulate, "simulate_execute", &args);
+            assert_eq!(by_name("payer"), payer);
+            assert_eq!(by_name("new_root_marker"), marker);
+            assert_eq!(by_name("verifier_program"), verifier);
+            // The same accounts as `settle`.
+            assert_eq!(simulate.accounts, settle.accounts);
+        }
+        let by_name = assert_matches_the_adapters_idl(&settle, "settle", &encoded_input);
+        assert_eq!(by_name("new_root_marker"), marker);
     }
 
     #[test]

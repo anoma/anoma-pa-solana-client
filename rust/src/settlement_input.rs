@@ -53,6 +53,26 @@ pub fn settlement_input(tx: Transaction) -> Result<Vec<u8>, SettlementInputError
         .map_err(|e| SettlementInputError::Serialize(e.to_string()))
 }
 
+/// `tx` as `simulate_execute` takes it: a proven transaction as
+/// `settlement_input` encodes it; an unproven one (its aggregation proof
+/// empty) with `selector`, the adapter's proof selector, as its proof, which
+/// the adapter checks even when it skips verifying the proof, as pa-evm's
+/// `simulateExecute` reads an unproven transaction's proof selector.
+pub fn simulation_input(
+    mut tx: Transaction,
+    selector: [u8; 4],
+) -> Result<Vec<u8>, SettlementInputError> {
+    let aggregation = tx
+        .aggregation
+        .as_mut()
+        .ok_or(SettlementInputError::NoAggregation)?;
+    if !aggregation.proof.is_empty() {
+        return settlement_input(tx);
+    }
+    aggregation.proof = selector.to_vec();
+    bincode::serialize(&tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))
+}
+
 /// `tx` with its aggregation proof re-encoded as the router seal: the
 /// transaction the settlement input serializes, for a caller that derives
 /// more from it (fixture-gen's tampered variants).
@@ -330,6 +350,30 @@ mod tests {
         seal.extend(claim.as_bytes());
         seal.extend([0u8; 32]);
         seal
+    }
+
+    #[tokio::test]
+    async fn a_proven_transaction_simulates_as_it_settles() {
+        let tx = proven_trivial_transaction().await;
+        assert_eq!(
+            simulation_input(tx.clone(), MOCK_SELECTOR).expect("simulation input"),
+            settlement_input(tx).expect("settlement input")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unproven_transaction_simulates_with_the_selector_as_its_proof() {
+        let mut tx = proven_trivial_transaction().await;
+        tx.aggregation.as_mut().unwrap().proof = vec![];
+        let input = simulation_input(tx.clone(), MOCK_SELECTOR).expect("input");
+        assert_eq!(settled_proof(&input), MOCK_SELECTOR.to_vec());
+        let mut settled: Transaction = bincode::deserialize(&input).unwrap();
+        settled.aggregation.as_mut().unwrap().proof = vec![];
+        assert_eq!(
+            bincode::serialize(&settled).unwrap(),
+            bincode::serialize(&tx).unwrap(),
+            "only the aggregation proof changes"
+        );
     }
 
     #[tokio::test]

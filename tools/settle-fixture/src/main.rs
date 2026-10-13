@@ -191,20 +191,22 @@ fn main() {
         .as_secs();
     let verifier_entry =
         derive_verifier_entry_pda(&Pubkey::from(state.verifier_router), state.proof_selector);
-    let plan = plan_settlement(SettlementRequest {
-        pa_program: args.pa,
-        payer: payer.pubkey(),
+    let plan = plan_settlement(
+        SettlementRequest {
+            pa_program: args.pa,
+            payer: payer.pubkey(),
+            input: &tx_bytes,
+            state: &state,
+            verifier_program: verifier_program_of(&client, &verifier_entry),
+            nullifiers: &b64_32s(&fixture.consumed_nullifiers_b64),
+            consumed_roots: &b64_32s(&fixture.historical_roots_b64),
+            created: &b64_32s(&fixture.created_commitments_b64),
+            call_segments,
+            preceding: vec![],
+        },
         upload_id,
-        expires_slot: client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT,
-        input: &tx_bytes,
-        state: &state,
-        verifier_program: verifier_program_of(&client, &verifier_entry),
-        nullifiers: &b64_32s(&fixture.consumed_nullifiers_b64),
-        consumed_roots: &b64_32s(&fixture.historical_roots_b64),
-        created: &b64_32s(&fixture.created_commitments_b64),
-        call_segments,
-        preceding: vec![],
-    })
+        client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT,
+    )
     .expect("plan the settlement");
     println!("predicted root {:?}", plan.new_root.map(|root| hex(&root)));
 
