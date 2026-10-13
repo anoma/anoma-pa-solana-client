@@ -144,27 +144,22 @@ pub struct Submission {
 
 impl Submission {
     /// Prepares `transaction`, an aggregated transaction, for the adapter
-    /// `pa_program`: `payer` pays for and signs the settlement,
-    /// `verifier_program` is the one the router names for the adapter's
-    /// selector (`read_verifier_program`), and `forwarders` supply the
-    /// external calls' accounts.
+    /// `pa_program` as `state` records it (`read_adapter_state`): `payer`
+    /// pays for and signs the settlement, `verifier_program` is the one the
+    /// router names for the adapter's selector (`read_verifier_program`), and
+    /// `forwarders` supply the external calls' accounts.
     pub async fn prepare(
         rpc: &RpcClient,
         forwarders: &Forwarders,
         pa_program: Pubkey,
         payer: Pubkey,
+        state: PAStateAccount,
         verifier_program: Pubkey,
         transaction: Transaction,
     ) -> Result<Self, SubmissionError> {
         let resources = settled_resources(&transaction)?;
         let calls = external_calls(&transaction)?;
-        let (state, (preceding, call_segments)) =
-            futures::try_join!(read_adapter_state(rpc, &pa_program), async {
-                forwarders
-                    .accounts(rpc, &calls)
-                    .await
-                    .map_err(SubmissionError::from)
-            },)?;
+        let (preceding, call_segments) = forwarders.accounts(rpc, &calls).await?;
         Ok(Self {
             pa_program,
             payer,
