@@ -96,8 +96,7 @@ if (mode === "--recorded") {
     const { result: tx, error } = await response.json();
     if (error) throw new Error(`getTransaction ${signature}: ${JSON.stringify(error)}`);
     if (!tx) throw new Error(`transaction ${signature} not found`);
-    const loaded = tx.meta.loadedAddresses ?? { writable: [], readonly: [] };
-    const keys = [...tx.transaction.message.accountKeys, ...loaded.writable, ...loaded.readonly];
+    const keys = tx.transaction.message.accountKeys;
     for (const group of tx.meta.innerInstructions ?? []) {
       for (const ix of group.instructions) {
         if (keys[ix.programIdIndex] !== idl.address) continue;

@@ -23,8 +23,8 @@ sha2 = "0.10"
 # false`. These are the Solana crate versions the programs build with (Anchor
 # 1.2): pubkey, instruction and sdk-ids 3.
 solana-instruction = { version = "3", optional = true }
-# The settlement's v1 transaction messages (`wincode`: their wire size).
-solana-message = { version = "4", optional = true, features = ["wincode"] }
+# The settlement's v1 transaction messages.
+solana-message = { version = "4", optional = true }
 # `curve25519`: PDA derivation (`Pubkey::find_program_address`).
 solana-pubkey = { version = "3", optional = true, features = ["curve25519"] }
 solana-sdk-ids = { version = "3", optional = true }
@@ -41,6 +41,8 @@ base64 = "0.22"
 # Proves trivial actions for the settlement-input tests.
 anoma-pa-testkit = { version = "=1.0.0-rc.1", features = ["local", "fixtures"] }
 tokio = { version = "1", features = ["macros", "rt"] }
+# Serializes a v1 message to check `transaction_size` against it.
+solana-message = { version = "4", features = ["wincode"] }
 
 [features]
 default = ["solana"]

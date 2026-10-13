@@ -26,7 +26,7 @@ use crate::pda::{
 /// The v1 transaction settings of a settlement transaction: its compute and
 /// heap budgets, and the runtime's maximum of loaded account data, which a v1
 /// transaction states rather than defaults to.
-pub const SETTLE_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
+const SETTLE_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
     priority_fee: None,
     compute_unit_limit: Some(SETTLE_COMPUTE_UNIT_LIMIT),
     loaded_accounts_data_size_limit: Some(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES),
@@ -35,30 +35,33 @@ pub const SETTLE_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
 
 /// The v1 transaction settings of an upload's init, write and close
 /// transactions, each one adapter instruction.
-pub const UPLOAD_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
+const UPLOAD_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
     priority_fee: None,
     compute_unit_limit: Some(UPLOAD_COMPUTE_UNIT_LIMIT),
     loaded_accounts_data_size_limit: Some(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES),
     heap_size: None,
 };
 
-/// The v1 message of `instructions`, paid for and signed by `payer`, with
-/// the settings `config` (`SETTLE_TRANSACTION_CONFIG` or
-/// `UPLOAD_TRANSACTION_CONFIG`).
-pub fn transaction_message(
-    payer: &Pubkey,
-    instructions: &[Instruction],
-    blockhash: Hash,
-    config: TransactionConfig,
-) -> Result<v1::Message, CompileError> {
-    v1::Message::try_compile_with_config(payer, instructions, blockhash, config)
+/// One transaction of a settlement: its instructions and the v1 settings it
+/// is sent with.
+#[derive(Debug, PartialEq)]
+pub struct PlannedTransaction {
+    pub instructions: Vec<Instruction>,
+    pub config: TransactionConfig,
 }
 
-/// The bytes the v1 transaction of `message` takes on the wire: the message,
-/// then one 64-byte signature per signer. A transaction fits when this is at
-/// most `v1::MAX_TRANSACTION_SIZE`.
+impl PlannedTransaction {
+    /// Its v1 message, paid for and signed by `payer`.
+    pub fn message(&self, payer: &Pubkey, blockhash: Hash) -> Result<v1::Message, CompileError> {
+        v1::Message::try_compile_with_config(payer, &self.instructions, blockhash, self.config)
+    }
+}
+
+/// The bytes the v1 transaction of `message` takes on the wire: the version
+/// byte, the message, then one 64-byte signature per signer. A transaction
+/// fits when this is at most `v1::MAX_TRANSACTION_SIZE`.
 pub fn transaction_size(message: &v1::Message) -> usize {
-    message.serialize().len() + 64 * usize::from(message.header.num_required_signatures)
+    1 + message.size() + 64 * usize::from(message.header.num_required_signatures)
 }
 
 /// What one settlement needs.
@@ -92,31 +95,29 @@ pub struct SettlementRequest<'a> {
     pub preceding: Vec<Instruction>,
 }
 
-/// How one settlement's input reaches the adapter.
+/// The upload a settlement too large for one transaction reads its input
+/// from.
 #[derive(Debug, PartialEq)]
-pub enum Settlement {
-    /// One transaction: the preceding instructions, then `settle` carrying
-    /// the input.
-    Inline { transaction: Vec<Instruction> },
-    /// The input uploaded in chunks, one transaction each, then settled from
-    /// the upload.
-    Upload {
-        /// Creates the upload.
-        init: Instruction,
-        /// Fills the upload, one chunk per transaction.
-        writes: Vec<Instruction>,
-        /// The settlement transaction: the preceding instructions, then
-        /// `settle_from_txdata`.
-        settle: Vec<Instruction>,
-        /// Closes the upload, whatever the settlement's outcome.
-        close: Instruction,
-    },
+pub struct Upload {
+    /// Creates the upload.
+    pub init: PlannedTransaction,
+    /// Fill the upload, one chunk each. Each write names its offset, so they
+    /// land in any order.
+    pub writes: Vec<PlannedTransaction>,
+    /// Closes the upload, whatever the settlement's outcome.
+    pub close: PlannedTransaction,
 }
 
 /// One settlement's transactions.
 #[derive(Debug)]
 pub struct SettlementPlan {
-    pub settlement: Settlement,
+    /// The upload to fill before `settle` and close after it; `None` when
+    /// `settle` carries the input itself.
+    pub upload: Option<Upload>,
+    /// The settlement transaction: the preceding instructions, then the
+    /// adapter's `settle` with the input, or `settle_from_txdata` of the
+    /// upload.
+    pub settle: PlannedTransaction,
     /// The root the adapter holds after the settlement; `None` when it creates
     /// nothing and so produces no root.
     pub new_root: Option<[u8; 32]>,
@@ -129,8 +130,12 @@ pub enum PlanError {
     Merkle(MerkleError),
     /// Its transaction cannot be compiled.
     Compile(CompileError),
-    /// Its transaction names more accounts than a transaction can lock.
+    /// Its settlement transaction names more accounts than a transaction can
+    /// lock.
     TooManyAccounts { accounts: usize },
+    /// Its settlement transaction is larger than a transaction, even with the
+    /// input uploaded.
+    TooLarge { bytes: usize },
 }
 
 impl core::fmt::Display for PlanError {
@@ -142,6 +147,11 @@ impl core::fmt::Display for PlanError {
                 f,
                 "the settlement transaction names {accounts} accounts; a transaction locks at most {}",
                 v1::MAX_ADDRESSES
+            ),
+            PlanError::TooLarge { bytes } => write!(
+                f,
+                "the settlement transaction takes {bytes} bytes with its input uploaded; a transaction takes at most {}",
+                v1::MAX_TRANSACTION_SIZE
             ),
         }
     }
@@ -163,9 +173,9 @@ impl From<CompileError> for PlanError {
 
 /// The transactions of one settlement: one v1 transaction with the input
 /// inline when that transaction fits `v1::MAX_TRANSACTION_SIZE`, otherwise
-/// the upload's transactions. Either way the settlement transaction takes
-/// `SETTLE_TRANSACTION_CONFIG`, and an upload's others
-/// `UPLOAD_TRANSACTION_CONFIG`.
+/// the upload's transactions and the settlement from the upload. A settlement
+/// whose transaction names more accounts than a transaction locks, or is too
+/// large even with its input uploaded, is refused.
 ///
 /// The settlement's remaining accounts are the nullifier PDAs, then the call
 /// segments, then the root marker of every consumed root other than the
@@ -222,8 +232,8 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
     let (router, verifier_entry) =
         derive_verifier_router_pdas(&verifier_router, state.proof_selector);
 
-    let mut transaction = preceding.clone();
-    transaction.push(settle_ix(
+    let mut instructions = preceding;
+    instructions.push(settle_ix(
         &pa_program,
         &pa_state,
         &payer,
@@ -235,45 +245,37 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
         &verifier_program,
         remaining.clone(),
     ));
+    let mut settle = PlannedTransaction {
+        instructions,
+        config: SETTLE_TRANSACTION_CONFIG,
+    };
     // The blockhash is a fixed 32 bytes, so any one gives the size.
-    let message = transaction_message(
-        &payer,
-        &transaction,
-        Hash::default(),
-        SETTLE_TRANSACTION_CONFIG,
-    )?;
-    // The upload's settlement transaction names the same accounts and the
-    // upload, so it cannot lock them either.
-    if message.account_keys.len() > usize::from(v1::MAX_ADDRESSES) {
-        return Err(PlanError::TooManyAccounts {
-            accounts: message.account_keys.len(),
-        });
-    }
-    if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
-        return Ok(SettlementPlan {
-            settlement: Settlement::Inline { transaction },
-            new_root,
-        });
-    }
-
-    let (tx_data, _) = derive_tx_data_pda(&pa_program, &payer, upload_id);
-    let mut settle = preceding;
-    settle.push(settle_from_txdata_ix(
-        &pa_program,
-        &pa_state,
-        &tx_data,
-        &payer,
-        upload_id,
-        new_root_marker.as_ref(),
-        &verifier_router,
-        &router,
-        &verifier_entry,
-        &verifier_program,
-        remaining,
-    ));
-    Ok(SettlementPlan {
-        settlement: Settlement::Upload {
-            init: txdata_init_ix(
+    let mut message = settle.message(&payer, Hash::default())?;
+    let upload = if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
+        None
+    } else {
+        let (tx_data, _) = derive_tx_data_pda(&pa_program, &payer, upload_id);
+        settle.instructions.pop();
+        settle.instructions.push(settle_from_txdata_ix(
+            &pa_program,
+            &pa_state,
+            &tx_data,
+            &payer,
+            upload_id,
+            new_root_marker.as_ref(),
+            &verifier_router,
+            &router,
+            &verifier_entry,
+            &verifier_program,
+            remaining,
+        ));
+        message = settle.message(&payer, Hash::default())?;
+        let upload_transaction = |ix| PlannedTransaction {
+            instructions: vec![ix],
+            config: UPLOAD_TRANSACTION_CONFIG,
+        };
+        Some(Upload {
+            init: upload_transaction(txdata_init_ix(
                 &pa_program,
                 &pa_state,
                 &tx_data,
@@ -281,24 +283,41 @@ pub fn plan_settlement(request: SettlementRequest<'_>) -> Result<SettlementPlan,
                 upload_id,
                 input.len() as u32,
                 expires_slot,
-            ),
+            )),
             writes: input
                 .chunks(TXDATA_CHUNK_SIZE)
                 .enumerate()
                 .map(|(i, chunk)| {
-                    txdata_write_ix(
+                    upload_transaction(txdata_write_ix(
                         &pa_program,
                         &tx_data,
                         &payer,
                         upload_id,
                         (i * TXDATA_CHUNK_SIZE) as u32,
                         chunk,
-                    )
+                    ))
                 })
                 .collect(),
-            settle,
-            close: txdata_close_ix(&pa_program, &tx_data, &payer, &payer, upload_id),
-        },
+            close: upload_transaction(txdata_close_ix(
+                &pa_program,
+                &tx_data,
+                &payer,
+                &payer,
+                upload_id,
+            )),
+        })
+    };
+    let accounts = message.account_keys.len();
+    if accounts > usize::from(v1::MAX_ADDRESSES) {
+        return Err(PlanError::TooManyAccounts { accounts });
+    }
+    let bytes = transaction_size(&message);
+    if bytes > v1::MAX_TRANSACTION_SIZE {
+        return Err(PlanError::TooLarge { bytes });
+    }
+    Ok(SettlementPlan {
+        upload,
+        settle,
         new_root,
     })
 }
@@ -357,14 +376,23 @@ mod tests {
         }
     }
 
-    /// The settlement instruction of `plan`, inline or from the upload, and
-    /// how many named accounts precede its remaining ones.
-    fn settle_instruction(plan: &SettlementPlan) -> (&Instruction, usize) {
-        match &plan.settlement {
-            // `settle`: no upload account.
-            Settlement::Inline { transaction } => (transaction.last().unwrap(), 10),
-            Settlement::Upload { settle, .. } => (settle.last().unwrap(), 11),
+    /// What `plan_settlement` returned, briefly.
+    fn outcome(result: &Result<SettlementPlan, PlanError>) -> String {
+        match result {
+            Ok(plan) => format!(
+                "a plan with {} upload",
+                if plan.upload.is_some() { "an" } else { "no" }
+            ),
+            Err(e) => e.to_string(),
         }
+    }
+
+    /// The adapter's instruction in `plan`'s settlement transaction, and how
+    /// many named accounts precede its remaining ones: `settle_from_txdata`
+    /// names the upload as well.
+    fn settle_instruction(plan: &SettlementPlan) -> (&Instruction, usize) {
+        let named = if plan.upload.is_some() { 11 } else { 10 };
+        (plan.settle.instructions.last().unwrap(), named)
     }
 
     /// The size of the inline transaction carrying an input of `len` bytes,
@@ -372,18 +400,8 @@ mod tests {
     fn inline_size(state: &PAStateAccount, len: usize) -> usize {
         let input = vec![0u8; len];
         let plan = plan_settlement(request(state, &input, &[], &[], &[], vec![])).unwrap();
-        let Settlement::Inline { transaction } = plan.settlement else {
-            panic!("an input of {len} bytes uploads");
-        };
-        transaction_size(
-            &transaction_message(
-                &key(8),
-                &transaction,
-                Hash::default(),
-                SETTLE_TRANSACTION_CONFIG,
-            )
-            .unwrap(),
-        )
+        assert!(plan.upload.is_none(), "an input of {len} bytes uploads");
+        transaction_size(&plan.settle.message(&key(8), Hash::default()).unwrap())
     }
 
     #[test]
@@ -461,9 +479,9 @@ mod tests {
         let mut req = request(&state, b"input", &[], &[], &[], vec![]);
         req.preceding = vec![preceding.clone()];
         let plan = plan_settlement(req).unwrap();
-        let Settlement::Inline { transaction } = plan.settlement else {
-            panic!("a 5-byte input uploads");
-        };
+        assert!(plan.upload.is_none(), "a 5-byte input uploads");
+        assert_eq!(plan.settle.config, SETTLE_TRANSACTION_CONFIG);
+        let transaction = &plan.settle.instructions;
         // The preceding instructions first, then `settle` with the input.
         assert_eq!(transaction.len(), 2);
         assert_eq!(transaction[0], preceding);
@@ -493,7 +511,7 @@ mod tests {
         let input = vec![0u8; largest + 1];
         let plan = plan_settlement(request(&state, &input, &[], &[], &[], vec![])).unwrap();
         assert!(
-            matches!(plan.settlement, Settlement::Upload { .. }),
+            plan.upload.is_some(),
             "an input one byte over the inline limit is uploaded"
         );
     }
@@ -506,20 +524,23 @@ mod tests {
         let mut req = request(&state, &input, &[], &[], &[], vec![]);
         req.preceding = vec![preceding.clone()];
         let plan = plan_settlement(req).unwrap();
-        let Settlement::Upload {
+        let Some(Upload {
             init,
             writes,
-            settle,
             close,
-        } = plan.settlement
+        }) = plan.upload
         else {
             panic!("an input of two chunks settles inline");
+        };
+        let upload_transaction = |ix| PlannedTransaction {
+            instructions: vec![ix],
+            config: UPLOAD_TRANSACTION_CONFIG,
         };
         let (tx_data, _) = derive_tx_data_pda(&key(9), &key(8), 7);
         let (pa_state, _) = derive_pa_state_pda(&key(9));
         assert_eq!(
             init,
-            txdata_init_ix(
+            upload_transaction(txdata_init_ix(
                 &key(9),
                 &pa_state,
                 &tx_data,
@@ -527,25 +548,27 @@ mod tests {
                 7,
                 input.len() as u32,
                 500
-            )
+            ))
         );
         // Two full chunks, then the 5-byte rest.
         let c = TXDATA_CHUNK_SIZE;
-        let expected: Vec<Instruction> = [(0, c), (c, 2 * c), (2 * c, 2 * c + 5)]
+        let expected: Vec<PlannedTransaction> = [(0, c), (c, 2 * c), (2 * c, 2 * c + 5)]
             .iter()
             .map(|&(start, end)| {
-                txdata_write_ix(
+                upload_transaction(txdata_write_ix(
                     &key(9),
                     &tx_data,
                     &key(8),
                     7,
                     start as u32,
                     &input[start..end],
-                )
+                ))
             })
             .collect();
         assert_eq!(writes, expected);
         // The preceding instructions first, then `settle_from_txdata` of the upload.
+        assert_eq!(plan.settle.config, SETTLE_TRANSACTION_CONFIG);
+        let settle = &plan.settle.instructions;
         assert_eq!(settle.len(), 2);
         assert_eq!(settle[0], preceding);
         assert_eq!(
@@ -558,7 +581,7 @@ mod tests {
         );
         assert_eq!(
             close,
-            txdata_close_ix(&key(9), &tx_data, &key(8), &key(8), 7)
+            upload_transaction(txdata_close_ix(&key(9), &tx_data, &key(8), &key(8), 7))
         );
     }
 
@@ -575,7 +598,66 @@ mod tests {
         let result = plan_settlement(request(&state, b"input", &nullifiers, &[], &[], vec![]));
         assert!(
             matches!(result, Err(PlanError::TooManyAccounts { accounts }) if accounts > usize::from(v1::MAX_ADDRESSES)),
-            "{result:?}"
+            "{}",
+            outcome(&result)
+        );
+    }
+
+    #[test]
+    fn an_upload_whose_settlement_names_one_account_too_many_is_refused() {
+        let state = state_with(&[]);
+        let nullifiers_for = |n: usize| -> Vec<[u8; 32]> {
+            (0..n)
+                .map(|i| {
+                    let mut nf = [0u8; 32];
+                    nf[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                    nf
+                })
+                .collect()
+        };
+        let accounts = |nullifiers: &[[u8; 32]], input: &[u8]| {
+            let plan =
+                plan_settlement(request(&state, input, nullifiers, &[], &[], vec![])).unwrap();
+            assert!(plan.upload.is_none(), "a 5-byte input uploads");
+            plan.settle
+                .message(&key(8), Hash::default())
+                .unwrap()
+                .account_keys
+                .len()
+        };
+        // Enough nullifiers that `settle` names exactly the most accounts a
+        // transaction locks; `settle_from_txdata` names the upload as well.
+        let nullifiers = nullifiers_for(usize::from(v1::MAX_ADDRESSES) - accounts(&[], b"input"));
+        assert_eq!(
+            accounts(&nullifiers, b"input"),
+            usize::from(v1::MAX_ADDRESSES)
+        );
+        let input = vec![0u8; v1::MAX_TRANSACTION_SIZE];
+        let result = plan_settlement(request(&state, &input, &nullifiers, &[], &[], vec![]));
+        assert!(
+            matches!(result, Err(PlanError::TooManyAccounts { accounts }) if accounts == usize::from(v1::MAX_ADDRESSES) + 1),
+            "an upload whose settlement names {} accounts is planned: {}",
+            usize::from(v1::MAX_ADDRESSES) + 1,
+            outcome(&result)
+        );
+    }
+
+    #[test]
+    fn a_settlement_transaction_too_large_even_from_an_upload_is_refused() {
+        let state = state_with(&[]);
+        // Preceding instructions that alone overflow a transaction.
+        let mut req = request(&state, b"input", &[], &[], &[], vec![]);
+        req.preceding = vec![Instruction::new_with_bytes(
+            key(30),
+            &vec![0u8; v1::MAX_TRANSACTION_SIZE],
+            vec![],
+        )];
+        let result = plan_settlement(req);
+        assert!(
+            matches!(result, Err(PlanError::TooLarge { bytes }) if bytes > v1::MAX_TRANSACTION_SIZE),
+            "a settlement transaction over {} bytes is planned: {}",
+            v1::MAX_TRANSACTION_SIZE,
+            outcome(&result)
         );
     }
 
@@ -583,17 +665,24 @@ mod tests {
     fn a_full_chunk_is_the_largest_whose_write_transaction_fits() {
         let size = |len: usize| {
             let write = txdata_write_ix(&key(9), &key(7), &key(8), 7, 0, &vec![0u8; len]);
-            transaction_size(
-                &transaction_message(
-                    &key(8),
-                    &[write],
-                    Hash::default(),
-                    UPLOAD_TRANSACTION_CONFIG,
-                )
-                .unwrap(),
-            )
+            let transaction = PlannedTransaction {
+                instructions: vec![write],
+                config: UPLOAD_TRANSACTION_CONFIG,
+            };
+            transaction_size(&transaction.message(&key(8), Hash::default()).unwrap())
         };
         assert!(size(TXDATA_CHUNK_SIZE) <= v1::MAX_TRANSACTION_SIZE);
         assert!(size(TXDATA_CHUNK_SIZE + 1) > v1::MAX_TRANSACTION_SIZE);
+    }
+
+    #[test]
+    fn the_transaction_size_is_the_serialized_message_and_its_signatures() {
+        let state = state_with(&[]);
+        let plan = plan_settlement(request(&state, b"input", &[], &[], &[], vec![])).unwrap();
+        let message = plan.settle.message(&key(8), Hash::default()).unwrap();
+        assert_eq!(
+            transaction_size(&message),
+            message.serialize().len() + 64 * usize::from(message.header.num_required_signatures)
+        );
     }
 }

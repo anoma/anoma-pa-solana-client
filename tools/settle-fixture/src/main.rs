@@ -19,16 +19,14 @@ use std::str::FromStr;
 
 use anoma_pa_solana_client::{
     decode_event_instruction, decode_pa_state, decode_verifier_entry, derive_pa_state_pda,
-    derive_verifier_entry_pda, plan_settlement, transaction_message, transaction_size, PaEvent,
-    Settlement, SettlementRequest, EVENT_IX_TAG, PA_PROGRAM_ID, SETTLE_TRANSACTION_CONFIG,
-    TXDATA_EXPIRY_SLOTS_DEFAULT, UPLOAD_TRANSACTION_CONFIG,
+    derive_verifier_entry_pda, plan_settlement, transaction_size, PaEvent, PlannedTransaction,
+    SettlementRequest, EVENT_IX_TAG, PA_PROGRAM_ID, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcTransactionConfig;
 use solana_commitment_config::CommitmentConfig;
-use solana_sdk::instruction::{AccountMeta, Instruction};
-use solana_sdk::message::v1::TransactionConfig;
+use solana_sdk::instruction::AccountMeta;
 use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{read_keypair_file, Keypair, Signature, Signer};
@@ -101,29 +99,28 @@ fn b64_32s(fields: &[String]) -> Vec<[u8; 32]> {
         .collect()
 }
 
-/// Send `ixs` as one v1 transaction with the settings `config`, the shape
-/// every submitter sends. Prints the wire size and the accounts it names.
+/// Send `transaction` as one v1 transaction, the shape every submitter
+/// sends. Prints the wire size and the accounts it names.
 fn send(
     client: &RpcClient,
     payer: &Keypair,
-    ixs: &[Instruction],
-    config: TransactionConfig,
+    transaction: &PlannedTransaction,
     label: &str,
 ) -> Signature {
-    try_send(client, payer, ixs, config, label).unwrap_or_else(|e| panic!("{e}"))
+    try_send(client, payer, transaction, label).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// `send`, returning the failure instead of panicking on it.
 fn try_send(
     client: &RpcClient,
     payer: &Keypair,
-    ixs: &[Instruction],
-    config: TransactionConfig,
+    transaction: &PlannedTransaction,
     label: &str,
 ) -> Result<Signature, String> {
     let blockhash = client.get_latest_blockhash().expect("blockhash");
-    let message =
-        transaction_message(&payer.pubkey(), ixs, blockhash, config).expect("compile v1 message");
+    let message = transaction
+        .message(&payer.pubkey(), blockhash)
+        .expect("compile v1 message");
     let size = transaction_size(&message);
     let keys = message.account_keys.len();
     let tx = VersionedTransaction::try_new(VersionedMessage::V1(message), &[payer]).expect("sign");
@@ -213,52 +210,17 @@ fn main() {
 
     // 4. Settle: in one transaction, or upload, settle, then close the upload
     //    whatever the outcome, so a refused settlement does not strand its rent.
-    let settle_sig = match plan.settlement {
-        Settlement::Inline { transaction } => send(
-            &client,
-            &payer,
-            &transaction,
-            SETTLE_TRANSACTION_CONFIG,
-            "settle",
-        ),
-        Settlement::Upload {
-            init,
-            writes,
-            settle,
-            close,
-        } => {
-            send(
-                &client,
-                &payer,
-                &[init],
-                UPLOAD_TRANSACTION_CONFIG,
-                "txdata_init",
-            );
+    let settle_sig = match &plan.upload {
+        None => send(&client, &payer, &plan.settle, "settle"),
+        Some(upload) => {
+            send(&client, &payer, &upload.init, "txdata_init");
             let settled = (|| {
-                for (i, write) in writes.into_iter().enumerate() {
-                    try_send(
-                        &client,
-                        &payer,
-                        &[write],
-                        UPLOAD_TRANSACTION_CONFIG,
-                        &format!("txdata_write[{i}]"),
-                    )?;
+                for (i, write) in upload.writes.iter().enumerate() {
+                    try_send(&client, &payer, write, &format!("txdata_write[{i}]"))?;
                 }
-                try_send(
-                    &client,
-                    &payer,
-                    &settle,
-                    SETTLE_TRANSACTION_CONFIG,
-                    "settle_from_txdata",
-                )
+                try_send(&client, &payer, &plan.settle, "settle_from_txdata")
             })();
-            send(
-                &client,
-                &payer,
-                &[close],
-                UPLOAD_TRANSACTION_CONFIG,
-                "txdata_close",
-            );
+            send(&client, &payer, &upload.close, "txdata_close");
             settled.unwrap_or_else(|e| panic!("{e}"))
         }
     };

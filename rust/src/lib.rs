@@ -63,6 +63,6 @@ pub use pda::{
 pub use program_ids::*;
 #[cfg(feature = "solana")]
 pub use settlement::{
-    plan_settlement, transaction_message, transaction_size, PlanError, Settlement, SettlementPlan,
-    SettlementRequest, SETTLE_TRANSACTION_CONFIG, UPLOAD_TRANSACTION_CONFIG,
+    plan_settlement, transaction_size, PlanError, PlannedTransaction, SettlementPlan,
+    SettlementRequest, Upload,
 };
