@@ -65,6 +65,22 @@ pub fn transaction_size(message: &v1::Message) -> usize {
     1 + message.size() + 64 * usize::from(message.header.num_required_signatures)
 }
 
+/// The index of the first preceding instruction (`CallAccounts::preceding`)
+/// in a settlement transaction: the planners place them first.
+pub const PRECEDING_START: usize = 0;
+
+/// What a settlement passes the forwarders for their calls.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallAccounts {
+    /// Each call's CPI segment, in call order: the forwarder program, then
+    /// the accounts its instruction takes.
+    pub segments: Vec<Vec<AccountMeta>>,
+    /// Instructions the settlement transaction carries first, before the
+    /// adapter's (an ed25519 signature check, an account a call needs), in the
+    /// order the calls' instruction data names them.
+    pub preceding: Vec<Instruction>,
+}
+
 /// What one settlement needs.
 pub struct SettlementRequest<'a> {
     pub pa_program: Pubkey,
@@ -84,12 +100,9 @@ pub struct SettlementRequest<'a> {
     pub consumed_roots: &'a [[u8; 32]],
     /// The commitments the settlement creates, in order.
     pub created: &'a [[u8; 32]],
-    /// Each external call's account segment, in the order the calls run.
-    pub call_segments: Vec<Vec<AccountMeta>>,
-    /// The instructions the settlement transaction carries before the
-    /// adapter's, such as a forwarder's signature checks and the accounts its
-    /// calls need created, in the order their calls name them.
-    pub preceding: Vec<Instruction>,
+    /// The external calls' account segments and the instructions that
+    /// precede the adapter's.
+    pub accounts: CallAccounts,
 }
 
 /// The upload a settlement too large for one transaction reads its input
@@ -204,8 +217,11 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
         nullifiers,
         consumed_roots,
         created,
-        call_segments,
-        preceding,
+        accounts:
+            CallAccounts {
+                segments: call_segments,
+                preceding,
+            },
     } = request;
     let (pa_state, _) = derive_pa_state_pda(&pa_program);
 
@@ -451,8 +467,10 @@ mod tests {
             nullifiers,
             consumed_roots,
             created,
-            call_segments,
-            preceding: vec![],
+            accounts: CallAccounts {
+                segments: call_segments,
+                preceding: vec![],
+            },
         }
     }
 
@@ -567,7 +585,7 @@ mod tests {
         let state = state_with(&[]);
         let preceding = Instruction::new_with_bytes(key(30), b"check", vec![]);
         let mut req = request(&state, b"input", &[], &[], &[], vec![]);
-        req.preceding = vec![preceding.clone()];
+        req.accounts.preceding = vec![preceding.clone()];
         let plan = plan_settlement(req, 7, 500).unwrap();
         assert!(plan.upload.is_none(), "a 5-byte input uploads");
         assert_eq!(plan.settle.config, SETTLE_TRANSACTION_CONFIG);
@@ -612,7 +630,7 @@ mod tests {
         let input: Vec<u8> = (0..(2 * TXDATA_CHUNK_SIZE + 5)).map(|i| i as u8).collect();
         let preceding = Instruction::new_with_bytes(key(30), b"check", vec![]);
         let mut req = request(&state, &input, &[], &[], &[], vec![]);
-        req.preceding = vec![preceding.clone()];
+        req.accounts.preceding = vec![preceding.clone()];
         let plan = plan_settlement(req, 7, 500).unwrap();
         let Some(Upload {
             init,
@@ -746,7 +764,7 @@ mod tests {
         let state = state_with(&[]);
         // Preceding instructions that alone overflow a transaction.
         let mut req = request(&state, b"input", &[], &[], &[], vec![]);
-        req.preceding = vec![Instruction::new_with_bytes(
+        req.accounts.preceding = vec![Instruction::new_with_bytes(
             key(30),
             &vec![0u8; v1::MAX_TRANSACTION_SIZE],
             vec![],
@@ -777,7 +795,7 @@ mod tests {
                 &created,
                 vec![segment.clone()],
             );
-            req.preceding = vec![preceding.clone()];
+            req.accounts.preceding = vec![preceding.clone()];
             req
         };
         let settlement = plan_settlement(request(), 7, 500).unwrap();

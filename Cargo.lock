@@ -346,7 +346,12 @@ dependencies = [
  "solana-instruction 3.5.1",
  "solana-message",
  "solana-pubkey 3.0.0",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
  "solana-sdk-ids",
+ "solana-signature",
+ "solana-transaction",
+ "solana-transaction-error",
  "tokio",
 ]
 

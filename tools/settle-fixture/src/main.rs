@@ -17,6 +17,7 @@
 
 use std::str::FromStr;
 
+use anoma_pa_solana_client::settlement::CallAccounts;
 use anoma_pa_solana_client::{
     decode_event_instruction, decode_pa_state, decode_verifier_entry, derive_pa_state_pda,
     derive_verifier_entry_pda, plan_settlement, transaction_size, PaEvent, PlannedTransaction,
@@ -201,8 +202,10 @@ fn main() {
             nullifiers: &b64_32s(&fixture.consumed_nullifiers_b64),
             consumed_roots: &b64_32s(&fixture.historical_roots_b64),
             created: &b64_32s(&fixture.created_commitments_b64),
-            call_segments,
-            preceding: vec![],
+            accounts: CallAccounts {
+                segments: call_segments,
+                preceding: vec![],
+            },
         },
         upload_id,
         client.get_slot().expect("slot") + TXDATA_EXPIRY_SLOTS_DEFAULT,
