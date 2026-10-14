@@ -2,7 +2,7 @@
   "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc",
   "metadata": {
     "name": "protocol_adapter",
-    "version": "2.0.0-rc.5",
+    "version": "2.0.0-rc.6",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
   },
@@ -216,79 +216,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "migrate_state",
-      "docs": [
-        "Bring a state account in the previous schema version, which held one",
-        "denylist for consumed and created resources alike, to this one. Each",
-        "logic ref it held goes on both denylists and is announced on each",
-        "with `LogicRefDeniedEvent`, as `deny_logic_refs` would, and then the",
-        "new version with `InitializedEvent`. The",
-        "counterpart of the call pa-evm's owner passes to `upgradeToAndCall`:",
-        "run once by the owner, after the in-place upgrade and before any other",
-        "instruction, which all refuse the previous version. It parses the",
-        "previous layout rather than reinterpreting its bytes, and the owner",
-        "pays for the account's growth."
-      ],
-      "discriminator": [
-        34,
-        189,
-        226,
-        222,
-        218,
-        156,
-        19,
-        213
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "docs": [
-            "The owner the previous layout stores, which pays for the account's",
-            "growth; the handler checks it, since the typed account cannot read the",
-            "previous layout."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "pa_state",
-          "docs": [
-            "as owner and the previous schema's layout, which the typed account",
-            "cannot read."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "event_authority"
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": []
     },
     {
       "name": "pause",
@@ -1913,51 +1840,46 @@
     },
     {
       "code": 6040,
-      "name": "NotPreviousSchema",
-      "msg": "PAState is not a state account in the previous schema version"
-    },
-    {
-      "code": 6041,
       "name": "ZeroLogicRefNotAllowed",
       "msg": "Zero logic ref not allowed"
     },
     {
-      "code": 6042,
+      "code": 6041,
       "name": "LogicRefAlreadyDenied",
       "msg": "Logic ref is already on that denylist"
     },
     {
-      "code": 6043,
+      "code": 6042,
       "name": "ResourceWithDeniedLogicRef",
       "msg": "A resource's logic ref is on the denylist for its side"
     },
     {
-      "code": 6044,
+      "code": 6043,
       "name": "ZeroRiscZeroVerifierRouterNotAllowed",
       "msg": "Zero verifier router not allowed"
     },
     {
-      "code": 6045,
+      "code": 6044,
       "name": "ZeroRiscZeroVerifierSelectorNotAllowed",
       "msg": "Zero proof selector not allowed"
     },
     {
-      "code": 6046,
+      "code": 6045,
       "name": "OwnableUnauthorizedAccount",
       "msg": "The signer is not the adapter's owner"
     },
     {
-      "code": 6047,
+      "code": 6046,
       "name": "OwnableInvalidOwner",
       "msg": "The zero key cannot be the owner"
     },
     {
-      "code": 6048,
+      "code": 6047,
       "name": "InvalidUpgradeBuffer",
       "msg": "Buffer is not a loader buffer holding a program"
     },
     {
-      "code": 6049,
+      "code": 6048,
       "name": "Simulated",
       "msg": "Simulated: the transaction executes"
     }
@@ -2192,8 +2114,7 @@
       "name": "InitializedEvent",
       "docs": [
         "Mirrors OpenZeppelin Initializable: `event Initialized(uint64 version);`.",
-        "`initialize` announces the state's schema version, and `migrate_state`",
-        "the version it brings the state to, as a `reinitializer(n)` would."
+        "`initialize` announces the state's schema version."
       ],
       "type": {
         "kind": "struct",
@@ -2288,11 +2209,11 @@
               "every layout: a later binary that changes the layout reads this byte",
               "through an unchecked account to decide whether it may migrate. Every",
               "instruction that reads this account — all but `initialize`, which",
-              "creates it, `migrate_state`, which requires the previous version, and",
-              "the development-only `dev_set_schema_version` — refuses an account",
-              "whose version is not `SCHEMA_VERSION`. A layout change bumps the",
-              "constant and may add, remove or reorder the other fields:",
-              "`migrate_state` parses the previous layout explicitly."
+              "creates it, and the development-only `dev_set_schema_version` —",
+              "refuses an account whose version is not `SCHEMA_VERSION`. A layout",
+              "change bumps the constant and may add, remove or reorder the other",
+              "fields: the release that makes it ships a migration that parses the",
+              "previous layout explicitly."
             ],
             "type": "u8"
           },
@@ -2647,14 +2568,6 @@
       "name": "PA_STATE_SEED",
       "type": "bytes",
       "value": "[112, 97, 95, 115, 116, 97, 116, 101]"
-    },
-    {
-      "name": "PREVIOUS_SCHEMA_VERSION",
-      "docs": [
-        "The schema version `migrate_state` migrates from."
-      ],
-      "type": "u8",
-      "value": "3"
     },
     {
       "name": "ROOT_SEED",

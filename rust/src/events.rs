@@ -98,9 +98,8 @@ pub struct UpgradedEvent {
     pub executable_hash: [u8; 32],
 }
 
-/// The adapter's state was initialized at schema version `version`: by
-/// `initialize`, or by `migrate_state` bringing it to that version, as
-/// OpenZeppelin Initializable's `Initialized(version)`.
+/// The adapter's state was initialized at schema version `version` by
+/// `initialize`, as OpenZeppelin Initializable's `Initialized(version)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InitializedEvent {
     pub version: u64,

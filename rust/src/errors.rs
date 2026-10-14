@@ -89,8 +89,6 @@ pub enum PaError {
     PreExistingRoot,
     /// PAState schema version is not the one this program binary reads; migrate the account first.
     UnsupportedStateSchema,
-    /// PAState is not a state account in the previous schema version.
-    NotPreviousSchema,
     /// Zero logic ref not allowed.
     ZeroLogicRefNotAllowed,
     /// Logic ref is already on that denylist.
@@ -114,7 +112,7 @@ pub enum PaError {
 
 impl PaError {
     /// Every error, in code order.
-    pub const ALL: [PaError; 50] = [
+    pub const ALL: [PaError; 49] = [
         PaError::PreExistingNullifier,
         PaError::NullifierPdaMismatch,
         PaError::NonExistingRoot,
@@ -155,7 +153,6 @@ impl PaError {
         PaError::MarkerUnexpectedData,
         PaError::PreExistingRoot,
         PaError::UnsupportedStateSchema,
-        PaError::NotPreviousSchema,
         PaError::ZeroLogicRefNotAllowed,
         PaError::LogicRefAlreadyDenied,
         PaError::ResourceWithDeniedLogicRef,
