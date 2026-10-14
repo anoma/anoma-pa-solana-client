@@ -96,19 +96,10 @@ jobs:
         run: npm run test
 
   release-readiness:
-    name: Release readiness (versions agree, both packages pack)
+    name: Release readiness (versions agree)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
       # The Rust crate and the npm package release together at one version.
       - name: The crate and the package carry the same version
         run: |
@@ -116,12 +107,3 @@ jobs:
           package=$(node -p "require('./ts/package.json').version")
           echo "crate $crate, package $package"
           test "$crate" = "$package"
-      - name: cargo publish --dry-run
-        run: cargo publish -p anoma-pa-solana-client --dry-run
-      - name: npm pack --dry-run
-        working-directory: ts
-        run: |
-          npm ci
-          npm run build
-          npm pack --dry-run
-

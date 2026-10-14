@@ -1,6 +1,6 @@
 {
   "name": "@anomaorg/pa-solana-client",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter",
   "license": "MIT",
   "repository": {
@@ -22,14 +22,10 @@
     "src",
     "dist"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsc",
     "tsc": "tsc --noEmit",
-    "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "test": "vitest run"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",

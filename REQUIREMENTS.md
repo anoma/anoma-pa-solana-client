@@ -130,7 +130,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 - SemVer. Major version bump on any wire-incompatible PA change.
 - Rust crate version and TS package version must match exactly per release.
-- Git tags follow `bindings/vMAJOR.MINOR.PATCH` and produce both a Cargo publish and an npm publish.
+- Git tags follow `bindings/vMAJOR.MINOR.PATCH`; consumers pin the tag. Neither package is published to a registry.
 
 ### 4.2 Source-of-truth coupling to the PA
 
@@ -176,8 +176,7 @@ The following are **not** in this package, regardless of how convenient they mig
 3. **Regenerate.** Run the IDL extraction and code generation. Hand-written items are reviewed against the new PA source.
 4. **Test.** Full CI pass: unit, round-trip, and integration tests against the new PA commit.
 5. **Tag.** Cut a SemVer release; major bump for wire-incompatible changes.
-6. **Publish.** Cargo + npm publishes from CI.
-7. **Notify integrators.** Backend, frontend, and indexer maintainers receive a release notification with the changelog and a summary of which fields/values changed.
+6. **Notify integrators.** Backend, frontend, and indexer maintainers receive a release notification with the changelog and a summary of which fields/values changed.
 
 Integrators bump their dependency at their own pace, but the package's release is the single coordination event — they no longer have to chase a multi-repo cross-team patch.
 

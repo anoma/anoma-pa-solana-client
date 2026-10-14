@@ -23,3 +23,6 @@ d4eec1107c1199f739a2cc5decd1774f74f0cc55
 # one. The protocol adapter IDL is its production build's IDL; the
 # block-time and test forwarders' are unchanged.
 583c3216e91098179be21b2d5b1e37bc49e7d830
+# solana-protocol-adapter contracts/v2.0.0-rc.6: the merge of #143 into
+# anthony/arm-v2-port, whose programs are 583c321's.
+efeda5a14840f87c74c040c63e7cce0f2dbf5332

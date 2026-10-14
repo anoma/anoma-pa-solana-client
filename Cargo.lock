@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "anoma-pa-solana-client"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anoma-pa-testkit",
  "anoma-rm-risc0",
@@ -5239,7 +5239,7 @@ dependencies = [
 
 [[package]]
 name = "settle-fixture"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anoma-pa-solana-client",
  "base64 0.22.1",
