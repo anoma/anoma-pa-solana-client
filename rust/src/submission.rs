@@ -92,18 +92,14 @@ async fn read_account<T, E: fmt::Display>(
     what: String,
     decode: impl FnOnce(&[u8]) -> Result<T, E>,
 ) -> Result<T, SubmissionError> {
-    let account = match rpc
+    let account = rpc
         .get_account_with_commitment(address, rpc.commitment())
         .await
-    {
-        Ok(response) => response.value,
-        Err(error) => {
-            return Err(SubmissionError::Rpc {
-                what,
-                error: error.to_string(),
-            })
-        }
-    };
+        .map_err(|error| SubmissionError::Rpc {
+            what: what.clone(),
+            error: error.to_string(),
+        })?
+        .value;
     let Some(account) = account else {
         return Err(SubmissionError::MissingAccount { what });
     };
@@ -197,8 +193,7 @@ impl Submission {
             nullifiers: &self.resources.nullifiers,
             consumed_roots: &self.resources.consumed_roots,
             created: &self.resources.created,
-            call_segments: self.accounts.segments.clone(),
-            preceding: self.accounts.preceding.clone(),
+            accounts: self.accounts.clone(),
         }
     }
 
@@ -232,7 +227,7 @@ impl Submission {
         let input = simulation_input(self.transaction.clone(), self.state.proof_selector)?;
         let message = plan_simulation(self.request(&input), skip_risc_zero_proof_verification)?
             .message(&self.payer, Hash::default())
-            .map_err(|e| SubmissionError::Plan(PlanError::Compile(e)))?;
+            .map_err(PlanError::from)?;
         let unsigned = VersionedTransaction {
             signatures: vec![
                 Signature::default();

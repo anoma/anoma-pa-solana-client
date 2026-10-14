@@ -20,7 +20,7 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use crate::external_call::SolanaExternalCall;
-use crate::settlement::CallAccounts;
+use crate::settlement::{CallAccounts, PRECEDING_START};
 
 /// Why a forwarder could not give its calls' accounts.
 pub type ForwarderError = Box<dyn std::error::Error + Send + Sync>;
@@ -173,7 +173,7 @@ impl Forwarders {
             let its_calls: Vec<SolanaExternalCall> =
                 indices.iter().map(|&i| calls[i].clone()).collect();
             let accounts = forwarder
-                .call_accounts(rpc, &its_calls, preceding.len())
+                .call_accounts(rpc, &its_calls, PRECEDING_START + preceding.len())
                 .await
                 .map_err(|error| AccountsError::Forwarder {
                     calls: indices.clone(),
