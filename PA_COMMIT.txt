@@ -17,3 +17,9 @@ d4eec1107c1199f739a2cc5decd1774f74f0cc55
 # IDL is its production build's IDL; the block-time and test forwarders' are
 # unchanged.
 9f8b2cd080fd1c2354b5befe9059f6993858b745
+# solana-protocol-adapter anthony/remove-schema4-migration: migrate_state and
+# NotPreviousSchema removed after devnet's migration (protocol-adapter
+# 2.0.0-rc.6), which shifts the error codes after UnsupportedStateSchema by
+# one. The protocol adapter IDL is its production build's IDL; the
+# block-time and test forwarders' are unchanged.
+583c3216e91098179be21b2d5b1e37bc49e7d830

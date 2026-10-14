@@ -108,9 +108,8 @@ export interface UpgradedEvent {
 }
 
 /**
- * The adapter's state was initialized at schema version `version`: by
- * `initialize`, or by `migrate_state` bringing it to that version, as
- * OpenZeppelin Initializable's `Initialized(version)`.
+ * The adapter's state was initialized at schema version `version` by
+ * `initialize`, as OpenZeppelin Initializable's `Initialized(version)`.
  */
 export interface InitializedEvent {
   name: "InitializedEvent";

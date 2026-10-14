@@ -49,7 +49,6 @@ export const PA_ERRORS = [
   "MarkerUnexpectedData",
   "PreExistingRoot",
   "UnsupportedStateSchema",
-  "NotPreviousSchema",
   "ZeroLogicRefNotAllowed",
   "LogicRefAlreadyDenied",
   "ResourceWithDeniedLogicRef",
