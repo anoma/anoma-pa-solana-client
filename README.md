@@ -1,8 +1,8 @@
 # anoma-pa-solana-client
 
-Releases: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). The Rust crate is `anoma-pa-solana-client` on crates.io and the npm package `@anomaorg/pa-solana-client`.
+Releases: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). The Rust crate `anoma-pa-solana-client` and the npm package `@anomaorg/pa-solana-client` release as `bindings/v*` git tags.
 
-Client bindings for the Solana Protocol Adapter. One source of truth for instruction builders, account decoders, PDA helpers, event decoders, and constants — published as a Rust crate and a TypeScript/npm package from this repository. The SPL token forwarder's bindings are in [anoma/anomapay-spl-token-forwarder](https://github.com/anoma/anomapay-spl-token-forwarder) (`crates/client` and `ts/`).
+Client bindings for the Solana Protocol Adapter. One source of truth for instruction builders, account decoders, PDA helpers, event decoders, and constants — released as a Rust crate and a TypeScript/npm package from this repository. The SPL token forwarder's bindings are in [anoma/anomapay-spl-token-forwarder](https://github.com/anoma/anomapay-spl-token-forwarder) (`crates/client` and `ts/`).
 
 **Status:** paired with the V2 protocol adapter (branch `anthony/arm-v2-port`, commit in `PA_COMMIT.txt`; devnet program `5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc`). See [REQUIREMENTS.md](REQUIREMENTS.md) for the intended surface.
 
