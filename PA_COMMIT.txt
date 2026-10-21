@@ -33,3 +33,9 @@ efeda5a14840f87c74c040c63e7cce0f2dbf5332
 # is its production build's IDL; the block-time and test forwarders' are
 # unchanged.
 5e4f085efd2c761c16e03229e2b00e7d470cff7c
+# solana-protocol-adapter 9462246: the merge of #148 into anthony/arm-v2-port,
+# whose programs are 5e4f085's with set_kind_tree_root's doc corrected (a
+# transaction settles against the stored kind table or the empty one). The
+# protocol adapter IDL is its production build's IDL; the block-time and test
+# forwarders' are unchanged.
+9462246d2f573431a23d8ff4243f36fa2f7e1aa0
