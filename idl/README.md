@@ -10,5 +10,5 @@ Files:
 
 Regenerated on every release. Consumed by:
 
-- The Rust crate and TS package, for code generation.
+- The Rust crate's and TS package's tests, which check the hand-written error, event, instruction and state-account names against it.
 - External integrators that need event decoding without depending on a language package (e.g. the Elixir indexer consumes these directly).

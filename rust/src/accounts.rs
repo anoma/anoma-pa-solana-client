@@ -303,6 +303,39 @@ mod tests {
         data
     }
 
+    /// The struct carries the IDL's `PAStateAccount` fields, by name and in
+    /// order, so an adapter rename or reorder fails here when the IDL is
+    /// refreshed.
+    #[test]
+    fn the_state_fields_are_the_idls() {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../idl/protocol_adapter.json"
+        )))
+        .unwrap();
+        let idl_fields: Vec<&str> = idl["types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "PAStateAccount")
+            .expect("the IDL declares PAStateAccount")["type"]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap())
+            .collect();
+        let state = decode_pa_state(&build_fixture(PA_STATE_SCHEMA_VERSION, 0, &[], &[])).unwrap();
+        // `{:#?}` writes one top-level field per line, indented four spaces.
+        let debug = format!("{state:#?}");
+        let fields: Vec<&str> = debug
+            .lines()
+            .filter_map(|line| line.strip_prefix("    "))
+            .filter(|line| !line.starts_with(' '))
+            .filter_map(|line| line.split_once(':').map(|(name, _)| name))
+            .collect();
+        assert_eq!(fields, idl_fields);
+    }
+
     #[test]
     fn decodes_every_field() {
         let data = build_fixture(PA_STATE_SCHEMA_VERSION, 1, &[[0xDD; 32]], &[[0xEE; 32]]);
