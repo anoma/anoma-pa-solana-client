@@ -40,7 +40,7 @@ pub use errors::{PaError, ANCHOR_ERROR_CODE_OFFSET};
 pub use events::{
     decode_cpi_event, decode_event_instruction, decode_ownership_transferred, decode_upgraded,
     ActionExecutedEvent, CommitmentTreeRootAddedEvent, EventDecodeError,
-    ForwarderCallExecutedEvent, InitializedEvent, KindTableRootUpdatedEvent, LogicRefDeniedEvent,
+    ForwarderCallExecutedEvent, InitializedEvent, KindTreeRootUpdatedEvent, LogicRefDeniedEvent,
     OwnershipTransferredEvent, PaEvent, PauseEvent, PayloadEvent, TransactionExecutedEvent,
     UpgradedEvent, EVENT_IX_TAG,
 };
@@ -53,7 +53,7 @@ pub use u256::{U256OutOfRange, U256};
 
 #[cfg(feature = "solana")]
 pub use instructions::{
-    deny_logic_refs_ix, initialize_ix, pause_ix, set_kind_table_root_ix, settle_from_txdata_ix,
+    deny_logic_refs_ix, initialize_ix, pause_ix, set_kind_tree_root_ix, settle_from_txdata_ix,
     settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix, unpause_ix,
     DeniedLogicRef,
 };

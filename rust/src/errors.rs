@@ -63,10 +63,10 @@ pub enum PaError {
     ExpectedDeltaProof,
     /// Aggregation instance compliance key does not match the compliance circuit VK.
     ComplianceKeyMismatch,
-    /// The transaction's kind-table root is neither the stored one nor the empty table's.
-    UnacceptedKindTableRoot,
-    /// Zero kind-table root not allowed.
-    ZeroKindTableRootNotAllowed,
+    /// The transaction's kind tree root is neither the stored one nor the empty table's.
+    UnacceptedKindTreeRoot,
+    /// Zero kind tree root not allowed.
+    ZeroKindTreeRootNotAllowed,
     /// Unauthorized: the signer does not hold the authority this instruction requires.
     Unauthorized,
     /// The protocol adapter is paused.
@@ -140,8 +140,8 @@ impl PaError {
         PaError::PointNotOnCurve,
         PaError::ExpectedDeltaProof,
         PaError::ComplianceKeyMismatch,
-        PaError::UnacceptedKindTableRoot,
-        PaError::ZeroKindTableRootNotAllowed,
+        PaError::UnacceptedKindTreeRoot,
+        PaError::ZeroKindTreeRootNotAllowed,
         PaError::Unauthorized,
         PaError::EnforcedPause,
         PaError::ExpectedPause,

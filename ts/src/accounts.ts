@@ -22,8 +22,8 @@ export interface PAStateAccount {
   owner: Uint8Array;
   verifierRouter: Uint8Array;
   proofSelector: Uint8Array;
-  /** The stored kind-table root: a transaction settles when proven against that table or against the empty one. */
-  kindTableRoot: Uint8Array;
+  /** The stored kind tree root: a transaction settles when proven against that table or against the empty one. */
+  kindTreeRoot: Uint8Array;
   /** Whether settlement is paused (the owner's `pause` / `unpause`). */
   paused: boolean;
   root: Uint8Array;
@@ -73,7 +73,7 @@ function decode(c: Cursor): PAStateAccount {
   const owner = c.array32("owner");
   const verifierRouter = c.array32("verifier_router");
   const proofSelector = c.take(4, "proof_selector");
-  const kindTableRoot = c.array32("kind_table_root");
+  const kindTreeRoot = c.array32("kind_tree_root");
   const pausedByte = c.u8("paused");
   if (pausedByte !== 0 && pausedByte !== 1) {
     throw new PAStateDecodeError(`invalid bool byte ${pausedByte} for field paused`);
@@ -106,7 +106,7 @@ function decode(c: Cursor): PAStateAccount {
     owner,
     verifierRouter,
     proofSelector,
-    kindTableRoot,
+    kindTreeRoot,
     paused: pausedByte === 1,
     root,
     nextIndex,

@@ -1,9 +1,29 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { decodePaState, PA_STATE_SCHEMA_VERSION, PAStateDecodeError } from "./accounts.js";
+import {
+  decodePaState,
+  PA_STATE_SCHEMA_VERSION,
+  PAStateDecodeError,
+} from "./accounts.js";
+
+// The IDL's `PAStateAccount` field names, in order.
+const idlStateFields = (
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL("../../idl/protocol_adapter.json", import.meta.url),
+      ),
+      "utf8",
+    ),
+  ) as { types: { name: string; type: { fields?: { name: string }[] } }[] }
+).types
+  .find((t) => t.name === "PAStateAccount")!
+  .type.fields!.map((f) => f.name);
 
 // The schema-4 `PAStateAccount` layout (state.rs): schema_version, bump,
-// owner, verifier_router, proof_selector, kind_table_root, paused, root,
+// owner, verifier_router, proof_selector, kind_tree_root, paused, root,
 // next_index, current_depth, frontier, min/max expiry, then the denylists for
 // consumed and for created resources. Byte-identical to the Rust crate's test
 // fixture.
@@ -26,13 +46,17 @@ function buildFixture(
   push(...new Array(32).fill(1)); // owner
   push(...new Array(32).fill(2)); // verifier_router
   push(0xab, 0xcd, 0xef, 0x12); // proof_selector
-  push(...new Array(32).fill(8)); // kind_table_root
+  push(...new Array(32).fill(8)); // kind_tree_root
   push(paused);
   push(...new Array(32).fill(4)); // root
   u64le(100n); // next_index
   push(3); // current_depth
   push(3, 0, 0, 0); // frontier len
-  push(...new Array(32).fill(5), ...new Array(32).fill(6), ...new Array(32).fill(7));
+  push(
+    ...new Array(32).fill(5),
+    ...new Array(32).fill(6),
+    ...new Array(32).fill(7),
+  );
   u64le(100n); // min_expiry_slots
   u64le(216_000n); // max_expiry_slots
   for (const denylist of [deniedConsumed, deniedCreated]) {
@@ -45,16 +69,29 @@ function buildFixture(
 const filled = (n: number) => Uint8Array.from(new Array(32).fill(n));
 
 describe("decodePaState (schema 4)", () => {
+  // An adapter rename or reorder fails here when the IDL is refreshed.
+  it("returns the IDL's PAStateAccount fields, by name and in order", () => {
+    const s = decodePaState(buildFixture(PA_STATE_SCHEMA_VERSION, 0, [], []));
+    const camel = (name: string) =>
+      name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    expect(Object.keys(s)).toEqual(idlStateFields.map(camel));
+  });
+
   it("decodes every field", () => {
     const s = decodePaState(
-      buildFixture(PA_STATE_SCHEMA_VERSION, 1, [new Array(32).fill(0xdd)], [new Array(32).fill(0xee)]),
+      buildFixture(
+        PA_STATE_SCHEMA_VERSION,
+        1,
+        [new Array(32).fill(0xdd)],
+        [new Array(32).fill(0xee)],
+      ),
     );
     expect(s.schemaVersion).toBe(PA_STATE_SCHEMA_VERSION);
     expect(s.bump).toBe(255);
     expect(s.owner).toEqual(filled(1));
     expect(s.verifierRouter).toEqual(filled(2));
     expect(s.proofSelector).toEqual(Uint8Array.from([0xab, 0xcd, 0xef, 0x12]));
-    expect(s.kindTableRoot).toEqual(filled(8));
+    expect(s.kindTreeRoot).toEqual(filled(8));
     expect(s.paused).toBe(true);
     expect(s.root).toEqual(filled(4));
     expect(s.nextIndex).toBe(100n);
@@ -76,18 +113,29 @@ describe("decodePaState (schema 4)", () => {
   it("rejects an invalid paused byte", () => {
     const data = buildFixture(PA_STATE_SCHEMA_VERSION, 2, [], []);
     expect(() => decodePaState(data)).toThrow(PAStateDecodeError);
-    expect(() => decodePaState(data)).toThrow(/invalid bool byte 2 for field paused/);
+    expect(() => decodePaState(data)).toThrow(
+      /invalid bool byte 2 for field paused/,
+    );
   });
 
   it("rejects an unsupported schema version", () => {
     // The PA refuses every instruction on an account whose layout number is
     // not its own; a client reading another layout would misparse every field
     // after byte 8, so it must refuse too.
-    expect(() => decodePaState(buildFixture(3, 0, [], []))).toThrow(/schema version 3/);
+    expect(() => decodePaState(buildFixture(3, 0, [], []))).toThrow(
+      /schema version 3/,
+    );
   });
 
   it("rejects truncated data", () => {
-    const data = buildFixture(PA_STATE_SCHEMA_VERSION, 0, [], [new Array(32).fill(0xdd)]);
-    expect(() => decodePaState(data.slice(0, data.length - 1))).toThrow(/truncated.*denied_created_logic_refs/);
+    const data = buildFixture(
+      PA_STATE_SCHEMA_VERSION,
+      0,
+      [],
+      [new Array(32).fill(0xdd)],
+    );
+    expect(() => decodePaState(data.slice(0, data.length - 1))).toThrow(
+      /truncated.*denied_created_logic_refs/,
+    );
   });
 });

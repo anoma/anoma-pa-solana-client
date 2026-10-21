@@ -95,7 +95,7 @@
         "unconditionally, so transactions built against the initial tree stay",
         "valid without a genesis marker. Like pa-evm's initializer, it sets the",
         "owner, starts on the empty kind table, and announces both;",
-        "`set_kind_table_root` installs any other table."
+        "`set_kind_tree_root` installs any other table."
       ],
       "discriminator": [
         175,
@@ -376,23 +376,23 @@
       "returns": "bool"
     },
     {
-      "name": "set_kind_table_root",
+      "name": "set_kind_tree_root",
       "docs": [
-        "Replace the kind-table root every settled aggregation instance",
-        "must carry. Mirrors pa-evm's `setKindTableRoot`: authority only,",
+        "Replace the kind tree root every settled aggregation instance",
+        "must carry. Mirrors pa-evm's `setKindTreeRoot`: authority only,",
         "zero rejected, the change emitted. A table changes whenever a token or",
         "a circuit version is listed, and transactions proven against the",
         "previous table are rejected from this point on."
       ],
       "discriminator": [
-        143,
-        218,
-        29,
-        58,
-        98,
-        236,
-        57,
-        73
+        97,
+        162,
+        84,
+        41,
+        232,
+        19,
+        144,
+        96
       ],
       "accounts": [
         {
@@ -429,7 +429,7 @@
       ],
       "args": [
         {
-          "name": "new_kind_table_root",
+          "name": "new_kind_tree_root",
           "type": {
             "array": [
               "u8",
@@ -1533,16 +1533,16 @@
       ]
     },
     {
-      "name": "KindTableRootUpdatedEvent",
+      "name": "KindTreeRootUpdatedEvent",
       "discriminator": [
-        83,
-        150,
-        97,
-        87,
-        254,
-        91,
-        121,
-        196
+        67,
+        45,
+        65,
+        175,
+        173,
+        208,
+        239,
+        0
       ]
     },
     {
@@ -1775,13 +1775,13 @@
     },
     {
       "code": 6027,
-      "name": "UnacceptedKindTableRoot",
-      "msg": "The transaction's kind-table root is neither the stored one nor the empty table's"
+      "name": "UnacceptedKindTreeRoot",
+      "msg": "The transaction's kind tree root is neither the stored one nor the empty table's"
     },
     {
       "code": 6028,
-      "name": "ZeroKindTableRootNotAllowed",
-      "msg": "Zero kind-table root not allowed"
+      "name": "ZeroKindTreeRootNotAllowed",
+      "msg": "Zero kind tree root not allowed"
     },
     {
       "code": 6029,
@@ -2127,15 +2127,15 @@
       }
     },
     {
-      "name": "KindTableRootUpdatedEvent",
+      "name": "KindTreeRootUpdatedEvent",
       "docs": [
-        "Mirrors pa-evm: `event KindTableRootUpdated(bytes32 indexed kindTableRoot);`"
+        "Mirrors pa-evm: `event KindTreeRootUpdated(bytes32 indexed kindTreeRoot);`"
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "kind_table_root",
+            "name": "kind_tree_root",
             "type": {
               "array": [
                 "u8",
@@ -2254,13 +2254,13 @@
             }
           },
           {
-            "name": "kind_table_root",
+            "name": "kind_tree_root",
             "docs": [
-              "The stored kind-table root: the empty table's at initialization,",
-              "replaced by `set_kind_table_root`. The aggregation circuit binds",
+              "The stored kind tree root: the empty table's at initialization,",
+              "replaced by `set_kind_tree_root`. The aggregation circuit binds",
               "each transaction to one kind table, by the Merkle root of its entries;",
               "a transaction settles when that is this table or the empty one",
-              "(`is_kind_table_root_accepted`), as in pa-evm."
+              "(`is_kind_tree_root_accepted`), as in pa-evm."
             ],
             "type": {
               "array": [
@@ -2517,11 +2517,11 @@
   ],
   "constants": [
     {
-      "name": "EMPTY_KIND_TABLE_ROOT",
+      "name": "EMPTY_KIND_TREE_ROOT",
       "docs": [
         "The root of the empty kind table, under which every resource kind is",
         "derived via hash-to-curve: the table every deployment starts on, as",
-        "pa-evm's `EMPTY_KIND_TABLE_ROOT`. A Merkle tree without entries has its",
+        "pa-evm's `EMPTY_KIND_TREE_ROOT`. A Merkle tree without entries has its",
         "padding leaf as its root, `sha256(\"EMPTY\")`."
       ],
       "type": {
