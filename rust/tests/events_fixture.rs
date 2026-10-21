@@ -109,8 +109,8 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
             ("CommitmentTreeRootAddedEvent", PaEvent::CommitmentTreeRootAdded(ev)) => {
                 assert_eq!(ev.root, h32("root"), "{entry}");
             }
-            ("KindTableRootUpdatedEvent", PaEvent::KindTableRootUpdated(ev)) => {
-                assert_eq!(ev.kind_table_root, h32("kind_table_root"), "{entry}");
+            ("KindTreeRootUpdatedEvent", PaEvent::KindTreeRootUpdated(ev)) => {
+                assert_eq!(ev.kind_tree_root, h32("kind_tree_root"), "{entry}");
             }
             ("LogicRefDeniedEvent", PaEvent::LogicRefDenied(ev)) => {
                 assert_eq!(ev.logic_ref, h32("logic_ref"), "{entry}");

@@ -122,16 +122,16 @@ pub fn deny_logic_refs_ix(
     }
 }
 
-/// Build the PA's `set_kind_table_root`: the owner `authority` replaces
-/// the kind-table root settled transactions must be proven against.
-pub fn set_kind_table_root_ix(
+/// Build the PA's `set_kind_tree_root`: the owner `authority` replaces
+/// the kind tree root settled transactions must be proven against.
+pub fn set_kind_tree_root_ix(
     pa_program: &Pubkey,
     authority: &Pubkey,
-    new_kind_table_root: [u8; 32],
+    new_kind_tree_root: [u8; 32],
 ) -> Instruction {
     let data = [
-        &anchor_instruction_disc("set_kind_table_root")[..],
-        &new_kind_table_root,
+        &anchor_instruction_disc("set_kind_tree_root")[..],
+        &new_kind_tree_root,
     ]
     .concat();
     owner_ix(pa_program, authority, data)
@@ -691,8 +691,8 @@ mod tests {
                 &[&[1, 0, 0, 0][..], &bytes, &[0]].concat()[..],
             ),
             (
-                set_kind_table_root_ix(&pa, &authority, bytes),
-                "set_kind_table_root",
+                set_kind_tree_root_ix(&pa, &authority, bytes),
+                "set_kind_tree_root",
                 &bytes[..],
             ),
         ] {

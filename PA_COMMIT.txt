@@ -26,3 +26,10 @@ d4eec1107c1199f739a2cc5decd1774f74f0cc55
 # solana-protocol-adapter contracts/v2.0.0-rc.6: the merge of #143 into
 # anthony/arm-v2-port, whose programs are 583c321's.
 efeda5a14840f87c74c040c63e7cce0f2dbf5332
+# solana-protocol-adapter anthony/kind-tree-root 5e4f085: anthony/arm-v2-port
+# with the kind table root named the kind tree root, as pa-evm e4cc7d9f
+# (set_kind_tree_root, KindTreeRootUpdatedEvent, UnacceptedKindTreeRoot,
+# ZeroKindTreeRootNotAllowed, EMPTY_KIND_TREE_ROOT). The protocol adapter IDL
+# is its production build's IDL; the block-time and test forwarders' are
+# unchanged.
+5e4f085efd2c761c16e03229e2b00e7d470cff7c

@@ -24,9 +24,9 @@ pub struct PAStateAccount {
     pub owner: [u8; 32],
     pub verifier_router: [u8; 32],
     pub proof_selector: [u8; 4],
-    /// The stored kind-table root: a transaction settles when proven
+    /// The stored kind tree root: a transaction settles when proven
     /// against that table or against the empty one.
-    pub kind_table_root: [u8; 32],
+    pub kind_tree_root: [u8; 32],
     /// Whether settlement is paused (the owner's `pause` / `unpause`).
     pub paused: bool,
     pub root: [u8; 32],
@@ -111,7 +111,7 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
     let owner = c.array_32("owner")?;
     let verifier_router = c.array_32("verifier_router")?;
     let proof_selector: [u8; 4] = c.take(4, "proof_selector")?.try_into().expect("4 bytes");
-    let kind_table_root = c.array_32("kind_table_root")?;
+    let kind_tree_root = c.array_32("kind_tree_root")?;
     let paused = bool_field(&mut c, "paused")?;
     let root = c.array_32("root")?;
     let next_index = c.u64_le("next_index")?;
@@ -143,7 +143,7 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, DecodeError> {
         owner,
         verifier_router,
         proof_selector,
-        kind_table_root,
+        kind_tree_root,
         paused,
         root,
         next_index,
@@ -167,7 +167,7 @@ pub fn encode_pa_state(state: &PAStateAccount) -> Vec<u8> {
     data.extend_from_slice(&state.owner);
     data.extend_from_slice(&state.verifier_router);
     data.extend_from_slice(&state.proof_selector);
-    data.extend_from_slice(&state.kind_table_root);
+    data.extend_from_slice(&state.kind_tree_root);
     data.push(u8::from(state.paused));
     data.extend_from_slice(&state.root);
     data.extend_from_slice(&state.next_index.to_le_bytes());
@@ -267,7 +267,7 @@ mod tests {
     }
 
     /// The schema-4 `PAStateAccount` layout (state.rs): schema_version, bump,
-    /// owner, verifier_router, proof_selector, kind_table_root, paused, root,
+    /// owner, verifier_router, proof_selector, kind_tree_root, paused, root,
     /// next_index, current_depth, frontier, min/max expiry, then the denylists
     /// for consumed and for created resources.
     fn build_fixture(
@@ -283,7 +283,7 @@ mod tests {
         data.extend_from_slice(&[1u8; 32]); // owner
         data.extend_from_slice(&[2u8; 32]); // verifier_router
         data.extend_from_slice(&[0xAB, 0xCD, 0xEF, 0x12]); // proof_selector
-        data.extend_from_slice(&[8u8; 32]); // kind_table_root
+        data.extend_from_slice(&[8u8; 32]); // kind_tree_root
         data.push(paused);
         data.extend_from_slice(&[4u8; 32]); // root
         data.extend_from_slice(&100u64.to_le_bytes()); // next_index
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(s.owner, [1u8; 32]);
         assert_eq!(s.verifier_router, [2u8; 32]);
         assert_eq!(s.proof_selector, [0xAB, 0xCD, 0xEF, 0x12]);
-        assert_eq!(s.kind_table_root, [8u8; 32]);
+        assert_eq!(s.kind_tree_root, [8u8; 32]);
         assert!(s.paused);
         assert_eq!(s.root, [4u8; 32]);
         assert_eq!(s.next_index, 100);

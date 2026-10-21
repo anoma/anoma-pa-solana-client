@@ -61,8 +61,8 @@ describe("decodeEventInstruction (cross-package fixture)", () => {
         case "CommitmentTreeRootAddedEvent":
           expect(hex(ev.root), entry).toBe(exp.root);
           break;
-        case "KindTableRootUpdatedEvent":
-          expect(hex(ev.kindTableRoot), entry).toBe(exp.kind_table_root);
+        case "KindTreeRootUpdatedEvent":
+          expect(hex(ev.kindTreeRoot), entry).toBe(exp.kind_tree_root);
           break;
         case "LogicRefDeniedEvent":
           expect(hex(ev.logicRef), entry).toBe(exp.logic_ref);
