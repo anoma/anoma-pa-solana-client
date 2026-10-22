@@ -19,11 +19,12 @@ use crate::errors::PaError;
 use crate::forwarders::{AccountsError, Forwarders};
 use crate::pda::{derive_pa_state_pda, derive_verifier_entry_pda};
 use crate::settlement::{
-    plan_settlement, plan_simulation, CallAccounts, PlanError, SettlementPlan, SettlementRequest,
+    plan_settlement, plan_simulation, CallAccounts, PlanError, PlannedTransaction, SettlementPlan,
+    SettlementRequest,
 };
 use crate::settlement_input::{
-    external_calls, settled_resources, settlement_input, simulation_input, SettledResources,
-    SettlementInputError,
+    external_calls, proven_settlement_input_len, settled_resources, settlement_input,
+    simulation_input, SettledResources, SettlementInputError,
 };
 
 /// Why a settlement could not be prepared, planned or simulated.
@@ -213,19 +214,43 @@ impl Submission {
         )?)
     }
 
+    /// How many transactions the settlement of the transaction sends once it
+    /// is proven, known before it is: `plan_settlement`'s for an input of the
+    /// proven input's length (`proven_settlement_input_len`).
+    pub fn proven_settlement_transaction_count(&self) -> Result<usize, SubmissionError> {
+        // A plan's transactions depend on its input's length alone, and the
+        // upload id and expiry slot are fixed-width, so any input of that
+        // length and any upload give them, as any blockhash gives a message's
+        // size.
+        let input = vec![0; proven_settlement_input_len(&self.transaction)?];
+        Ok(plan_settlement(self.request(&input), 0, 0)?.transaction_count())
+    }
+
+    /// The transaction simulating the settlement (`plan_simulation`), skipping
+    /// the RISC Zero proof's verification when
+    /// `skip_risc_zero_proof_verification`. An unproven transaction (its
+    /// aggregation proof empty) carries the adapter's proof selector instead.
+    pub fn plan_simulation(
+        &self,
+        skip_risc_zero_proof_verification: bool,
+    ) -> Result<PlannedTransaction, SubmissionError> {
+        let input = simulation_input(self.transaction.clone(), self.state.proof_selector)?;
+        Ok(plan_simulation(
+            self.request(&input),
+            skip_risc_zero_proof_verification,
+        )?)
+    }
+
     /// Simulates the settlement (pa-evm's `simulateExecute`) on the state
-    /// behind `rpc` at its commitment, skipping the RISC Zero proof's
-    /// verification when `skip_risc_zero_proof_verification`: unsigned and on
-    /// the latest blockhash, which the RPC fills in. An unproven transaction
-    /// (its aggregation proof empty) carries the adapter's proof selector
-    /// instead.
+    /// behind `rpc` at its commitment, as `plan_simulation` plans it:
+    /// unsigned and on the latest blockhash, which the RPC fills in.
     pub async fn simulate(
         &self,
         rpc: &RpcClient,
         skip_risc_zero_proof_verification: bool,
     ) -> Result<SimulationOutcome, SubmissionError> {
-        let input = simulation_input(self.transaction.clone(), self.state.proof_selector)?;
-        let message = plan_simulation(self.request(&input), skip_risc_zero_proof_verification)?
+        let message = self
+            .plan_simulation(skip_risc_zero_proof_verification)?
             .message(&self.payer, Hash::default())
             .map_err(PlanError::from)?;
         let unsigned = VersionedTransaction {
@@ -355,6 +380,67 @@ mod tests {
     /// The runtime's line for `program` failing with custom error `code`.
     fn failure(program: Pubkey, code: u32) -> String {
         format!("Program {program} failed: custom program error: {code:#x}")
+    }
+
+    /// The submission of `tx`, which makes no external call, so preparing it
+    /// reads nothing through the RPC.
+    async fn submission_of(tx: Transaction) -> Submission {
+        Submission::prepare(
+            &RpcClient::new("http://127.0.0.1:1".to_owned()),
+            &Forwarders::default(),
+            ADAPTER,
+            Pubkey::new_from_array([8; 32]),
+            crate::settlement::tests::state_with(&[]),
+            Pubkey::new_from_array([6; 32]),
+            tx,
+        )
+        .await
+        .expect("a transaction without external calls prepares offline")
+    }
+
+    #[tokio::test]
+    async fn an_unproven_transaction_settles_in_as_many_transactions_as_its_proven_one() {
+        use anoma_pa_testkit::environment::Prover;
+        use anoma_pa_testkit::fixtures::trivial;
+        use anoma_pa_testkit::prover::LocalProver;
+
+        // One resource each way settles inline; twenty each way upload.
+        for (count, uploads) in [(1, false), (20, true)] {
+            let built = trivial::build(
+                1,
+                trivial::Overrides {
+                    consumed_count: Some(count),
+                    created_count: Some(count),
+                    ..Default::default()
+                },
+            )
+            .expect("trivial action");
+            let proven = LocalProver
+                .prove(&[built.witnesses])
+                .await
+                .expect("local proof")
+                .into_arm();
+            let mut unproven = proven.clone();
+            unproven.aggregation.as_mut().unwrap().proof = vec![];
+
+            let plan = submission_of(proven)
+                .await
+                .plan_settlement(7, 500)
+                .expect("the proven settlement plans");
+            assert_eq!(
+                plan.upload.is_some(),
+                uploads,
+                "{count} resources each way upload: {uploads}"
+            );
+            assert_eq!(
+                submission_of(unproven)
+                    .await
+                    .proven_settlement_transaction_count()
+                    .expect("the unproven settlement plans"),
+                plan.transaction_count(),
+                "{count} resources each way"
+            );
+        }
     }
 
     #[test]

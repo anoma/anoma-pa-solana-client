@@ -133,6 +133,17 @@ pub struct SettlementPlan {
     pub new_root: Option<[u8; 32]>,
 }
 
+impl SettlementPlan {
+    /// How many transactions it sends, each signed by the payer alone: the
+    /// settlement, and the upload's init, writes and close when it has one.
+    pub fn transaction_count(&self) -> usize {
+        1 + self
+            .upload
+            .as_ref()
+            .map_or(0, |upload| 2 + upload.writes.len())
+    }
+}
+
 /// Why a settlement cannot be planned.
 #[derive(Debug)]
 pub enum PlanError {
@@ -421,7 +432,7 @@ pub fn plan_simulation(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::constants::MOCK_SELECTOR;
 
@@ -429,7 +440,7 @@ mod tests {
         Pubkey::new_from_array([n; 32])
     }
 
-    fn state_with(leaves: &[[u8; 32]]) -> PAStateAccount {
+    pub(crate) fn state_with(leaves: &[[u8; 32]]) -> PAStateAccount {
         let tree = CommitmentTreeState::over(leaves).unwrap();
         PAStateAccount {
             schema_version: 3,
@@ -588,6 +599,7 @@ mod tests {
         req.accounts.preceding = vec![preceding.clone()];
         let plan = plan_settlement(req, 7, 500).unwrap();
         assert!(plan.upload.is_none(), "a 5-byte input uploads");
+        assert_eq!(plan.transaction_count(), 1);
         assert_eq!(plan.settle.config, SETTLE_TRANSACTION_CONFIG);
         let transaction = &plan.settle.instructions;
         // The preceding instructions first, then `settle` with the input.
@@ -632,6 +644,8 @@ mod tests {
         let mut req = request(&state, &input, &[], &[], &[], vec![]);
         req.accounts.preceding = vec![preceding.clone()];
         let plan = plan_settlement(req, 7, 500).unwrap();
+        // The init, three writes, the settlement and the close.
+        assert_eq!(plan.transaction_count(), 6);
         let Some(Upload {
             init,
             writes,

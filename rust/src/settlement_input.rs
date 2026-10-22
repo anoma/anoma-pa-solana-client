@@ -17,6 +17,10 @@ use risc0_zkvm::InnerReceipt;
 /// instead of a proof, as pa-testkit's local prover produces it.
 const MOCK_VERIFIER_PARAMETERS: Digest = Digest::new([u32::MAX; 8]);
 
+/// The bytes of the router seal a proof becomes: the selector, then a Groth16
+/// proof (a: 64 bytes, b: 128, c: 64).
+const ROUTER_SEAL_LEN: usize = 4 + 64 + 128 + 64;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SettlementInputError {
     /// The transaction carries no aggregation proof.
@@ -51,6 +55,21 @@ impl std::error::Error for SettlementInputError {}
 pub fn settlement_input(tx: Transaction) -> Result<Vec<u8>, SettlementInputError> {
     bincode::serialize(&settlement_transaction(tx)?)
         .map_err(|e| SettlementInputError::Serialize(e.to_string()))
+}
+
+/// The length of `settlement_input` of `tx` once proven, known before it is:
+/// the settlement input carries the router seal, whose length is fixed, in
+/// place of `tx`'s aggregation proof (none yet, or the receipt).
+pub fn proven_settlement_input_len(tx: &Transaction) -> Result<usize, SettlementInputError> {
+    let proof = &tx
+        .aggregation
+        .as_ref()
+        .ok_or(SettlementInputError::NoAggregation)?
+        .proof;
+    let size =
+        bincode::serialized_size(tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))?;
+    // bincode writes a byte vector as its length, then its bytes.
+    Ok(size as usize - proof.len() + ROUTER_SEAL_LEN)
 }
 
 /// `tx` as `simulate_execute` takes it: a proven transaction as
@@ -171,7 +190,7 @@ fn router_seal(proof: &[u8]) -> Result<Vec<u8>, SettlementInputError> {
 /// digest at the start of c, where the mock verifier reads it (the adapter
 /// negates a before it calls the router).
 fn mock_seal(claim: Digest) -> Vec<u8> {
-    let mut seal = Vec::with_capacity(4 + 256);
+    let mut seal = Vec::with_capacity(ROUTER_SEAL_LEN);
     seal.extend(MOCK_SELECTOR);
     seal.extend([0u8; 64 + 128]);
     seal.extend(claim.as_bytes());
@@ -420,5 +439,36 @@ mod tests {
         let mut expected = parameters.as_bytes()[..4].to_vec();
         expected.extend(groth16_seal);
         assert_eq!(settled_proof(&settlement_input(tx).unwrap()), expected);
+    }
+
+    #[tokio::test]
+    async fn the_proven_settlement_input_len_is_known_before_the_proof() {
+        let proven = proven_trivial_transaction().await;
+        let settled = settlement_input(proven.clone()).unwrap().len();
+        assert_eq!(proven_settlement_input_len(&proven), Ok(settled));
+        let mut unproven = proven;
+        unproven.aggregation.as_mut().unwrap().proof = vec![];
+        assert_eq!(
+            proven_settlement_input_len(&unproven),
+            Ok(settled),
+            "an unproven transaction settles in an input as long"
+        );
+
+        // A Groth16 receipt's seal is as long as the mock seal.
+        let mut groth16 = unproven.clone();
+        groth16.aggregation.as_mut().unwrap().proof =
+            bincode::serialize(&InnerReceipt::Groth16(Groth16Receipt::new(
+                vec![7; 256],
+                MaybePruned::Pruned(Digest::default()),
+                Digest::new([0x73c4_57ba, 1, 2, 3, 4, 5, 6, 7]),
+            )))
+            .unwrap();
+        assert_eq!(settlement_input(groth16).unwrap().len(), settled);
+
+        unproven.aggregation = None;
+        assert_eq!(
+            proven_settlement_input_len(&unproven),
+            Err(SettlementInputError::NoAggregation)
+        );
     }
 }
