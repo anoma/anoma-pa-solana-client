@@ -400,26 +400,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_unproven_transaction_settles_in_as_many_transactions_as_its_proven_one() {
-        use anoma_pa_testkit::environment::Prover;
-        use anoma_pa_testkit::fixtures::trivial;
-        use anoma_pa_testkit::prover::LocalProver;
-
         // One resource each way settles inline; twenty each way upload.
         for (count, uploads) in [(1, false), (20, true)] {
-            let built = trivial::build(
-                1,
-                trivial::Overrides {
-                    consumed_count: Some(count),
-                    created_count: Some(count),
-                    ..Default::default()
-                },
-            )
-            .expect("trivial action");
-            let proven = LocalProver
-                .prove(&[built.witnesses])
-                .await
-                .expect("local proof")
-                .into_arm();
+            let proven = crate::settlement_input::tests::proven_trivial_transaction_of(count).await;
             let mut unproven = proven.clone();
             unproven.aggregation.as_mut().unwrap().proof = vec![];
 

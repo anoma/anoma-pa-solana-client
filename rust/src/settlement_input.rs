@@ -61,15 +61,15 @@ pub fn settlement_input(tx: Transaction) -> Result<Vec<u8>, SettlementInputError
 /// the settlement input carries the router seal, whose length is fixed, in
 /// place of `tx`'s aggregation proof (none yet, or the receipt).
 pub fn proven_settlement_input_len(tx: &Transaction) -> Result<usize, SettlementInputError> {
-    let proof = &tx
+    let mut proven = tx.clone();
+    proven
         .aggregation
-        .as_ref()
+        .as_mut()
         .ok_or(SettlementInputError::NoAggregation)?
-        .proof;
-    let size =
-        bincode::serialized_size(tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))?;
-    // bincode writes a byte vector as its length, then its bytes.
-    Ok(size as usize - proof.len() + ROUTER_SEAL_LEN)
+        .proof = vec![0; ROUTER_SEAL_LEN];
+    let size = bincode::serialized_size(&proven)
+        .map_err(|e| SettlementInputError::Serialize(e.to_string()))?;
+    Ok(size as usize)
 }
 
 /// `tx` as `simulate_execute` takes it: a proven transaction as
@@ -199,7 +199,7 @@ fn mock_seal(claim: Digest) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use anoma_pa_testkit::environment::Prover;
     use anoma_pa_testkit::fixtures::trivial;
@@ -338,13 +338,27 @@ mod tests {
         ));
     }
 
-    async fn proven_trivial_transaction() -> Transaction {
-        let built = trivial::build(1, trivial::Overrides::default()).expect("trivial action");
+    /// A locally proven transaction of one action consuming and creating
+    /// `count` resources each.
+    pub(crate) async fn proven_trivial_transaction_of(count: usize) -> Transaction {
+        let built = trivial::build(
+            1,
+            trivial::Overrides {
+                consumed_count: Some(count),
+                created_count: Some(count),
+                ..Default::default()
+            },
+        )
+        .expect("trivial action");
         LocalProver
             .prove(&[built.witnesses])
             .await
             .expect("local proof")
             .into_arm()
+    }
+
+    async fn proven_trivial_transaction() -> Transaction {
+        proven_trivial_transaction_of(1).await
     }
 
     fn claim_of(tx: &Transaction) -> Digest {
