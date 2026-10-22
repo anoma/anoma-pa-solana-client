@@ -402,7 +402,7 @@ mod tests {
     async fn an_unproven_transaction_settles_in_as_many_transactions_as_its_proven_one() {
         // One resource each way settles inline; twenty each way upload.
         for (count, uploads) in [(1, false), (20, true)] {
-            let proven = crate::settlement_input::tests::proven_trivial_transaction_of(count).await;
+            let proven = crate::settlement_input::tests::proven_trivial_transaction(count).await;
             let mut unproven = proven.clone();
             unproven.aggregation.as_mut().unwrap().proof = vec![];
 

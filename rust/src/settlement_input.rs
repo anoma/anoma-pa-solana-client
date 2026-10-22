@@ -67,9 +67,9 @@ pub fn proven_settlement_input_len(tx: &Transaction) -> Result<usize, Settlement
         .as_mut()
         .ok_or(SettlementInputError::NoAggregation)?
         .proof = vec![0; ROUTER_SEAL_LEN];
-    let size = bincode::serialized_size(&proven)
-        .map_err(|e| SettlementInputError::Serialize(e.to_string()))?;
-    Ok(size as usize)
+    bincode::serialized_size(&proven)
+        .map(|size| size as usize)
+        .map_err(|e| SettlementInputError::Serialize(e.to_string()))
 }
 
 /// `tx` as `simulate_execute` takes it: a proven transaction as
@@ -340,7 +340,7 @@ pub(crate) mod tests {
 
     /// A locally proven transaction of one action consuming and creating
     /// `count` resources each.
-    pub(crate) async fn proven_trivial_transaction_of(count: usize) -> Transaction {
+    pub(crate) async fn proven_trivial_transaction(count: usize) -> Transaction {
         let built = trivial::build(
             1,
             trivial::Overrides {
@@ -355,10 +355,6 @@ pub(crate) mod tests {
             .await
             .expect("local proof")
             .into_arm()
-    }
-
-    async fn proven_trivial_transaction() -> Transaction {
-        proven_trivial_transaction_of(1).await
     }
 
     fn claim_of(tx: &Transaction) -> Digest {
@@ -387,7 +383,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_proven_transaction_simulates_as_it_settles() {
-        let tx = proven_trivial_transaction().await;
+        let tx = proven_trivial_transaction(1).await;
         assert_eq!(
             simulation_input(tx.clone(), MOCK_SELECTOR).expect("simulation input"),
             settlement_input(tx).expect("settlement input")
@@ -396,7 +392,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn an_unproven_transaction_simulates_with_the_selector_as_its_proof() {
-        let mut tx = proven_trivial_transaction().await;
+        let mut tx = proven_trivial_transaction(1).await;
         tx.aggregation.as_mut().unwrap().proof = vec![];
         let input = simulation_input(tx.clone(), MOCK_SELECTOR).expect("input");
         assert_eq!(settled_proof(&input), MOCK_SELECTOR.to_vec());
@@ -411,7 +407,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_pa_testkit_local_proof_becomes_the_mock_router_seal() {
-        let tx = proven_trivial_transaction().await;
+        let tx = proven_trivial_transaction(1).await;
         let claim = claim_of(&tx);
         let input = settlement_input(tx.clone()).expect("settlement input");
         assert_eq!(settled_proof(&input), expected_mock_seal(claim));
@@ -427,7 +423,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_dev_mode_receipt_becomes_the_mock_router_seal_of_its_claim() {
-        let mut tx = proven_trivial_transaction().await;
+        let mut tx = proven_trivial_transaction(1).await;
         let journal = tx.aggregation.as_ref().unwrap().instance.to_journal();
         let claim = ReceiptClaim::ok(BATCH_AGGREGATION_VK, journal);
         let digest = claim.digest();
@@ -440,7 +436,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_groth16_receipt_becomes_its_selector_and_seal() {
-        let mut tx = proven_trivial_transaction().await;
+        let mut tx = proven_trivial_transaction(1).await;
         let groth16_seal: Vec<u8> = (0..=255).collect();
         let parameters = Digest::new([0x73c4_57ba, 1, 2, 3, 4, 5, 6, 7]);
         tx.aggregation.as_mut().unwrap().proof =
@@ -457,7 +453,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn the_proven_settlement_input_len_is_known_before_the_proof() {
-        let proven = proven_trivial_transaction().await;
+        let proven = proven_trivial_transaction(1).await;
         let settled = settlement_input(proven.clone()).unwrap().len();
         assert_eq!(proven_settlement_input_len(&proven), Ok(settled));
         let mut unproven = proven;
