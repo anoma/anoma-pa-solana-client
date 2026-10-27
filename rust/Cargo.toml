@@ -51,6 +51,8 @@ solana-transaction-error = { version = "3", optional = true }
 [build-dependencies]
 # Reads the adapter IDL's errors for `build.rs`.
 serde_json = "1.0"
+# The case conversion `declare_program!` names the error enum with.
+heck = "0.5"
 
 # The event types it decodes the fixture as are the generated ones.
 [[test]]

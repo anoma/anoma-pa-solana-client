@@ -530,6 +530,7 @@ dependencies = [
  "anoma-rm-risc0",
  "base64 0.22.1",
  "bincode",
+ "heck",
  "risc0-zkvm",
  "serde",
  "serde_json",

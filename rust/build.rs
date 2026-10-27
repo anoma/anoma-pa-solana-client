@@ -2,6 +2,7 @@
 //! custom program error code to the error enum `declare_program!` generates
 //! from the same IDL, which neither it nor Anchor provides.
 
+use heck::ToUpperCamelCase;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -16,22 +17,12 @@ fn main() {
     let idl: serde_json::Value =
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("{IDL} is not JSON: {e}"));
 
-    // `declare_program!` names the enum after the program, in upper camel
-    // case, then `Error`, and each variant by its IDL name.
+    // `declare_program!` names the enum `{program}Error`, the program in heck's
+    // upper camel case, and each variant by its IDL name.
     let program = idl["metadata"]["name"]
         .as_str()
         .unwrap_or_else(|| panic!("{IDL} has no metadata.name"));
-    let mut enum_name: String = program
-        .split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            chars
-                .next()
-                .map(|first| first.to_uppercase().chain(chars).collect::<String>())
-                .unwrap_or_default()
-        })
-        .collect();
-    enum_name.push_str("Error");
+    let enum_name = format!("{}Error", program.to_upper_camel_case());
 
     let errors = idl["errors"]
         .as_array()
