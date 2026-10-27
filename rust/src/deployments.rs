@@ -168,6 +168,18 @@ mod tests {
         assert_eq!(record.deployment(Environment::Production, "solana:c"), None);
     }
 
+    /// `deployments.json` is a record as the parser reads it: a misspelled,
+    /// missing or extra field fails here.
+    #[test]
+    fn the_committed_record_parses() {
+        let record = &*RECORD;
+        println!(
+            "deployments.json: {} staging, {} production entries",
+            record.staging.len(),
+            record.production.len()
+        );
+    }
+
     /// An entry whose program is not deployed yet has a `null` slot.
     #[test]
     fn an_entry_without_a_deployment_slot_is_no_deployment() {
