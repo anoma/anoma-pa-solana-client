@@ -791,9 +791,27 @@ mod tests {
     }
 
     /// Each builder is the module builder at the instance's address, with the
-    /// upload and verifier entry it derives.
+    /// upload and verifier entry it derives; there is one for every
+    /// instruction the IDL declares, and each builds that instruction.
     #[test]
     fn the_builders_build_at_the_instances_address() {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/idls/protocol_adapter.json"
+        )))
+        .unwrap();
+        let idl_discriminators: std::collections::BTreeMap<String, Vec<u8>> = idl["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|ix| {
+                (
+                    ix["name"].as_str().unwrap().to_owned(),
+                    serde_json::from_value(ix["discriminator"].clone()).unwrap(),
+                )
+            })
+            .collect();
+        let mut built_names = std::collections::BTreeSet::new();
         let rpc = RpcClient::new("http://127.0.0.1:1".to_owned());
         let pa = key(9);
         let adapter = ProtocolAdapter::at(&rpc, pa);
@@ -915,24 +933,21 @@ mod tests {
         ] {
             println!("{name}: {} accounts", built.accounts.len());
             assert_eq!(built, expected, "{name}");
-        }
-    }
-
-    /// Every instruction the IDL declares has a builder above.
-    #[test]
-    fn every_idl_instruction_has_a_builder() {
-        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/idls/protocol_adapter.json"
-        )))
-        .unwrap();
-        let source = include_str!("instance.rs");
-        for ix in idl["instructions"].as_array().unwrap() {
-            let name = ix["name"].as_str().unwrap();
+            let discriminator = idl_discriminators
+                .get(name)
+                .unwrap_or_else(|| panic!("the IDL declares no instruction {name}"));
             assert!(
-                source.contains(&format!("pub fn {name}_ix(")),
-                "ProtocolAdapter has no builder for {name}"
+                built.data.starts_with(discriminator),
+                "the {name} builder's data {:02x?} does not start with its IDL discriminator {discriminator:02x?}",
+                built.data
             );
+            assert!(built_names.insert(name), "{name} is built twice");
         }
+        let idl_names: std::collections::BTreeSet<&str> =
+            idl_discriminators.keys().map(String::as_str).collect();
+        assert_eq!(
+            built_names, idl_names,
+            "the instance's builders and the IDL's instructions differ"
+        );
     }
 }
