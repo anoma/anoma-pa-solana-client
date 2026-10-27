@@ -15,14 +15,12 @@ import {
 
 import { coder } from "./coder.js";
 import { PADDING_LEAF } from "./constants.js";
-import { chainId, cluster, deployment, type Deployment, type DeploymentRecord, type Environment } from "./deployments.js";
+import { chainIdOfGenesisHash, deployment, type Deployment, type DeploymentRecord, type Environment } from "./deployments.js";
 import { idl, idlConstant, idlSeed } from "./idl.js";
 import { deriveNullifierPda, deriveRootMarkerPda, deriveVerifierRouterPdas } from "./pda.js";
 
 /** Why an instance could not be made or could not answer. */
 export type InstanceErrorDetail =
-  /** The cluster behind the RPC has a genesis hash no public cluster has. */
-  | { kind: "UnknownCluster"; genesisHash: string }
   /** The environment records no deployed adapter on the cluster. */
   | { kind: "NoDeployment"; chainId: string }
   /** An account the answer is read from does not exist. */
@@ -36,8 +34,6 @@ export type InstanceErrorDetail =
 
 function describe(detail: InstanceErrorDetail): string {
   switch (detail.kind) {
-    case "UnknownCluster":
-      return `no public cluster has the genesis hash ${detail.genesisHash}`;
     case "NoDeployment":
       return `no deployed adapter is recorded on ${detail.chainId}`;
     case "AccountMissing":
@@ -78,9 +74,7 @@ export function recordedDeployment(
   genesisHash: string,
   record?: DeploymentRecord,
 ): Deployment {
-  const found = cluster(genesisHash);
-  if (found === undefined) throw new InstanceError({ kind: "UnknownCluster", genesisHash });
-  const id = chainId(found);
+  const id = chainIdOfGenesisHash(genesisHash);
   const recorded = deployment(environment, id, record);
   if (recorded === undefined) throw new InstanceError({ kind: "NoDeployment", chainId: id });
   return recorded;

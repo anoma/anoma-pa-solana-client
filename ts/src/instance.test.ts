@@ -44,12 +44,14 @@ describe("recordedDeployment", () => {
     expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" });
   });
 
-  it("finds a genesis hash of no recorded cluster an unknown cluster", () => {
+  // A cluster no environment records, such as a local validator, is no
+  // deployment, under the chain id its genesis hash gives.
+  it("finds a genesis hash of no recorded cluster no deployment on its chain", () => {
     const unknown = PublicKey.default.toBase58();
     for (const environment of ["staging", "production"] as const) {
       const e = thrown(() => recordedDeployment(environment, unknown));
       console.log(`${environment}: ${e.message}`);
-      expect(e.detail).toEqual({ kind: "UnknownCluster", genesisHash: unknown });
+      expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:11111111111111111111111111111111" });
     }
   });
 

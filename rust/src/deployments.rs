@@ -81,24 +81,18 @@ impl Record {
 pub(crate) static RECORD: LazyLock<Record> =
     LazyLock::new(|| Record::parse(include_str!("../deployments.json")));
 
-/// The CAIP-2 chain id of `cluster`: `solana:` and the first 32 characters of
-/// its genesis hash in base58 (CAIP-30), or `None` for a cluster without a
-/// known genesis hash (`Development`).
+/// The CAIP-2 chain id of the cluster whose genesis hash is `genesis_hash`:
+/// `solana:` and the first 32 characters of the hash in base58 (CAIP-30).
+pub fn chain_id_of_genesis_hash(genesis_hash: &Hash) -> String {
+    format!("solana:{}", &genesis_hash.to_string()[..32])
+}
+
+/// The CAIP-2 chain id of `cluster`, or `None` for a cluster without a known
+/// genesis hash (`Development`).
 pub fn chain_id(cluster: ClusterType) -> Option<String> {
     cluster
         .get_genesis_hash()
-        .map(|hash| format!("solana:{}", &hash.to_string()[..32]))
-}
-
-/// The public cluster whose genesis hash is `genesis_hash`, if any.
-pub fn cluster(genesis_hash: &Hash) -> Option<ClusterType> {
-    ClusterType::STRINGS
-        .iter()
-        .map(|name| {
-            name.parse::<ClusterType>()
-                .expect("ClusterType parses its STRINGS")
-        })
-        .find(|cluster| cluster.get_genesis_hash().as_ref() == Some(genesis_hash))
+        .map(|hash| chain_id_of_genesis_hash(&hash))
 }
 
 /// The adapter `environment` records on the cluster `chain_id` names, or
@@ -187,18 +181,5 @@ mod tests {
             record("null").deployment(Environment::Staging, "solana:a"),
             None
         );
-    }
-
-    #[test]
-    fn each_clusters_genesis_hash_is_that_cluster() {
-        for name in ClusterType::STRINGS {
-            let expected: ClusterType = name.parse().unwrap();
-            let found = expected.get_genesis_hash().map(|hash| cluster(&hash));
-            println!("{name}: {found:?}");
-            if let Some(found) = found {
-                assert_eq!(found, Some(expected), "{name}");
-            }
-        }
-        assert_eq!(cluster(&Hash::new_from_array([0; 32])), None);
     }
 }

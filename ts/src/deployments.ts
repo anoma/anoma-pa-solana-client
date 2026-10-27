@@ -2,7 +2,7 @@
 // package's `copy-data` script copies it into `src/data/`): per environment,
 // the program on each cluster, under the cluster's CAIP-2 chain id.
 
-import { PublicKey, type Cluster } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import recordJson from "./data/deployments.json" with { type: "json" };
 
@@ -27,21 +27,9 @@ export type DeploymentRecord = Record<
 
 const RECORD: DeploymentRecord = recordJson;
 
-/** The genesis hash of each public cluster, as `solana-cluster-type` records them for the Rust crate. */
-const GENESIS_HASHES: Record<Cluster, string> = {
-  "mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
-  devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
-  testnet: "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
-};
-
-/** The CAIP-2 chain id of `cluster`: `solana:` and the first 32 characters of its genesis hash (CAIP-30). */
-export function chainId(cluster: Cluster): string {
-  return `solana:${GENESIS_HASHES[cluster].slice(0, 32)}`;
-}
-
-/** The public cluster whose genesis hash is `genesisHash`, if any. */
-export function cluster(genesisHash: string): Cluster | undefined {
-  return (Object.keys(GENESIS_HASHES) as Cluster[]).find((c) => GENESIS_HASHES[c] === genesisHash);
+/** The CAIP-2 chain id of the cluster whose genesis hash is `genesisHash`: `solana:` and its first 32 characters (CAIP-30). */
+export function chainIdOfGenesisHash(genesisHash: string): string {
+  return `solana:${genesisHash.slice(0, 32)}`;
 }
 
 /**

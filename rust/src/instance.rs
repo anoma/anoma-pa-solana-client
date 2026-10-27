@@ -17,7 +17,7 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 
 use crate::accounts::decode_pa_state;
-use crate::deployments::{chain_id, cluster, Deployment, Environment, Record, RECORD};
+use crate::deployments::{chain_id_of_genesis_hash, Deployment, Environment, Record, RECORD};
 use crate::generated::protocol_adapter::accounts::PAStateAccount;
 use crate::generated::protocol_adapter::constants::EMPTY_KIND_TREE_ROOT;
 use crate::generated::protocol_adapter::types::DeniedLogicRef;
@@ -31,8 +31,6 @@ use crate::pda::{
 /// Why an instance could not be made or could not answer.
 #[derive(Debug)]
 pub enum InstanceError {
-    /// The cluster behind the RPC has a genesis hash no public cluster has.
-    UnknownCluster { genesis_hash: Hash },
     /// The environment records no deployed adapter on the cluster.
     NoDeployment { chain_id: String },
     /// An account the answer is read from does not exist.
@@ -51,9 +49,6 @@ pub enum InstanceError {
 impl fmt::Display for InstanceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownCluster { genesis_hash } => {
-                write!(f, "no public cluster has the genesis hash {genesis_hash}")
-            }
             Self::NoDeployment { chain_id } => {
                 write!(f, "no deployed adapter is recorded on {chain_id}")
             }
@@ -92,10 +87,7 @@ fn deployment_in(
     environment: Environment,
     genesis_hash: &Hash,
 ) -> Result<Deployment, InstanceError> {
-    let cluster = cluster(genesis_hash).ok_or(InstanceError::UnknownCluster {
-        genesis_hash: *genesis_hash,
-    })?;
-    let chain_id = chain_id(cluster).expect("a cluster with a genesis hash has a chain id");
+    let chain_id = chain_id_of_genesis_hash(genesis_hash);
     record
         .deployment(environment, &chain_id)
         .ok_or(InstanceError::NoDeployment { chain_id })
@@ -627,14 +619,20 @@ mod tests {
         );
     }
 
+    /// A cluster no environment records, such as a local validator, is no
+    /// deployment, under the chain id its genesis hash gives.
     #[test]
-    fn an_unknown_genesis_hash_is_an_unknown_cluster() {
+    fn an_unrecorded_genesis_hash_is_no_deployment_on_its_chain() {
         let unknown = Hash::new_from_array([0; 32]);
         for environment in [Environment::Staging, Environment::Production] {
             let found = recorded_deployment(environment, &unknown);
             println!("{environment:?}: {found:?}");
             assert!(
-                matches!(found, Err(InstanceError::UnknownCluster { genesis_hash }) if genesis_hash == unknown),
+                matches!(
+                    &found,
+                    Err(InstanceError::NoDeployment { chain_id })
+                        if chain_id == "solana:11111111111111111111111111111111"
+                ),
                 "{found:?}"
             );
         }

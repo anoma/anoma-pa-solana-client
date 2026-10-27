@@ -1,30 +1,14 @@
-import { PublicKey, type Cluster } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 
 import record from "./data/deployments.json" with { type: "json" };
-import { chainId, cluster, deployment, type DeploymentRecord, type Environment } from "./deployments.js";
+import { chainIdOfGenesisHash, deployment, type DeploymentRecord, type Environment } from "./deployments.js";
 import { idl } from "./idl.js";
 
 const ENVIRONMENTS: Environment[] = ["staging", "production"];
-const CLUSTERS: Cluster[] = ["mainnet-beta", "devnet", "testnet"];
 const raw = record as DeploymentRecord;
 
-/** The cluster `id` names, or a failure naming the id. */
-function clusterOf(id: string): Cluster {
-  const found = CLUSTERS.find((c) => chainId(c) === id);
-  if (found === undefined) throw new Error(`chain id ${id} is no known cluster's`);
-  return found;
-}
-
 describe("the deployment record", () => {
-  it("names every chain by a known cluster's chain id", () => {
-    for (const environment of ENVIRONMENTS) {
-      for (const entry of raw[environment]) {
-        console.log(`${environment}: ${entry.chainId} is ${clusterOf(entry.chainId)}`);
-      }
-    }
-  });
-
   it("repeats no chain id within an environment", () => {
     for (const environment of ENVIRONMENTS) {
       const ids = raw[environment].map((e) => e.chainId);
@@ -42,34 +26,18 @@ describe("the deployment record", () => {
 
   // The client decodes with the IDL of the program staging runs.
   it("records the vendored IDL's address as staging's devnet program", () => {
-    const devnet = raw.staging.filter((e) => clusterOf(e.chainId) === "devnet");
+    const devnet = raw.staging.filter((e) => e.chainId === "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1");
     expect(devnet.length, JSON.stringify(devnet)).toBe(1);
     console.log(`staging devnet: ${devnet[0]!.programId}, IDL: ${idl.address}`);
     expect(devnet[0]!.programId).toBe(idl.address);
   });
 });
 
-describe("chain ids and clusters", () => {
-  it("gives the public clusters the chain ids CAIP-30 gives them", () => {
-    const expected: Record<Cluster, string> = {
-      "mainnet-beta": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-      devnet: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-      testnet: "solana:4uhcVJyU9pJkvQyS88uRDiswHXSCkY3z",
-    };
-    for (const c of CLUSTERS) {
-      console.log(`${c}: ${chainId(c)}`);
-      expect(chainId(c), c).toBe(expected[c]);
-    }
-  });
-
-  it("finds each cluster by its genesis hash, and none by another hash", () => {
-    const genesis: Record<Cluster, string> = {
-      "mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
-      devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
-      testnet: "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
-    };
-    for (const c of CLUSTERS) expect(cluster(genesis[c]), c).toBe(c);
-    expect(cluster(PublicKey.default.toBase58())).toBeUndefined();
+describe("chainIdOfGenesisHash", () => {
+  it("is solana: and the hash's first 32 characters (CAIP-30)", () => {
+    const hash = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+    console.log(`${hash}: ${chainIdOfGenesisHash(hash)}`);
+    expect(chainIdOfGenesisHash(hash)).toBe("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1");
   });
 });
 
