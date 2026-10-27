@@ -1,240 +1,104 @@
-// Decoders for the PA's events.
+// Anchor's framing of CPI events.
 //
 // The PA emits every event as a self-invocation (Anchor `#[event_cpi]`): an
 // inner instruction whose program is the PA and whose data is the 8-byte event
-// tag, the event's 8-byte discriminator (`sha256("event:<Name>")[..8]`), and
-// the Borsh-encoded body. Readers take a settlement transaction's inner
-// instructions and pass each PA-addressed one through `decodeEventInstruction`.
+// tag, the event's discriminator, and its Borsh body. Readers take a
+// settlement transaction's inner instructions and pass each PA-addressed one
+// through `decodeCpiEvent`, which reads the event with the IDL's coder.
 // Events never appear in the program log.
 
+import type { IdlType } from "@anchor-lang/core";
+
 import { toHex } from "./codecs.js";
-import { ANCHOR_DISCRIMINATOR_LEN } from "./constants.js";
-import { Cursor, TruncatedError } from "./cursor.js";
-import { anchorEventDisc } from "./discriminator.js";
+import { coder } from "./coder.js";
+import { idl } from "./idl.js";
 
 /** `anchor_lang::event::EVENT_IX_TAG_LE`: the u64 `0x1d9acb512ea545e4` little-endian. */
 export const EVENT_IX_TAG = new Uint8Array([0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d]);
 
-/**
- * Body shared by the four payload events. `tag` is the resource tag the
- * payload belongs to; `index` is the entry's position within its category's
- * payload list for that resource, a `u256` (pa-evm's `uint256`); `blob` is
- * the payload bytes.
- */
-export interface PayloadEvent {
-  name: "ResourcePayloadEvent" | "DiscoveryPayloadEvent" | "ExternalPayloadEvent" | "ApplicationPayloadEvent";
-  tag: Uint8Array;
-  index: bigint;
-  blob: Uint8Array;
-}
-
-/**
- * Emitted once per action, after that action's resources are processed, as
- * pa-evm's `ActionExecuted`: the nullifiers of its consumed resources and the
- * commitments of its created ones, each with its resource's logic ref, in
- * instance order.
- */
-export interface ActionExecutedEvent {
-  name: "ActionExecutedEvent";
-  actionTreeRoot: Uint8Array;
-  nullifiers: Uint8Array[];
-  consumedLogicRefs: Uint8Array[];
-  commitments: Uint8Array[];
-  createdLogicRefs: Uint8Array[];
-}
-
-/**
- * Emitted once per settlement, last, as pa-evm's `TransactionExecuted`: the
- * transaction id is the Keccak-256 hash of the concatenated action tree roots.
- */
-export interface TransactionExecutedEvent {
-  name: "TransactionExecutedEvent";
-  transactionId: Uint8Array;
-}
-
-/**
- * A root the commitment tree took on: the empty tree's at initialization, then
- * the root of each settlement that appends commitments.
- */
-export interface CommitmentTreeRootAddedEvent {
-  name: "CommitmentTreeRootAddedEvent";
-  root: Uint8Array;
-}
-
-/**
- * The kind tree root the adapter now requires: the empty table's at
- * initialization, then each `set_kind_tree_root`.
- */
-export interface KindTreeRootUpdatedEvent {
-  name: "KindTreeRootUpdatedEvent";
-  kindTreeRoot: Uint8Array;
-}
-
-/** A logic ref the owner added to the denylist for consumed resources (`consumed`) or to the one for created resources, for good. */
-export interface LogicRefDeniedEvent {
-  name: "LogicRefDeniedEvent";
-  logicRef: Uint8Array;
-  consumed: boolean;
-}
-
-/**
- * The owner (`account`) paused or unpaused settlement, as OpenZeppelin
- * Pausable's `Paused(account)` / `Unpaused(account)`.
- */
-export interface PauseEvent {
-  name: "PausedEvent" | "UnpausedEvent";
-  account: Uint8Array;
-}
-
-/**
- * The ownership moved from `previousOwner` to `newOwner`, as OpenZeppelin
- * Ownable's `OwnershipTransferred`; the zero key stands for no owner (the
- * previous owner at `initialize`, the new owner once renounced).
- */
-export interface OwnershipTransferredEvent {
-  name: "OwnershipTransferredEvent";
-  previousOwner: Uint8Array;
-  newOwner: Uint8Array;
-}
-
-/**
- * The owner upgraded the program to the code whose executable hash is
- * `executableHash` (sha256 of the code without trailing zero bytes, what
- * `solana-verify get-program-hash` reports), as ERC1967's `Upgraded`.
- */
-export interface UpgradedEvent {
-  name: "UpgradedEvent";
-  executableHash: Uint8Array;
-}
-
-/**
- * The adapter's state was initialized at schema version `version` by
- * `initialize`, as OpenZeppelin Initializable's `Initialized(version)`.
- */
-export interface InitializedEvent {
-  name: "InitializedEvent";
-  version: bigint;
-}
-
-/** Emitted once per external call, in call order. */
-export interface ForwarderCallExecutedEvent {
-  name: "ForwarderCallExecutedEvent";
-  untrustedForwarder: Uint8Array;
-  input: Uint8Array;
-  output: Uint8Array;
-}
-
-export type PaEvent =
-  | PayloadEvent
-  | ActionExecutedEvent
-  | TransactionExecutedEvent
-  | ForwarderCallExecutedEvent
-  | CommitmentTreeRootAddedEvent
-  | KindTreeRootUpdatedEvent
-  | LogicRefDeniedEvent
-  | PauseEvent
-  | OwnershipTransferredEvent
-  | InitializedEvent
-  | UpgradedEvent;
-
 export class EventDecodeError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "EventDecodeError";
   }
 }
 
-const PAYLOAD_EVENT_NAMES: PayloadEvent["name"][] = [
-  "ResourcePayloadEvent",
-  "DiscoveryPayloadEvent",
-  "ExternalPayloadEvent",
-  "ApplicationPayloadEvent",
-];
-
-/** A Borsh `bool`: one byte, 0 or 1. */
-function boolField(c: Cursor, field: string): boolean {
-  const byte = c.u8(field);
-  if (byte !== 0 && byte !== 1) throw new EventDecodeError(`invalid bool byte ${byte} for event field ${field}`);
-  return byte === 1;
-}
-
-const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
-  a.length === b.length && a.every((v, i) => v === b[i]);
+/** The byte length of each fixed-size Borsh type. */
+const FIXED_LENGTHS: Record<string, number> = {
+  bool: 1,
+  u8: 1,
+  i8: 1,
+  u16: 2,
+  i16: 2,
+  u32: 4,
+  i32: 4,
+  f32: 4,
+  u64: 8,
+  i64: 8,
+  f64: 8,
+  u128: 16,
+  i128: 16,
+  u256: 32,
+  i256: 32,
+  pubkey: 32,
+};
 
 /**
- * Decode the instruction data of one PA event self-invocation: check the tag,
- * read the discriminator, decode the body it names, and refuse trailing bytes.
+ * The length of the Borsh encoding of `value`, as the coder decoded it for the
+ * IDL type `type`: the bytes the coder read. The coder neither reports it nor
+ * refuses bytes after a body, and reads a short integer or key at the end of
+ * the data without refusing it.
  */
-export function decodeEventInstruction(data: Uint8Array): PaEvent {
-  try {
-    const c = new Cursor(data);
-    if (c.remaining() < EVENT_IX_TAG.length || !bytesEqual(c.take(EVENT_IX_TAG.length, "event tag"), EVENT_IX_TAG)) {
-      throw new EventDecodeError("instruction data does not start with the Anchor event tag");
+function borshLength(value: any, type: IdlType): number {
+  if (typeof type === "string") {
+    if (type === "bytes") return 4 + value.length;
+    const fixed = FIXED_LENGTHS[type];
+    if (fixed !== undefined) return fixed;
+  } else if ("array" in type) {
+    return value.reduce((n: number, v: unknown) => n + borshLength(v, type.array[0]), 0);
+  } else if ("vec" in type) {
+    return value.reduce((n: number, v: unknown) => n + borshLength(v, type.vec), 4);
+  } else if ("defined" in type) {
+    const def = idl.types?.find((t) => t.name === type.defined.name)?.type;
+    if (def?.kind === "type") return borshLength(value, def.alias);
+    if (def?.kind === "struct" && def.fields !== undefined) {
+      return def.fields.reduce((n: number, f) => {
+        if (typeof f !== "object" || !("name" in f)) throw new EventDecodeError(`${type.defined.name} has unnamed fields`);
+        return n + borshLength(value[f.name], f.type);
+      }, 0);
     }
-    const disc = c.take(ANCHOR_DISCRIMINATOR_LEN, "event discriminator");
-    const event = paEventBody(disc, c);
-    const trailing = c.remaining();
-    if (trailing !== 0) {
-      throw new EventDecodeError(`${trailing} trailing byte(s) after the event body`);
-    }
-    return event;
-  } catch (e) {
-    if (e instanceof TruncatedError) {
-      throw new EventDecodeError(`event ${e.message}`);
-    }
-    throw e;
   }
+  throw new EventDecodeError(`no Borsh length for the IDL type ${JSON.stringify(type)}`);
 }
 
-function paEventBody(disc: Uint8Array, c: Cursor): PaEvent {
-  for (const name of PAYLOAD_EVENT_NAMES) {
-    if (bytesEqual(disc, anchorEventDisc(name))) {
-      return { name, tag: c.array32("tag"), index: c.u256Le("index"), blob: c.vecU8("blob") };
-    }
+const base64 = (bytes: Uint8Array): string => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
+
+/**
+ * The event in `data`, the instruction data of one PA event self-invocation:
+ * its IDL name and its fields under their IDL names, as the coder decodes them.
+ * Refuses data without the event tag, a discriminator no IDL event has, a body
+ * that does not decode, and bytes after the body.
+ */
+export function decodeCpiEvent(data: Uint8Array): { name: string; data: unknown } {
+  const tag = data.subarray(0, EVENT_IX_TAG.length);
+  if (tag.length !== EVENT_IX_TAG.length || !tag.every((b, i) => b === EVENT_IX_TAG[i])) {
+    throw new EventDecodeError("the instruction data does not start with the event tag");
   }
-  if (bytesEqual(disc, anchorEventDisc("ActionExecutedEvent"))) {
-    return {
-      name: "ActionExecutedEvent",
-      actionTreeRoot: c.array32("action_tree_root"),
-      nullifiers: c.vecArray32("nullifiers"),
-      consumedLogicRefs: c.vecArray32("consumed_logic_refs"),
-      commitments: c.vecArray32("commitments"),
-      createdLogicRefs: c.vecArray32("created_logic_refs"),
-    };
+  const rest = data.subarray(EVENT_IX_TAG.length);
+  let event: { name: string; data: unknown } | null;
+  try {
+    event = coder.events.decode(base64(rest));
+  } catch (e) {
+    throw new EventDecodeError(`the event body does not decode: ${e}`, { cause: e });
   }
-  if (bytesEqual(disc, anchorEventDisc("TransactionExecutedEvent"))) {
-    return { name: "TransactionExecutedEvent", transactionId: c.array32("transaction_id") };
+  if (event === null) {
+    throw new EventDecodeError(`no IDL event has the discriminator ${toHex(rest.subarray(0, 8)).slice(2)}`);
   }
-  if (bytesEqual(disc, anchorEventDisc("CommitmentTreeRootAddedEvent"))) {
-    return { name: "CommitmentTreeRootAddedEvent", root: c.array32("root") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("KindTreeRootUpdatedEvent"))) {
-    return { name: "KindTreeRootUpdatedEvent", kindTreeRoot: c.array32("kind_tree_root") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("LogicRefDeniedEvent"))) {
-    return { name: "LogicRefDeniedEvent", logicRef: c.array32("logic_ref"), consumed: boolField(c, "consumed") };
-  }
-  for (const name of ["PausedEvent", "UnpausedEvent"] as const) {
-    if (bytesEqual(disc, anchorEventDisc(name))) {
-      return { name, account: c.array32("account") };
-    }
-  }
-  if (bytesEqual(disc, anchorEventDisc("OwnershipTransferredEvent"))) {
-    return { name: "OwnershipTransferredEvent", previousOwner: c.array32("previous_owner"), newOwner: c.array32("new_owner") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("InitializedEvent"))) {
-    return { name: "InitializedEvent", version: c.u64Le("version") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("UpgradedEvent"))) {
-    return { name: "UpgradedEvent", executableHash: c.array32("executable_hash") };
-  }
-  if (bytesEqual(disc, anchorEventDisc("ForwarderCallExecutedEvent"))) {
-    return {
-      name: "ForwarderCallExecutedEvent",
-      untrustedForwarder: c.array32("untrusted_forwarder"),
-      input: c.vecU8("input"),
-      output: c.vecU8("output"),
-    };
-  }
-  throw new EventDecodeError(`unknown event discriminator ${toHex(disc).slice(2)}`);
+  const name = event.name;
+  const discriminator = idl.events!.find((e) => e.name === name)!.discriminator;
+  const body = rest.length - discriminator.length;
+  const read = borshLength(event.data, { defined: { name } });
+  if (read < body) throw new EventDecodeError(`${body - read} trailing byte(s) after the ${name} body`);
+  if (read > body) throw new EventDecodeError(`the ${name} body ends ${read - body} byte(s) short`);
+  return event;
 }

@@ -13,7 +13,7 @@ Client bindings for the Solana Protocol Adapter. One source of truth for instruc
 | `REQUIREMENTS.md` | Authoritative spec for what this package must provide. Implementation follows from it. |
 | `rust/` | Rust crate (`Cargo.toml`, `src/`). Cargo target. |
 | `tools/settle-fixture/` | Pairing check: settles one adapter fixture on a cluster through the crate's builders, then verifies the replayed root and decodes the settlement's events. |
-| `ts/` | TypeScript / npm package (`package.json`, `src/`). npm target. |
+| `ts/` | TypeScript / npm package (`package.json`, `src/`). npm target. `npm test` runs its unit tests; `npm run test:deployed` reads the recorded staging adapter over `HELIUS_DEVNET_URL`. |
 | `rust/idls/` | Anchor IDL files of the adapter repo's programs, the adapter's as committed at the paired tag. `declare_program!` generates the Rust bindings from it. |
 | `PA_TAG.txt` | The `solana-protocol-adapter` tag this release pairs with. Updated per release. |
 

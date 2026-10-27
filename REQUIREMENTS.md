@@ -35,7 +35,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 ### 3.1 Generated bindings
 
 - In Rust, Anchor's `declare_program!` generates `generated::protocol_adapter` from `rust/idls/protocol_adapter.json`, and `generated::verifier_router` from `rust/idls/verifier_router.json`: the program id (`ID`), the account types (`accounts::PAStateAccount`, `accounts::TxDataAccount`), the event types (`events::*`), the defined types (`types::*`, `U256` as its 32 little-endian bytes), the constants (`constants::*`, the PDA seeds among them), the error enum (`error::ProtocolAdapterError`, whose `u32` is the custom program error code a failed transaction reports; `build.rs` generates its `TryFrom<u32>` from the IDL's errors), and every instruction's accounts and arguments (`client::accounts`, `client::args`). Each instruction, account and event type carries its discriminator (`DISCRIMINATOR`), read from the IDL.
-- In TypeScript: `PA_PROGRAM_ID`, the adapter's address, and the instruction and event discriminators.
+- In TypeScript, `@anchor-lang/core`'s `BorshCoder` over the IDL the package ships (`idl`, a copy of `rust/idls/protocol_adapter.json`, §3.12): `coder` encodes and decodes the adapter's accounts, events, instructions and types, each with its IDL discriminator; `idl.address` is the adapter's address and `idlConstant` reads the IDL's constants.
 - The program id is the one the IDL records; the instruction builders take the address of the deployment they address, since a build sets it (`declare_id!` from the environment).
 
 ### 3.2 Anchor discriminators
@@ -54,7 +54,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 - `simulate_execute` (pa-evm's `simulateExecute`: `settle`'s accounts and input, and whether to skip verifying the RISC Zero proof; it always fails, with `Simulated` when the settlement would execute)
 - `txdata_close`
 
-Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `TransactionInstruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address; the settlement builders take the accounts every settlement names as `SettlementAccounts`.
+Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address; the settlement builders take the accounts every settlement names as `SettlementAccounts`.
 
 ### 3.4 Settle transaction orchestration
 
@@ -70,29 +70,30 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 - `derive_event_authority_pda(program)` — Anchor's `["__event_authority"]`
 - `derive_verifier_router_pdas(router_program, selector)` — the router's state PDA and its verifier entry for the adapter's proof selector; `derive_verifier_entry_pda(router_program, selector)` — the entry alone
 - `derive_program_data_address(program)` — the upgradeable loader's ProgramData account, which `initialize` checks
+- The TypeScript package derives the PDAs the IDL gives no seeds for: `deriveNullifierPda` and `deriveRootMarkerPda` (from the IDL's `NULLIFIER_SEED` and `ROOT_SEED`), `deriveEventAuthorityPda` and `deriveVerifierRouterPdas`.
 
 ### 3.6 Account decoders
 
-- `decode_pa_state(bytes) -> PAStateAccount` — the adapter's state account. In Rust, the generated `PAStateAccount` read with its discriminator checked, after refusing a schema version other than the IDL's `SCHEMA_VERSION` (the adapter refuses every instruction on such an account). The TypeScript package decodes the same fields.
+- `decode_pa_state(bytes) -> PAStateAccount` — the adapter's state account. In Rust, the generated `PAStateAccount` read with its discriminator checked, after refusing a schema version other than the IDL's `SCHEMA_VERSION` (the adapter refuses every instruction on such an account). In TypeScript, `coder.accounts.decode("PAStateAccount", data)`, which checks the discriminator; the instance (§3.13) also refuses another schema version.
 - The verifier router's `VerifierEntry` (`selector: [u8; 4]`, `verifier`, `estopped: bool`): the verifier program a settlement passes for the adapter's selector. In Rust, the generated `verifier_router::accounts::VerifierEntry`, from the router IDL the adapter repo commits (`solana-pa-prototype/idls/verifier_router.json`).
 - The schema is sourced from the PA repository at the commit tagged by this package's version. When the PA's struct changes, the new struct shape ships in the next release.
 
 ### 3.7 Event decoders
 
 - Every Anchor event emitted by the PA, as the IDL declares it:
-  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is its 32 little-endian bytes in Rust and a `bigint` in TypeScript
+  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is its 32 little-endian bytes in Rust and the coder's `BN` in TypeScript
   - `ActionExecuted { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
   - `TransactionExecuted { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
   - `ForwarderCallExecuted { untrusted_forwarder, input, output }`
   - `CommitmentTreeRootAdded { root }`, `KindTreeRootUpdated { kind_tree_root }`, `LogicRefDenied { logic_ref, consumed }`
   - `Paused { account }`, `Unpaused { account }`
   - `OwnershipTransferred { previous_owner, new_owner }`, `Initialized { version: u64 }`, `Upgraded { implementation_hash: [u8; 32] }`
-- The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log. In Rust, the event types are the generated ones, and the framing is hand-written, with no list of events: `cpi_event_discriminator` takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body) and returns its discriminator, which a caller matches against the generated types' `DISCRIMINATOR`; `decode_cpi_event::<E>` returns the event `E`, or `None` when the data holds another event, and refuses data without the tag, a body that is not one `E`, and trailing bytes.
+- The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log. In Rust, the event types are the generated ones, and the framing is hand-written, with no list of events: `cpi_event_discriminator` takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body) and returns its discriminator, which a caller matches against the generated types' `DISCRIMINATOR`; `decode_cpi_event::<E>` returns the event `E`, or `None` when the data holds another event, and refuses data without the tag, a body that is not one `E`, and trailing bytes. In TypeScript, `decodeCpiEvent(data)` checks the tag (`EVENT_IX_TAG`) and decodes the rest with the coder, returning the event's IDL name and its fields under their IDL names; it refuses (`EventDecodeError`) data without the tag, a discriminator no IDL event has, a body that does not decode or ends short, and bytes after the body.
 - The indexer consumes the IDL file (`rust/idls/protocol_adapter.json`) for the same decoding in non-Rust/TS contexts.
 
 ### 3.8 Errors
 
-- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): the generated `ProtocolAdapterError` in Rust, with `TryFrom<u32>` and `u32::from` for its code, and `PA_ERRORS` with `paErrorFromCode` and `paErrorCode` in TypeScript. A test checks both against the IDL's names and codes, so a caller matches errors by type, never by name or log text.
+- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): the generated `ProtocolAdapterError` in Rust, with `TryFrom<u32>` and `u32::from` for its code, and the IDL's `errors` in TypeScript (`idl.errors`, which `@anchor-lang/core`'s `parseIdlErrors` and `translateError` read). A test checks the Rust mapping against the IDL's names and codes, so a caller matches errors by type, never by name or log text.
 
 ### 3.9 External call construction
 
@@ -118,6 +119,12 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 - `rust/idls/protocol_adapter.json` — Anchor IDL for the PA program at this version, and `rust/idls/verifier_router.json`, the verifier router's: the files committed at the adapter tag in `PA_TAG.txt`, byte for byte, which a test checks. `declare_program!` reads them from the `idls/` directory beside the crate's manifest.
 - Copied from the PA repo on every release. The integrator's indexer (Elixir or any other non-Rust/TS consumer) reads it directly.
+- The TS package's `copy-data` script copies `protocol_adapter.json` and `rust/deployments.json` into `ts/src/data/` (git-ignored) on `npm install`, `npm pack` and before every build, type check and test, so the package ships, and its tests read, the files the Rust crate is built from.
+
+### 3.13 Deployments and the adapter instance
+
+- `rust/deployments.json` records, per environment (`staging` on devnet, `production` on mainnet-beta), the adapter program on each cluster under its CAIP-2 chain id (`solana:` and the first 32 characters of the genesis hash, CAIP-30), with the slot of its first deployment, `null` until it is deployed. `deployment(environment, chain_id)` reads it; `chain_id(cluster)` and `cluster(genesis_hash)` map between clusters and chain ids.
+- `protocol_adapter(rpc, environment)` (TypeScript: `protocolAdapter(connection, environment)`) is pa-evm's `contract::protocol_adapter`: the adapter the environment records on the cluster behind the RPC, found by its genesis hash, or `UnknownCluster` / `NoDeployment`. `ProtocolAdapter::at` (TypeScript: `ProtocolAdapter.at`) is the adapter at a given address. Its reads carry pa-evm's names (`paused`, `riscZeroVerifierPaused`, `RISC_ZERO_VERIFIER_ROUTER`, `RISC_ZERO_VERIFIER_SELECTOR`, `commitmentCount`, `commitmentTreeDepth`, `commitmentTreeCapacity`, `commitmentTreeLeftSiblings`, `commitmentTreeEmptySubtreeRoots`, `latestCommitmentTreeRoot`, `isCommitmentTreeRootHistorical`, `isNullifierContained`, `getKindTreeRoot`, `EMPTY_KIND_TREE_ROOT`, `isLogicRefDenied`, `owner`), in snake case in Rust and camel case in TypeScript, and fail with `InstanceError`. In Rust it also builds every instruction at its address.
 
 ---
 

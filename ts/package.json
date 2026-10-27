@@ -23,17 +23,24 @@
     "dist"
   ],
   "scripts": {
+    "copy-data": "mkdir -p src/data && cp ../rust/idls/protocol_adapter.json ../rust/deployments.json src/data/",
+    "prepare": "npm run copy-data",
+    "prebuild": "npm run copy-data",
     "build": "tsc",
+    "pretsc": "npm run copy-data",
     "tsc": "tsc --noEmit",
-    "test": "vitest run"
+    "pretest": "npm run copy-data",
+    "test": "vitest run --project unit",
+    "pretest:deployed": "npm run copy-data",
+    "test:deployed": "vitest run --project deployed"
   },
   "dependencies": {
+    "@anchor-lang/core": "^1.2.1",
     "@noble/hashes": "^1.8.0",
     "@solana/web3.js": "^1.98.0",
     "bs58": "^6.0.0"
   },
   "devDependencies": {
-    "@anchor-lang/core": "^1.2.0",
     "typescript": "~5.9.3",
     "vitest": "^4.0.0"
   }

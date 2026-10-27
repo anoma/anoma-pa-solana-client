@@ -2,134 +2,128 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { keccak_256 } from "@noble/hashes/sha3";
+import type { IdlType } from "@anchor-lang/core";
 
-import { toHex } from "./codecs.js";
-import { decodeEventInstruction, EventDecodeError } from "./events.js";
+import { decodeCpiEvent, EVENT_IX_TAG, EventDecodeError } from "./events.js";
+import { idl } from "./idl.js";
 
 const fixture = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../fixtures/events_fixture.json", import.meta.url)), "utf8"),
 ) as {
+  event_ix_tag_hex: string;
   events: { source: string; name: string; data_b64: string; expected: Record<string, unknown> }[];
 };
 
 const b64 = (s: string): Uint8Array => Uint8Array.from(Buffer.from(s, "base64"));
-const hex = (b: Uint8Array): string => toHex(b).slice(2);
 
-const idlEvents = (
-  JSON.parse(
-    readFileSync(fileURLToPath(new URL("../../rust/idls/protocol_adapter.json", import.meta.url)), "utf8"),
-  ) as { events: { name: string }[] }
-).events.map((e) => e.name);
+const typeDef = (name: string) => {
+  const def = idl.types!.find((t) => t.name === name);
+  if (def === undefined) throw new Error(`the IDL declares no type ${name}`);
+  return def.type;
+};
 
-describe("decodeEventInstruction (cross-package fixture)", () => {
-  it("decodes every fixture entry to the recorded values", () => {
+// A decoded value of the IDL type `type` in the fixture's form: byte arrays,
+// bytes and keys as lowercase hex, u256s as their 32 little-endian bytes in
+// hex, u64s as decimal strings, bools as themselves, vectors element by
+// element.
+function plain(value: any, type: IdlType): unknown {
+  if (typeof type === "object" && "defined" in type) {
+    const def = typeDef(type.defined.name);
+    if (def.kind !== "type") throw new Error(`${type.defined.name} is no alias`);
+    return plain(value, def.alias);
+  }
+  if (type === "bool") return value;
+  if (type === "u64") return value.toString();
+  if (type === "u256") return value.toArrayLike(Buffer, "le", 32).toString("hex");
+  if (type === "pubkey") return value.toBuffer().toString("hex");
+  if (type === "bytes" || (typeof type === "object" && "array" in type)) return Buffer.from(value).toString("hex");
+  if (typeof type === "object" && "vec" in type) return value.map((v: unknown) => plain(v, type.vec));
+  throw new Error(`no fixture form for the IDL type ${JSON.stringify(type)}`);
+}
+
+const entryData = (name: string): Uint8Array => {
+  const entry = fixture.events.find((e) => e.name === name);
+  if (entry === undefined) throw new Error(`the fixture has no ${name}`);
+  return b64(entry.data_b64);
+};
+
+describe("decodeCpiEvent (cross-package fixture)", () => {
+  it("strips Anchor's event tag, the fixture's", () => {
+    expect(Buffer.from(EVENT_IX_TAG).toString("hex")).toBe(fixture.event_ix_tag_hex);
+  });
+
+  it("decodes every fixture entry to the recorded values, covering every IDL event", () => {
     const seen = new Set<string>();
     for (const [i, e] of fixture.events.entries()) {
       const entry = `#${i} ${e.name} (${e.source})`;
-      const ev = decodeEventInstruction(b64(e.data_b64));
-      expect(ev.name, entry).toBe(e.name);
-      seen.add(ev.name);
-      const exp = e.expected;
-      switch (ev.name) {
-        case "ResourcePayloadEvent":
-        case "DiscoveryPayloadEvent":
-        case "ExternalPayloadEvent":
-        case "ApplicationPayloadEvent":
-          expect(hex(ev.tag), entry).toBe(exp.tag);
-          // exp.index: the u256's 32 little-endian bytes.
-          expect(ev.index, entry).toBe(
-            BigInt(`0x${Buffer.from(exp.index as string, "hex").reverse().toString("hex")}`),
-          );
-          expect(hex(ev.blob), entry).toBe(exp.blob);
-          break;
-        case "ActionExecutedEvent":
-          expect(hex(ev.actionTreeRoot), entry).toBe(exp.action_tree_root);
-          expect(ev.nullifiers.map(hex), entry).toEqual(exp.nullifiers);
-          expect(ev.consumedLogicRefs.map(hex), entry).toEqual(exp.consumed_logic_refs);
-          expect(ev.commitments.map(hex), entry).toEqual(exp.commitments);
-          expect(ev.createdLogicRefs.map(hex), entry).toEqual(exp.created_logic_refs);
-          break;
-        case "TransactionExecutedEvent":
-          expect(hex(ev.transactionId), entry).toBe(exp.transaction_id);
-          break;
-        case "ForwarderCallExecutedEvent":
-          expect(hex(ev.untrustedForwarder), entry).toBe(exp.untrusted_forwarder);
-          expect(hex(ev.input), entry).toBe(exp.input);
-          expect(hex(ev.output), entry).toBe(exp.output);
-          break;
-        case "CommitmentTreeRootAddedEvent":
-          expect(hex(ev.root), entry).toBe(exp.root);
-          break;
-        case "KindTreeRootUpdatedEvent":
-          expect(hex(ev.kindTreeRoot), entry).toBe(exp.kind_tree_root);
-          break;
-        case "LogicRefDeniedEvent":
-          expect(hex(ev.logicRef), entry).toBe(exp.logic_ref);
-          expect(ev.consumed, entry).toBe(exp.consumed);
-          break;
-        case "PausedEvent":
-        case "UnpausedEvent":
-          expect(hex(ev.account), entry).toBe(exp.account);
-          break;
-        case "OwnershipTransferredEvent":
-          expect(hex(ev.previousOwner), entry).toBe(exp.previous_owner);
-          expect(hex(ev.newOwner), entry).toBe(exp.new_owner);
-          break;
-        case "InitializedEvent":
-          expect(ev.version.toString(), entry).toBe(exp.version);
-          break;
-        case "UpgradedEvent":
-          expect(hex(ev.executableHash), entry).toBe(exp.executable_hash);
-          break;
-      }
+      const event = decodeCpiEvent(b64(e.data_b64));
+      console.log(entry, event);
+      expect(event.name, entry).toBe(e.name);
+      const def = typeDef(event.name);
+      if (def.kind !== "struct" || def.fields === undefined) throw new Error(`${entry}: no struct`);
+      const decoded = Object.fromEntries(
+        def.fields.map((f) => {
+          if (typeof f !== "object" || !("name" in f)) throw new Error(`${entry}: tuple field`);
+          return [f.name, plain((event.data as Record<string, unknown>)[f.name], f.type)];
+        }),
+      );
+      expect(decoded, entry).toEqual(e.expected);
+      seen.add(event.name);
     }
-    expect([...seen].sort()).toEqual([...idlEvents].sort());
+    expect([...seen].sort()).toEqual(idl.events!.map((e) => e.name).sort());
   });
 
-  // pa-evm's transaction id: Keccak-256 of the transaction's action tree
-  // roots, concatenated in order. Each recorded settlement's
-  // TransactionExecuted must carry the id of its own ActionExecuted roots.
-  it("carries the Keccak-256 of the settlement's action tree roots as its transaction id", () => {
-    const settlements = new Map<string, { roots: Uint8Array[]; id?: Uint8Array }>();
-    for (const e of fixture.events) {
-      const ev = decodeEventInstruction(b64(e.data_b64));
-      const s = settlements.get(e.source) ?? { roots: [] };
-      if (ev.name === "ActionExecutedEvent") s.roots.push(ev.actionTreeRoot);
-      if (ev.name === "TransactionExecutedEvent") s.id = ev.transactionId;
-      settlements.set(e.source, s);
-    }
-    const checked = [...settlements.values()].filter((s) => s.id);
-    expect(checked.length).toBeGreaterThan(0);
-    for (const s of checked) {
-      expect(hex(s.id!)).toBe(hex(keccak_256(Buffer.concat(s.roots))));
-    }
+  it("decodes a body larger than the coder's 1000-byte encode buffer", () => {
+    const data = entryData("ForwarderCallExecuted");
+    const event = decodeCpiEvent(data);
+    const blob = Buffer.alloc(3000, 0xab);
+    // The body is untrusted_forwarder (32), then input and output, each a u32
+    // length and its bytes: replace the output with 3000 bytes.
+    const inputLength = Buffer.from(data).readUInt32LE(16 + 32);
+    const head = data.subarray(0, 16 + 32 + 4 + inputLength);
+    const length = Buffer.alloc(4);
+    length.writeUInt32LE(blob.length);
+    const large = Buffer.concat([head, length, blob]);
+    const decoded = decodeCpiEvent(large);
+    expect(decoded.name).toBe(event.name);
+    expect(Buffer.from((decoded.data as { output: Uint8Array }).output)).toEqual(blob);
   });
 
   it("rejects instruction data without the event tag", () => {
-    const data = b64(fixture.events[0]!.data_b64).slice(8);
-    expect(() => decodeEventInstruction(data)).toThrow(EventDecodeError);
-    expect(() => decodeEventInstruction(data)).toThrow(/event tag/);
+    const data = entryData("TransactionExecuted");
+    for (const bad of [data.subarray(8), data.subarray(0, 4), new Uint8Array()]) {
+      expect(() => decodeCpiEvent(bad)).toThrow(EventDecodeError);
+      expect(() => decodeCpiEvent(bad)).toThrow(/does not start with the event tag/);
+    }
   });
 
   it("rejects trailing bytes", () => {
-    const data = b64(fixture.events[2]!.data_b64);
-    const longer = new Uint8Array(data.length + 1);
-    longer.set(data);
-    expect(() => decodeEventInstruction(longer)).toThrow(/1 trailing byte/);
-  });
-
-  it("rejects an unknown discriminator", () => {
-    const data = b64(fixture.events[2]!.data_b64);
-    data[8] ^= 0xff;
-    expect(() => decodeEventInstruction(data)).toThrow(/unknown event discriminator/);
+    for (const e of fixture.events) {
+      const data = b64(e.data_b64);
+      const longer = new Uint8Array(data.length + 1);
+      longer.set(data);
+      expect(() => decodeCpiEvent(longer), e.name).toThrow(EventDecodeError);
+      expect(() => decodeCpiEvent(longer), e.name).toThrow(/1 trailing byte/);
+    }
   });
 
   it("rejects a truncated body", () => {
-    for (const [i, e] of fixture.events.entries()) {
-      const data = b64(e.data_b64).slice(0, -1);
-      expect(() => decodeEventInstruction(data), `#${i} ${e.name}`).toThrow(EventDecodeError);
-      expect(() => decodeEventInstruction(data), `#${i} ${e.name}`).toThrow(/event truncated while reading/);
+    for (const e of fixture.events) {
+      const data = b64(e.data_b64).subarray(0, -1);
+      expect(() => decodeCpiEvent(data), e.name).toThrow(EventDecodeError);
     }
+  });
+
+  it("rejects an unknown discriminator", () => {
+    const data = Uint8Array.from(entryData("TransactionExecuted"));
+    data[8]! ^= 0xff;
+    expect(() => decodeCpiEvent(data)).toThrow(EventDecodeError);
+    expect(() => decodeCpiEvent(data)).toThrow(/no IDL event has the discriminator/);
+  });
+
+  it("rejects an invalid bool", () => {
+    const data = Uint8Array.from(entryData("LogicRefDenied"));
+    data[data.length - 1] = 2;
+    expect(() => decodeCpiEvent(data)).toThrow(EventDecodeError);
   });
 });

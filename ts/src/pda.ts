@@ -1,60 +1,30 @@
-// Program-derived-address helpers for the PA.
-//
-// These mirror the seed schemas baked into the on-chain programs. They are pure
-// functions: same inputs always produce the same PublicKey + bump.
+// The program-derived addresses the IDL does not resolve: the markers a
+// settlement takes as remaining accounts, the event authority, and the
+// verifier router's accounts. Pure functions: same inputs always produce the
+// same PublicKey + bump.
 
 import { PublicKey } from "@solana/web3.js";
 
-const u64Le = (value: bigint): Uint8Array => {
-  const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setBigUint64(0, value, true);
-  return buf;
-};
+import { idlSeed } from "./idl.js";
 
 // ---- PA program PDAs --------------------------------------------------------
 
-/** Derive the global PA state PDA. Seed: `["pa_state"]`. */
-export function derivePaStatePda(paProgram: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("pa_state")],
-    paProgram,
-  );
-}
-
-/** Derive a per-authority+upload `tx_data` PDA. */
-export function deriveTxDataPda(
-  paProgram: PublicKey,
-  authority: PublicKey,
-  uploadId: bigint,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("tx_data"), authority.toBuffer(), u64Le(uploadId)],
-    paProgram,
-  );
-}
-
-/** Derive a nullifier marker PDA. */
+/** Derive a nullifier marker PDA, from the IDL's `NULLIFIER_SEED`. */
 export function deriveNullifierPda(
   paProgram: PublicKey,
   paState: PublicKey,
   nullifier: Uint8Array,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("nullifier"), paState.toBuffer(), nullifier],
-    paProgram,
-  );
+  return PublicKey.findProgramAddressSync([idlSeed("NULLIFIER_SEED"), paState.toBuffer(), nullifier], paProgram);
 }
 
-/** Derive a root marker PDA. */
+/** Derive a root marker PDA, from the IDL's `ROOT_SEED`. */
 export function deriveRootMarkerPda(
   paProgram: PublicKey,
   paState: PublicKey,
   root: Uint8Array,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("root"), paState.toBuffer(), root],
-    paProgram,
-  );
+  return PublicKey.findProgramAddressSync([idlSeed("ROOT_SEED"), paState.toBuffer(), root], paProgram);
 }
 
 /**
