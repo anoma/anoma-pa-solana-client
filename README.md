@@ -40,6 +40,7 @@ cargo run -p settle-fixture -- \
   --url http://127.0.0.1:8899 \
   --keypair ~/.config/solana/id.json \
   --fixture <adapter repo>/solana-pa-prototype/tests/fixtures/batch_groth16.json \
+  --pa <the adapter's program id> \
   --call-accounts 3mesRGxMv9wRB1xp7X4uxbf7GwnQC9PpHSJyCzcXwrsf,SysvarC1ock11111111111111111111111111111111
 ```
 

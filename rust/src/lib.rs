@@ -38,9 +38,7 @@ pub use merkle::{
 };
 
 #[cfg(feature = "solana")]
-pub use accounts::{
-    decode_pa_state, decode_verifier_entry, StateDecodeError, VerifierEntryAccount,
-};
+pub use accounts::{decode_pa_state, StateDecodeError};
 #[cfg(feature = "solana")]
 pub use events::{cpi_event_discriminator, decode_cpi_event, EventDecodeError};
 #[cfg(feature = "solana")]
@@ -51,8 +49,9 @@ pub use instructions::{
 };
 #[cfg(feature = "solana")]
 pub use pda::{
-    derive_event_authority_pda, derive_nullifier_pda, derive_program_data_address,
-    derive_root_marker_pda, derive_verifier_entry_pda, derive_verifier_router_pdas,
+    derive_event_authority_pda, derive_nullifier_pda, derive_pa_state_pda,
+    derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
+    derive_upgrade_authority_pda, derive_verifier_entry_pda, derive_verifier_router_pdas,
 };
 #[cfg(feature = "solana")]
 pub use settlement::{

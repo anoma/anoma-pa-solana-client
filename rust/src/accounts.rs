@@ -1,8 +1,6 @@
-//! Reading the adapter's state account, and the verifier router's entry
-//! account, which the adapter's IDL does not declare.
+//! Reading the adapter's state account.
 
-use anchor::prelude::Pubkey;
-use anchor::{AccountDeserialize, AnchorDeserialize, Discriminator};
+use anchor::{AccountDeserialize, Discriminator};
 
 use crate::generated::protocol_adapter::accounts::PAStateAccount;
 use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
@@ -61,31 +59,11 @@ pub fn decode_pa_state(data: &[u8]) -> Result<PAStateAccount, StateDecodeError> 
     PAStateAccount::try_deserialize(&mut &*data).map_err(StateDecodeError::Account)
 }
 
-/// A verifier router's `VerifierEntry`: the verifier program registered under
-/// a selector, and whether the router has paused it, as the router's IDL lays
-/// it out after the account discriminator.
-#[derive(Clone, Debug, PartialEq, Eq, AnchorDeserialize)]
-pub struct VerifierEntryAccount {
-    pub selector: [u8; 4],
-    pub verifier: Pubkey,
-    pub paused: bool,
-}
-
-/// Decode a router `VerifierEntry` account's data, its 8-byte discriminator
-/// first.
-pub fn decode_verifier_entry(data: &[u8]) -> Result<VerifierEntryAccount, std::io::Error> {
-    let mut body = data.get(8..).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "a verifier entry ends inside its discriminator",
-        )
-    })?;
-    VerifierEntryAccount::deserialize(&mut body)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generated::verifier_router::accounts::VerifierEntry;
+    use anchor::prelude::Pubkey;
     use anchor::AccountSerialize;
 
     #[test]
@@ -97,31 +75,35 @@ mod tests {
         let data = base64::engine::general_purpose::STANDARD
             .decode("ZveUniGZZF3/////7mKfmDSxMGCnyy/TbpmX7hTkzxHBC9Wi03rWqde0u7oA")
             .unwrap();
-        let entry = decode_verifier_entry(&data).unwrap();
+        let decode = |data: &[u8]| VerifierEntry::try_deserialize(&mut &*data);
+        let entry = decode(&data).unwrap();
         println!("{entry:?}");
         assert_eq!(entry.selector, crate::MOCK_SELECTOR);
         assert_eq!(
             entry.verifier.to_string(),
             "H3ZFoDHFvthGZu3kxpif3oSWm8MQn8uKvgDhrvVVHvHf"
         );
-        assert!(!entry.paused);
-        let mut paused = data.clone();
-        paused[44] = 1;
-        assert!(decode_verifier_entry(&paused).unwrap().paused);
-        paused[44] = 2;
-        let invalid = decode_verifier_entry(&paused);
-        println!("paused byte 2: {invalid:?}");
+        assert!(!entry.estopped);
+        let mut estopped = data.clone();
+        estopped[44] = 1;
+        assert!(decode(&estopped).unwrap().estopped);
+        estopped[44] = 2;
+        let invalid = decode(&estopped);
+        println!("estopped byte 2: {invalid:?}");
         assert!(invalid.is_err(), "a bool byte of 2 decodes: {invalid:?}");
-        let short = decode_verifier_entry(&data[..20]);
+        let short = decode(&data[..20]);
         println!("20 bytes: {short:?}");
         assert!(short.is_err(), "a 20-byte entry decodes: {short:?}");
-        assert!(decode_verifier_entry(&data[..4]).is_err());
+        let mut other = data.clone();
+        other[0] ^= 1;
+        let other = decode(&other);
+        println!("another discriminator: {other:?}");
+        assert!(other.is_err(), "another account decodes: {other:?}");
     }
 
-    /// `encode_pa_state` of the hand-written client before the generated
-    /// bindings replaced it, for `state()`: the account discriminator, then
-    /// the schema-4 fields in the IDL's order.
-    const HAND_WRITTEN_STATE: &str = "c905c1bc09bb833504ff01010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202abcdef120808080808080808080808080808080808080808080808080808080808080808010404040404040404040404040404040404040404040404040404040404040404640000000000000003030000000505050505050505050505050505050505050505050505050505050505050505060606060606060606060606060606060606060606060606060606060606060607070707070707070707070707070707070707070707070707070707070707076400000000000000c04b03000000000001000000dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd02000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef";
+    /// The encoding of `state()`: the account discriminator, then the
+    /// schema-4 fields in the IDL's order.
+    const EXPECTED_STATE: &str = "c905c1bc09bb833504ff01010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202abcdef120808080808080808080808080808080808080808080808080808080808080808010404040404040404040404040404040404040404040404040404040404040404640000000000000003030000000505050505050505050505050505050505050505050505050505050505050505060606060606060606060606060606060606060606060606060606060606060607070707070707070707070707070707070707070707070707070707070707076400000000000000c04b03000000000001000000dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd02000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef";
 
     fn hex(s: &str) -> Vec<u8> {
         (0..s.len())
@@ -150,14 +132,14 @@ mod tests {
         }
     }
 
-    /// The generated `PAStateAccount` is the layout the hand-written client
-    /// read and wrote: the same bytes both ways.
+    /// The generated `PAStateAccount` encodes `state()` as `EXPECTED_STATE`
+    /// and decodes it back.
     #[test]
     fn the_state_fields_are_the_idls() {
         let mut encoded = Vec::new();
         state().try_serialize(&mut encoded).unwrap();
-        assert_eq!(encoded, hex(HAND_WRITTEN_STATE));
-        let decoded = decode_pa_state(&hex(HAND_WRITTEN_STATE)).unwrap();
+        assert_eq!(encoded, hex(EXPECTED_STATE));
+        let decoded = decode_pa_state(&hex(EXPECTED_STATE)).unwrap();
         println!("{decoded:#?}");
         assert_eq!(format!("{decoded:?}"), format!("{:?}", state()));
         let tree = CommitmentTreeState::from(&decoded);
@@ -169,7 +151,7 @@ mod tests {
 
     #[test]
     fn bytes_past_the_encoding_are_ignored() {
-        let mut data = hex(HAND_WRITTEN_STATE);
+        let mut data = hex(EXPECTED_STATE);
         data.extend([0; 64]);
         let decoded = decode_pa_state(&data).unwrap();
         assert_eq!(format!("{decoded:?}"), format!("{:?}", state()));
@@ -180,7 +162,7 @@ mod tests {
         // The adapter refuses every instruction on an account whose layout
         // number is not its own; a client reading another layout would
         // misparse every field after byte 8, so it refuses too.
-        let mut data = hex(HAND_WRITTEN_STATE);
+        let mut data = hex(EXPECTED_STATE);
         data[8] = 3;
         let result = decode_pa_state(&data);
         assert!(
@@ -194,7 +176,7 @@ mod tests {
 
     #[test]
     fn data_that_is_not_the_state_is_refused() {
-        let data = hex(HAND_WRITTEN_STATE);
+        let data = hex(EXPECTED_STATE);
         let mut other = data.clone();
         other[0] ^= 1;
         for (what, data) in [

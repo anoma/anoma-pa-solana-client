@@ -5454,6 +5454,7 @@ dependencies = [
 name = "settle-fixture"
 version = "0.7.0"
 dependencies = [
+ "anchor-lang",
  "anoma-pa-solana-client",
  "base64 0.22.1",
  "bs58",

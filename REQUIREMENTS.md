@@ -34,7 +34,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 
 ### 3.1 Generated bindings
 
-- In Rust, Anchor's `declare_program!` generates `generated::protocol_adapter` from `rust/idls/protocol_adapter.json`: the program id (`ID`), the account types (`accounts::PAStateAccount`, `accounts::TxDataAccount`), the event types (`events::*`), the defined types (`types::*`, `U256` as its 32 little-endian bytes), the constants (`constants::*`, the PDA seeds among them), the error enum (`error::ProtocolAdapterError`, whose `u32` is the custom program error code a failed transaction reports), and every instruction's accounts and arguments (`client::accounts`, `client::args`). Each instruction, account and event type carries its discriminator (`DISCRIMINATOR`), read from the IDL.
+- In Rust, Anchor's `declare_program!` generates `generated::protocol_adapter` from `rust/idls/protocol_adapter.json`, and `generated::verifier_router` from `rust/idls/verifier_router.json`: the program id (`ID`), the account types (`accounts::PAStateAccount`, `accounts::TxDataAccount`), the event types (`events::*`), the defined types (`types::*`, `U256` as its 32 little-endian bytes), the constants (`constants::*`, the PDA seeds among them), the error enum (`error::ProtocolAdapterError`, whose `u32` is the custom program error code a failed transaction reports; `build.rs` generates its `TryFrom<u32>` from the IDL's errors), and every instruction's accounts and arguments (`client::accounts`, `client::args`). Each instruction, account and event type carries its discriminator (`DISCRIMINATOR`), read from the IDL.
 - In TypeScript: `PA_PROGRAM_ID`, the adapter's address, and the instruction and event discriminators.
 - The program id is the one the IDL records; the instruction builders take the address of the deployment they address, since a build sets it (`declare_id!` from the environment).
 
@@ -65,7 +65,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.5 PDA derivation
 
-- The state, upload and upgrade authority PDAs, from the seeds the IDL declares: `PA_STATE_SEED`, `TX_DATA_SEED` (then the authority and the upload id, little-endian) and `UPGRADE_AUTHORITY_SEED` in Rust's generated constants; `derivePaStatePda`, `deriveTxDataPda` and `deriveUpgradeAuthorityPda` in TypeScript.
+- `derive_pa_state_pda()`, `derive_tx_data_pda(authority, upload_id)`, `derive_upgrade_authority_pda()` — from the seeds the IDL declares (`PA_STATE_SEED`, `TX_DATA_SEED`, `UPGRADE_AUTHORITY_SEED`); the generated client derives no PDA. A test checks each against the IDL's `pda.seeds` of an account that uses it.
 - `derive_nullifier_pda(pa_state, nullifier_bytes)`, `derive_root_marker_pda(pa_state, root_bytes)` — the remaining accounts of a settlement, from the IDL's `NULLIFIER_SEED` and `ROOT_SEED`
 - `derive_event_authority_pda(program)` — Anchor's `["__event_authority"]`
 - `derive_verifier_router_pdas(router_program, selector)` — the router's state PDA and its verifier entry for the adapter's proof selector; `derive_verifier_entry_pda(router_program, selector)` — the entry alone
@@ -74,7 +74,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 ### 3.6 Account decoders
 
 - `decode_pa_state(bytes) -> PAStateAccount` — the adapter's state account. In Rust, the generated `PAStateAccount` read with its discriminator checked, after refusing a schema version other than the IDL's `SCHEMA_VERSION` (the adapter refuses every instruction on such an account). The TypeScript package decodes the same fields.
-- `decode_verifier_entry(bytes) -> VerifierEntryAccount` — the verifier router's `VerifierEntry` (`selector: [u8; 4]`, `verifier`, `paused: bool`), which the adapter's IDL does not declare: the verifier program a settlement passes for the adapter's selector.
+- The verifier router's `VerifierEntry` (`selector: [u8; 4]`, `verifier`, `estopped: bool`): the verifier program a settlement passes for the adapter's selector. In Rust, the generated `verifier_router::accounts::VerifierEntry`, from the router IDL the adapter repo commits (`solana-pa-prototype/idls/verifier_router.json`).
 - The schema is sourced from the PA repository at the commit tagged by this package's version. When the PA's struct changes, the new struct shape ships in the next release.
 
 ### 3.7 Event decoders
@@ -92,7 +92,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.8 Errors
 
-- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): the generated `ProtocolAdapterError` in Rust, whose `u32` is its code, and `PA_ERRORS` with `paErrorFromCode` and `paErrorCode` in TypeScript, which a test checks against the IDL's names and codes. A caller matches errors by code, never by name or log text.
+- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): the generated `ProtocolAdapterError` in Rust, with `TryFrom<u32>` and `u32::from` for its code, and `PA_ERRORS` with `paErrorFromCode` and `paErrorCode` in TypeScript. A test checks both against the IDL's names and codes, so a caller matches errors by type, never by name or log text.
 
 ### 3.9 External call construction
 
@@ -116,7 +116,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.12 IDL files
 
-- `rust/idls/protocol_adapter.json` — Anchor IDL for the PA program at this version: the file committed at the adapter tag in `PA_TAG.txt`, byte for byte, which a test checks. `declare_program!` reads it from the `idls/` directory beside the crate's manifest.
+- `rust/idls/protocol_adapter.json` — Anchor IDL for the PA program at this version, and `rust/idls/verifier_router.json`, the verifier router's: the files committed at the adapter tag in `PA_TAG.txt`, byte for byte, which a test checks. `declare_program!` reads them from the `idls/` directory beside the crate's manifest.
 - Copied from the PA repo on every release. The integrator's indexer (Elixir or any other non-Rust/TS consumer) reads it directly.
 
 ---

@@ -9,11 +9,11 @@ use solana_pubkey::Pubkey;
 use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
 
 use crate::generated::protocol_adapter::client::{accounts, args};
-use crate::generated::protocol_adapter::constants::{PA_STATE_SEED, UPGRADE_AUTHORITY_SEED};
 use crate::generated::protocol_adapter::types::DeniedLogicRef;
 use crate::generated::protocol_adapter::ID;
 use crate::pda::{
-    derive_event_authority_pda, derive_program_data_address, derive_verifier_entry_pda,
+    derive_event_authority_pda, derive_pa_state_pda, derive_program_data_address,
+    derive_upgrade_authority_pda, derive_verifier_entry_pda,
 };
 
 /// The instruction of the adapter at `pa_program` with `accounts`, then
@@ -43,11 +43,6 @@ fn instruction(
     }
 }
 
-/// The state account of the adapter at `pa_program`.
-fn pa_state(pa_program: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[PA_STATE_SEED], pa_program).0
-}
-
 /// Build the PA's `initialize`: `payer`, the program's upgrade authority, sets
 /// the owner, verifier router and proof selector, and hands the upgrade
 /// authority to the program.
@@ -61,12 +56,11 @@ pub fn initialize_ix(
     instruction(
         pa_program,
         accounts::Initialize {
-            pa_state: pa_state(pa_program),
+            pa_state: derive_pa_state_pda(pa_program).0,
             payer: *payer,
             system_program: system_program::id(),
             program_data: derive_program_data_address(pa_program),
-            upgrade_authority: Pubkey::find_program_address(&[UPGRADE_AUTHORITY_SEED], pa_program)
-                .0,
+            upgrade_authority: derive_upgrade_authority_pda(pa_program).0,
             bpf_loader_upgradeable: bpf_loader_upgradeable::id(),
             verifier_entry: derive_verifier_entry_pda(verifier_router, proof_selector),
             event_authority: derive_event_authority_pda(pa_program).0,
@@ -87,7 +81,7 @@ pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
     instruction(
         pa_program,
         accounts::Pause {
-            pa_state: pa_state(pa_program),
+            pa_state: derive_pa_state_pda(pa_program).0,
             authority: *authority,
             event_authority: derive_event_authority_pda(pa_program).0,
             program: *pa_program,
@@ -102,7 +96,7 @@ pub fn unpause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
     instruction(
         pa_program,
         accounts::Unpause {
-            pa_state: pa_state(pa_program),
+            pa_state: derive_pa_state_pda(pa_program).0,
             authority: *authority,
             event_authority: derive_event_authority_pda(pa_program).0,
             program: *pa_program,
@@ -124,7 +118,7 @@ pub fn deny_logic_refs_ix(
     instruction(
         pa_program,
         accounts::DenyLogicRefs {
-            pa_state: pa_state(pa_program),
+            pa_state: derive_pa_state_pda(pa_program).0,
             authority: *authority,
             system_program: system_program::id(),
             event_authority: derive_event_authority_pda(pa_program).0,
@@ -147,7 +141,7 @@ pub fn set_kind_tree_root_ix(
     instruction(
         pa_program,
         accounts::SetKindTreeRoot {
-            pa_state: pa_state(pa_program),
+            pa_state: derive_pa_state_pda(pa_program).0,
             authority: *authority,
             event_authority: derive_event_authority_pda(pa_program).0,
             program: *pa_program,
@@ -345,12 +339,12 @@ pub fn settle_from_txdata_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generated::protocol_adapter::constants::TX_DATA_SEED;
+    use crate::pda::derive_tx_data_pda;
 
-    /// What the hand-written builders, before the generated bindings replaced
-    /// them, built for the inputs of `built()`: each instruction's program,
-    /// data in hex, and accounts (address, signer, writable), in order.
-    const HAND_WRITTEN: &str = "\
+    /// Each instruction the tests below build, for their inputs (the program
+    /// `key(9)`, other accounts `key(n)`): its program id, its data in hex, and
+    /// its accounts (address, signer, writable), in order.
+    const EXPECTED: &str = "\
 == initialize
 program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
 data afaf6d1f0d989bed02020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303ffffffff
@@ -492,7 +486,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// `ix` in `HAND_WRITTEN`'s form.
+    /// `ix` in `EXPECTED`'s form.
     fn written(name: &str, ix: &Instruction) -> String {
         let mut out = format!(
             "== {name}\nprogram {}\ndata {}\n",
@@ -508,29 +502,27 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         out
     }
 
-    /// `HAND_WRITTEN`'s entry `name`.
-    fn hand_written(name: &str) -> String {
-        let start = HAND_WRITTEN
+    /// `EXPECTED`'s entry `name`.
+    fn expected(name: &str) -> String {
+        let start = EXPECTED
             .find(&format!("== {name}\n"))
-            .unwrap_or_else(|| panic!("HAND_WRITTEN has no {name}"));
-        let rest = &HAND_WRITTEN[start + 3..];
-        let end = rest
-            .find("== ")
-            .map_or(HAND_WRITTEN.len(), |i| start + 3 + i);
-        HAND_WRITTEN[start..end].to_string()
+            .unwrap_or_else(|| panic!("EXPECTED has no {name}"));
+        let rest = &EXPECTED[start + 3..];
+        let end = rest.find("== ").map_or(EXPECTED.len(), |i| start + 3 + i);
+        EXPECTED[start..end].to_string()
     }
 
-    /// `ix` is what the hand-written builder built as `name`.
-    fn assert_is_hand_written(name: &str, ix: &Instruction) {
+    /// `ix` is `EXPECTED`'s entry `name`.
+    fn assert_is_expected(name: &str, ix: &Instruction) {
         let built = written(name, ix);
         println!("{built}");
-        assert_eq!(built, hand_written(name), "{name}");
+        assert_eq!(built, expected(name), "{name}");
     }
 
-    /// The settlement accounts of `HAND_WRITTEN`'s settlements of `key(9)`.
+    /// The settlement accounts of `EXPECTED`'s settlements of `key(9)`.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
         SettlementAccounts {
-            pa_state: pa_state(&key(9)),
+            pa_state: derive_pa_state_pda(&key(9)).0,
             new_root_marker,
             verifier_router_program: key(11),
             router: key(12),
@@ -624,7 +616,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
 
     #[test]
     fn initialize_matches_the_adapters_idl() {
-        assert_is_hand_written(
+        assert_is_expected(
             "initialize",
             &initialize_ix(&key(9), &key(1), &key(2), &key(3), crate::MOCK_SELECTOR),
         );
@@ -649,16 +641,16 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
     #[test]
     fn the_inline_settlement_instructions_match_the_adapters_idl() {
         let pa = key(9);
-        assert_is_hand_written(
+        assert_is_expected(
             "settle",
             &settle_ix(&pa, &key(1), b"input", settlement(Some(key(10)), true)),
         );
         // An absent new-root marker is the program's own address.
-        assert_is_hand_written(
+        assert_is_expected(
             "settle_no_marker",
             &settle_ix(&pa, &key(1), b"input", settlement(None, false)),
         );
-        assert_is_hand_written(
+        assert_is_expected(
             "simulate_execute_false",
             &simulate_execute_ix(
                 &pa,
@@ -668,13 +660,13 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
                 settlement(Some(key(10)), true),
             ),
         );
-        assert_is_hand_written(
+        assert_is_expected(
             "simulate_execute_true",
             &simulate_execute_ix(&pa, &key(1), b"input", true, settlement(None, false)),
         );
 
         let accounts = SettlementAccounts {
-            pa_state: pa_state(&ID),
+            pa_state: derive_pa_state_pda(&ID).0,
             ..settlement(Some(key(10)), false)
         };
         let input = b"input";
@@ -697,11 +689,8 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
     #[test]
     fn the_upload_instructions_match_the_adapters_idl() {
         let pa = key(9);
-        let tx_data = |pa: &Pubkey| {
-            Pubkey::find_program_address(&[TX_DATA_SEED, key(1).as_ref(), &7u64.to_le_bytes()], pa)
-                .0
-        };
-        assert_is_hand_written(
+        let tx_data = |pa: &Pubkey| derive_tx_data_pda(pa, &key(1), 7).0;
+        assert_is_expected(
             "settle_from_txdata",
             &settle_from_txdata_ix(
                 &pa,
@@ -711,21 +700,29 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
                 settlement(Some(key(10)), true),
             ),
         );
-        assert_is_hand_written(
+        assert_is_expected(
             "txdata_init",
-            &txdata_init_ix(&pa, &pa_state(&pa), &tx_data(&pa), &key(1), 7, 900, 500),
+            &txdata_init_ix(
+                &pa,
+                &derive_pa_state_pda(&pa).0,
+                &tx_data(&pa),
+                &key(1),
+                7,
+                900,
+                500,
+            ),
         );
-        assert_is_hand_written(
+        assert_is_expected(
             "txdata_write",
             &txdata_write_ix(&pa, &tx_data(&pa), &key(1), 7, 3856, &[1, 2, 3, 4, 5]),
         );
-        assert_is_hand_written(
+        assert_is_expected(
             "txdata_close",
             &txdata_close_ix(&pa, &tx_data(&pa), &key(1), &key(2), 7),
         );
 
         let accounts = SettlementAccounts {
-            pa_state: pa_state(&ID),
+            pa_state: derive_pa_state_pda(&ID).0,
             ..settlement(None, false)
         };
         let ix = settle_from_txdata_ix(&ID, &tx_data(&ID), &key(1), 7, accounts);
@@ -733,7 +730,15 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
             assert_matches_the_adapters_idl(&ix, "settle_from_txdata", &7u64.to_le_bytes());
         assert_eq!(by_name("tx_data"), tx_data(&ID));
         assert_eq!(by_name("new_root_marker"), ID);
-        let ix = txdata_init_ix(&ID, &pa_state(&ID), &tx_data(&ID), &key(1), 7, 900, 500);
+        let ix = txdata_init_ix(
+            &ID,
+            &derive_pa_state_pda(&ID).0,
+            &tx_data(&ID),
+            &key(1),
+            7,
+            900,
+            500,
+        );
         let args = [
             &7u64.to_le_bytes()[..],
             &900u32.to_le_bytes(),
@@ -770,13 +775,13 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
                 consumed: true,
             },
         ];
-        assert_is_hand_written("pause", &pause_ix(&pa, &key(4)));
-        assert_is_hand_written("unpause", &unpause_ix(&pa, &key(4)));
-        assert_is_hand_written(
+        assert_is_expected("pause", &pause_ix(&pa, &key(4)));
+        assert_is_expected("unpause", &unpause_ix(&pa, &key(4)));
+        assert_is_expected(
             "deny_logic_refs",
             &deny_logic_refs_ix(&pa, &key(4), &entries),
         );
-        assert_is_hand_written(
+        assert_is_expected(
             "set_kind_tree_root",
             &set_kind_tree_root_ix(&pa, &key(4), [7; 32]),
         );

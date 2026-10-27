@@ -14,13 +14,15 @@ use crate::constants::{
     TXDATA_CHUNK_SIZE, UPLOAD_COMPUTE_UNIT_LIMIT,
 };
 use crate::generated::protocol_adapter::accounts::PAStateAccount;
-use crate::generated::protocol_adapter::constants::{PA_STATE_SEED, TX_DATA_SEED};
 use crate::instructions::{
     settle_from_txdata_ix, settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix,
     txdata_write_ix, SettlementAccounts,
 };
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
-use crate::pda::{derive_nullifier_pda, derive_root_marker_pda, derive_verifier_router_pdas};
+use crate::pda::{
+    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda,
+    derive_verifier_router_pdas,
+};
 
 /// The v1 transaction settings of a settlement transaction: its compute and
 /// heap budgets, and the runtime's maximum of loaded account data, which a v1
@@ -226,7 +228,7 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
                 preceding,
             },
     } = request;
-    let (pa_state, _) = Pubkey::find_program_address(&[PA_STATE_SEED], &pa_program);
+    let (pa_state, _) = derive_pa_state_pda(&pa_program);
 
     let new_root = if created.is_empty() {
         None
@@ -277,15 +279,6 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
     })
 }
 
-/// The upload `upload_id` of `payer` to the adapter at `pa_program`.
-fn tx_data_address(pa_program: &Pubkey, payer: &Pubkey, upload_id: u64) -> Pubkey {
-    Pubkey::find_program_address(
-        &[TX_DATA_SEED, payer.as_ref(), &upload_id.to_le_bytes()],
-        pa_program,
-    )
-    .0
-}
-
 /// Refuses a settlement transaction, `message`, that names more accounts
 /// than a transaction locks or is larger than a transaction.
 fn within_limits(message: &v1::Message) -> Result<(), PlanError> {
@@ -331,7 +324,7 @@ pub fn plan_settlement(
     let upload = if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
         None
     } else {
-        let tx_data = tx_data_address(&s.pa_program, &s.payer, upload_id);
+        let (tx_data, _) = derive_tx_data_pda(&s.pa_program, &s.payer, upload_id);
         let pa_state = s.accounts.pa_state;
         settle.instructions.pop();
         settle.instructions.push(settle_from_txdata_ix(
@@ -424,10 +417,6 @@ pub(crate) mod tests {
     use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
     use anchor::Discriminator;
 
-    fn pa_state_of(pa_program: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(&[PA_STATE_SEED], pa_program).0
-    }
-
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
     }
@@ -517,7 +506,7 @@ pub(crate) mod tests {
             AccountMeta::new_readonly(key(20), false),
             AccountMeta::new(key(21), false),
         ];
-        let pa_state = pa_state_of(&key(9));
+        let (pa_state, _) = derive_pa_state_pda(&key(9));
         let mut expected: Vec<AccountMeta> = nullifiers
             .iter()
             .map(|nf| AccountMeta::new(derive_nullifier_pda(&key(9), &pa_state, nf).0, false))
@@ -569,7 +558,7 @@ pub(crate) mod tests {
             .unwrap()
             .root;
         assert_eq!(plan.new_root, Some(expected_root));
-        let pa_state = pa_state_of(&key(9));
+        let (pa_state, _) = derive_pa_state_pda(&key(9));
         let marker = derive_root_marker_pda(&key(9), &pa_state, &expected_root).0;
         // new_root_marker follows pa_state, the payer and the system program.
         let (settle, _) = settle_instruction(&plan);
@@ -647,8 +636,8 @@ pub(crate) mod tests {
             instructions: vec![ix],
             config: UPLOAD_TRANSACTION_CONFIG,
         };
-        let tx_data = tx_data_address(&key(9), &key(8), 7);
-        let pa_state = pa_state_of(&key(9));
+        let (tx_data, _) = derive_tx_data_pda(&key(9), &key(8), 7);
+        let (pa_state, _) = derive_pa_state_pda(&key(9));
         assert_eq!(
             init,
             upload_transaction(txdata_init_ix(

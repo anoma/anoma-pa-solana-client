@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! cargo run -p settle-fixture -- --url <rpc> --keypair <path> --fixture <path>
-//!     [--pa <program id>] [--call-accounts <b58>,<b58>]...
+//!     --pa <program id> [--call-accounts <b58>,<b58>]...
 //! ```
 //!
 //! `--call-accounts` gives the account segment of one external call, in call
@@ -17,14 +17,14 @@
 
 use std::str::FromStr;
 
-use anoma_pa_solana_client::generated::protocol_adapter;
-use anoma_pa_solana_client::generated::protocol_adapter::constants::PA_STATE_SEED;
+use anchor_lang::AccountDeserialize;
 use anoma_pa_solana_client::generated::protocol_adapter::events::{
     ActionExecuted, CommitmentTreeRootAdded, ForwarderCallExecuted, TransactionExecuted,
 };
+use anoma_pa_solana_client::generated::verifier_router::accounts::VerifierEntry;
 use anoma_pa_solana_client::settlement::CallAccounts;
 use anoma_pa_solana_client::{
-    cpi_event_discriminator, decode_cpi_event, decode_pa_state, decode_verifier_entry,
+    cpi_event_discriminator, decode_cpi_event, decode_pa_state, derive_pa_state_pda,
     derive_verifier_entry_pda, plan_settlement, transaction_size, EventDecodeError,
     PlannedTransaction, SettlementRequest, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
@@ -64,7 +64,7 @@ fn parse_args() -> Args {
     let mut url = None;
     let mut keypair = None;
     let mut fixture = None;
-    let mut pa = protocol_adapter::ID;
+    let mut pa = None;
     let mut call_accounts = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -73,7 +73,7 @@ fn parse_args() -> Args {
             "--url" => url = Some(value),
             "--keypair" => keypair = Some(value),
             "--fixture" => fixture = Some(value),
-            "--pa" => pa = Pubkey::from_str(&value).expect("--pa is a base58 pubkey"),
+            "--pa" => pa = Some(Pubkey::from_str(&value).expect("--pa is a base58 pubkey")),
             "--call-accounts" => call_accounts.push(
                 value
                     .split(',')
@@ -87,7 +87,7 @@ fn parse_args() -> Args {
         url: url.expect("--url is required"),
         keypair: keypair.expect("--keypair is required"),
         fixture: fixture.expect("--fixture is required"),
-        pa,
+        pa: pa.expect("--pa is required"),
         call_accounts,
     }
 }
@@ -155,7 +155,7 @@ fn main() {
     );
 
     // 1. Read and decode the adapter state with the crate's decoder.
-    let (pa_state, _) = Pubkey::find_program_address(&[PA_STATE_SEED], &args.pa);
+    let (pa_state, _) = derive_pa_state_pda(&args.pa);
     let state_data = client
         .get_account_data(&pa_state)
         .expect("pa_state account");
@@ -253,7 +253,7 @@ fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
     let data = client
         .get_account_data(verifier_entry)
         .expect("verifier entry account");
-    decode_verifier_entry(&data)
+    VerifierEntry::try_deserialize(&mut &*data)
         .expect("decode the verifier entry")
         .verifier
 }

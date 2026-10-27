@@ -1,10 +1,21 @@
-//! The vendored adapter IDL, which `declare_program!` generates the client
-//! from, is the one committed at the adapter tag `PA_TAG.txt` names.
+//! The vendored IDLs, which `declare_program!` generates the client from, are
+//! the ones committed at the adapter tag `PA_TAG.txt` names.
 
 use std::process::Command;
 
 const REPO: &str = "repos/anoma/solana-protocol-adapter";
-const IDL_PATH: &str = "solana-pa-prototype/idl/protocol_adapter.json";
+
+/// Each vendored IDL in `idls/`, and its path in the adapter repository.
+const IDLS: [(&str, &str); 2] = [
+    (
+        "protocol_adapter.json",
+        "solana-pa-prototype/idl/protocol_adapter.json",
+    ),
+    (
+        "verifier_router.json",
+        "solana-pa-prototype/idls/verifier_router.json",
+    ),
+];
 
 /// `gh api` of `endpoint`, with `accept` as the media type: its stdout, or a
 /// panic naming `what` with gh's stderr.
@@ -32,31 +43,30 @@ fn the_vendored_idl_is_the_one_at_its_tag() {
     gh_api(
         &format!("{REPO}/git/ref/tags/{tag}"),
         "application/vnd.github+json",
-        &format!("tag {tag} not found in anoma/solana-protocol-adapter"),
+        &format!("look up tag {tag} in anoma/solana-protocol-adapter"),
     );
-    let at_tag = gh_api(
-        &format!("{REPO}/contents/{IDL_PATH}?ref={tag}"),
-        "application/vnd.github.raw",
-        &format!("{IDL_PATH} at {tag}"),
-    );
-    let vendored = std::fs::read(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/idls/protocol_adapter.json"
-    ))
-    .expect("read idls/protocol_adapter.json");
-    println!(
-        "{IDL_PATH} at {tag}: {} bytes; idls/protocol_adapter.json: {} bytes",
-        at_tag.len(),
-        vendored.len()
-    );
+    for (file, path) in IDLS {
+        let at_tag = gh_api(
+            &format!("{REPO}/contents/{path}?ref={tag}"),
+            "application/vnd.github.raw",
+            &format!("{path} at {tag}"),
+        );
+        let vendored = std::fs::read(format!("{}/idls/{file}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|e| panic!("read idls/{file}: {e}"));
+        println!(
+            "{path} at {tag}: {} bytes; idls/{file}: {} bytes",
+            at_tag.len(),
+            vendored.len()
+        );
 
-    let first_difference = at_tag
-        .iter()
-        .zip(&vendored)
-        .position(|(a, b)| a != b)
-        .or((at_tag.len() != vendored.len()).then(|| at_tag.len().min(vendored.len())));
-    assert_eq!(
-        first_difference, None,
-        "idls/protocol_adapter.json differs from {IDL_PATH} at {tag} from byte offset {first_difference:?}"
-    );
+        let first_difference = at_tag
+            .iter()
+            .zip(&vendored)
+            .position(|(a, b)| a != b)
+            .or((at_tag.len() != vendored.len()).then(|| at_tag.len().min(vendored.len())));
+        assert_eq!(
+            first_difference, None,
+            "idls/{file} differs from {path} at {tag} from byte offset {first_difference:?}"
+        );
+    }
 }

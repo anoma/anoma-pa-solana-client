@@ -3,6 +3,7 @@
 //! to the recorded values. The TS package runs the same fixture
 //! (`ts/src/events.test.ts`).
 
+use anchor::event::EVENT_IX_TAG_LE;
 use anoma_pa_solana_client::generated::protocol_adapter::events::TransactionExecuted;
 use anoma_pa_solana_client::generated::protocol_adapter::parsers::Event;
 use anoma_pa_solana_client::{cpi_event_discriminator, decode_cpi_event, EventDecodeError};
@@ -142,7 +143,8 @@ fn every_fixture_event_decodes_to_the_recorded_values() {
 
         // The generated parser, after the event tag: the discriminator, then
         // exactly one body.
-        let event = Event::try_from(&data[8..]).unwrap_or_else(|err| panic!("{entry}: {err}"));
+        let event = Event::try_from(&data[EVENT_IX_TAG_LE.len()..])
+            .unwrap_or_else(|err| panic!("{entry}: {err}"));
         let decoded = debug_of_event(&event);
         let expected = expected_debug(&idl, name, &e["expected"]);
         println!("{entry}: {decoded}");
@@ -178,7 +180,7 @@ fn a_fixture_event_decodes_as_its_type_and_no_other() {
 fn rejects_instruction_data_without_the_event_tag() {
     let data = data_of(&fixture(), "TransactionExecuted");
     // A settle instruction's own data starts with an instruction discriminator, not the event tag.
-    let result = cpi_event_discriminator(&data[8..]);
+    let result = cpi_event_discriminator(&data[EVENT_IX_TAG_LE.len()..]);
     assert!(
         matches!(result, Err(EventDecodeError::NotAnEvent)),
         "{result:?}"
