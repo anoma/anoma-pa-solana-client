@@ -63,3 +63,11 @@ export function deriveVerifierRouterPdas(
   );
   return { router, entry };
 }
+
+/** The upgradeable BPF loader, which owns every upgradeable program's ProgramData account. */
+const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/** Derive the upgradeable loader's ProgramData account of `program`, which `initialize` and `upgrade` take. */
+export function deriveProgramDataAddress(program: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([program.toBuffer()], BPF_LOADER_UPGRADEABLE)[0];
+}

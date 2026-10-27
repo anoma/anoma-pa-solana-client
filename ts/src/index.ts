@@ -15,6 +15,7 @@ export {
   ProtocolAdapter,
   recordedDeployment,
   type InstanceErrorDetail,
+  type SettlementAccounts,
 } from "./instance.js";
 export * from "./confirmation.js";
 export * from "./labelValueRef.js";

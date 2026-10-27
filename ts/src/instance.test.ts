@@ -1,9 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import BN from "bn.js";
+import { Connection, Keypair, PublicKey, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 
 import { coder } from "./coder.js";
-import { MOCK_SELECTOR, PADDING_LEAF } from "./constants.js";
+import { PADDING_LEAF } from "./constants.js";
 import type { DeploymentRecord } from "./deployments.js";
 import { idl } from "./idl.js";
 import {
@@ -15,7 +16,7 @@ import {
   recordedDeployment,
   returnedBool,
 } from "./instance.js";
-import { deriveVerifierRouterPdas } from "./pda.js";
+import { deriveEventAuthorityPda, deriveVerifierRouterPdas } from "./pda.js";
 
 const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -140,22 +141,193 @@ describe("the reads computed from the state", () => {
   });
 });
 
-describe("ProtocolAdapter", () => {
-  it("builds risc_zero_verifier_paused at its address, for the verifier entry of the deployment's selector", () => {
-    const pa = Keypair.generate().publicKey;
-    const router = Keypair.generate().publicKey;
-    const adapter = ProtocolAdapter.at(new Connection("http://127.0.0.1:1"), pa);
-    expect(adapter.programId.equals(pa)).toBe(true);
-    const ix = adapter.riscZeroVerifierPausedIx(router, MOCK_SELECTOR);
-    const [paState] = PublicKey.findProgramAddressSync([new TextEncoder().encode("pa_state")], pa);
-    const { entry } = deriveVerifierRouterPdas(router, MOCK_SELECTOR);
-    expect(ix.programId.equals(pa)).toBe(true);
-    expect(ix.keys).toEqual([
-      { pubkey: paState, isSigner: false, isWritable: false },
-      { pubkey: entry, isSigner: false, isWritable: false },
-    ]);
-    const discriminator = idl.instructions.find((i) => i.name === "risc_zero_verifier_paused")!.discriminator;
-    expect(Array.from(ix.data)).toEqual(discriminator);
-    expect(coder.instruction.decode(ix.data)?.name).toBe("risc_zero_verifier_paused");
+/** `value`, decoded by the coder, with keys as base58, integers as decimal strings and bytes as number arrays. */
+function plain(value: unknown): unknown {
+  if (value instanceof PublicKey) return value.toBase58();
+  if (BN.isBN(value)) return value.toString();
+  if (value instanceof Uint8Array) return Array.from(value);
+  if (Array.isArray(value)) return value.map(plain);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)]));
+  }
+  return value;
+}
+
+describe("ProtocolAdapter's builders", () => {
+  const key = () => Keypair.generate().publicKey;
+  const pa = key();
+  const adapter = ProtocolAdapter.at(new Connection("http://127.0.0.1:1"), pa);
+  const [payer, owner, router, authority, refund, buffer, spill] = [key(), key(), key(), key(), key(), key(), key()];
+  const encode = (s: string) => new TextEncoder().encode(s);
+  const u64le = (n: bigint) => {
+    const b = Buffer.alloc(8);
+    b.writeBigUInt64LE(n);
+    return b;
+  };
+  const pda = (...seeds: Uint8Array[]) => PublicKey.findProgramAddressSync(seeds, pa)[0];
+  const paState = pda(encode("pa_state"));
+  const txData = pda(encode("tx_data"), authority.toBuffer(), u64le(7n));
+  const events = { event_authority: deriveEventAuthorityPda(pa)[0], program: pa };
+  const programData = PublicKey.findProgramAddressSync(
+    [pa.toBuffer()],
+    new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
+  )[0];
+  const upgradeAuthority = pda(encode("upgrade_authority"));
+  const remaining = [{ pubkey: key(), isSigner: false, isWritable: true }];
+  const settlement = {
+    paState,
+    newRootMarker: null,
+    verifierRouterProgram: key(),
+    router: key(),
+    verifierEntry: key(),
+    verifierProgram: key(),
+    remainingAccounts: remaining,
+  };
+  const settlementNamed = {
+    pa_state: paState,
+    verifier_router_program: settlement.verifierRouterProgram,
+    router: settlement.router,
+    verifier_entry: settlement.verifierEntry,
+    verifier_program: settlement.verifierProgram,
+  };
+  const marker = key();
+  const selector = Uint8Array.from([1, 2, 3, 4]);
+  const root = new Uint8Array(32).fill(7);
+
+  // Each row: the instruction, the arguments it must decode to, the accounts
+  // the caller or the instance's address determine (`null`: an absent
+  // optional account), and the remaining accounts. Every other account is the
+  // IDL's fixed address or the PDA of its constant seeds.
+  const rows: [string, TransactionInstruction, object, Record<string, PublicKey | null>, AccountMeta[]][] = [
+    [
+      "initialize",
+      adapter.initializeIx(payer, owner, router, selector),
+      { initial_owner: owner.toBase58(), verifier_router: router.toBase58(), proof_selector: [1, 2, 3, 4] },
+      {
+        payer,
+        program_data: programData,
+        verifier_entry: deriveVerifierRouterPdas(router, selector).entry,
+        ...events,
+      },
+      [],
+    ],
+    ["pause", adapter.pauseIx(authority), {}, { authority, ...events }, []],
+    ["unpause", adapter.unpauseIx(authority), {}, { authority, ...events }, []],
+    [
+      "transfer_ownership",
+      adapter.transferOwnershipIx(authority, owner),
+      { new_owner: owner.toBase58() },
+      { authority, ...events },
+      [],
+    ],
+    ["renounce_ownership", adapter.renounceOwnershipIx(authority), {}, { authority, ...events }, []],
+    [
+      "set_kind_tree_root",
+      adapter.setKindTreeRootIx(authority, root),
+      { new_kind_tree_root: Array.from(root) },
+      { authority, ...events },
+      [],
+    ],
+    [
+      "update_expiry_config",
+      adapter.updateExpiryConfigIx(authority, 100n, 2n ** 64n - 1n),
+      { new_min_expiry_slots: "100", new_max_expiry_slots: (2n ** 64n - 1n).toString() },
+      { authority },
+      [],
+    ],
+    [
+      "upgrade",
+      adapter.upgradeIx(authority, buffer, spill),
+      {},
+      { authority, program_data: programData, upgraded_program: pa, buffer, spill, ...events },
+      [],
+    ],
+    ["version", adapter.versionIx(), {}, {}, []],
+    [
+      "risc_zero_verifier_paused",
+      adapter.riscZeroVerifierPausedIx(router, selector),
+      {},
+      { verifier_entry: deriveVerifierRouterPdas(router, selector).entry },
+      [],
+    ],
+    [
+      "txdata_init",
+      adapter.txdataInitIx(authority, 7n, 900, 500n),
+      { upload_id: "7", capacity: 900, expires_slot: "500" },
+      { tx_data: txData, authority },
+      [],
+    ],
+    [
+      "txdata_extend",
+      adapter.txdataExtendIx(authority, 7n, 900n),
+      { upload_id: "7", new_expires_slot: "900" },
+      { tx_data: txData, authority },
+      [],
+    ],
+    [
+      "txdata_close",
+      adapter.txdataCloseIx(authority, refund, 7n),
+      { upload_id: "7" },
+      { tx_data: txData, authority, refund },
+      [],
+    ],
+    [
+      "txdata_close_expired",
+      adapter.txdataCloseExpiredIx(payer, refund, authority, 7n),
+      { upload_id: "7", _authority: authority.toBase58() },
+      { tx_data: txData, payer, refund },
+      [],
+    ],
+    [
+      "settle_from_txdata",
+      adapter.settleFromTxdataIx(authority, 7n, settlement),
+      { _upload_id: "7" },
+      { ...settlementNamed, tx_data: txData, authority, new_root_marker: null, ...events },
+      remaining,
+    ],
+    [
+      "settle_from_txdata",
+      adapter.settleFromTxdataIx(authority, 7n, { ...settlement, newRootMarker: marker }),
+      { _upload_id: "7" },
+      { ...settlementNamed, tx_data: txData, authority, new_root_marker: marker, ...events },
+      remaining,
+    ],
+  ];
+
+  it("builds each instruction at the instance's address, as the IDL declares it", () => {
+    for (const [name, ix, args, named, rest] of rows) {
+      const idlIx = idl.instructions.find((i) => i.name === name);
+      if (idlIx === undefined) throw new Error(`the IDL declares no instruction ${name}`);
+      console.log(`${name}: ${ix.keys.length} accounts, ${ix.data.length} data bytes`);
+      expect(ix.programId.equals(pa), name).toBe(true);
+      expect(Array.from(ix.data.subarray(0, idlIx.discriminator.length)), name).toEqual(idlIx.discriminator);
+      const decoded = coder.instruction.decode(ix.data);
+      expect(decoded?.name, name).toBe(name);
+      expect(plain(decoded?.data), name).toEqual(args);
+
+      expect(ix.keys.length, name).toBe(idlIx.accounts.length + rest.length);
+      for (const [i, a] of idlIx.accounts.entries()) {
+        if ("accounts" in a) throw new Error(`${name}: account group ${a.name}`);
+        const built = ix.keys[i]!;
+        const given = named[a.name];
+        if (given === null) {
+          expect(a.optional, `${name}.${a.name} is optional`).toBe(true);
+          expect(built, `${name}.${a.name} absent`).toEqual({ pubkey: pa, isSigner: false, isWritable: false });
+          continue;
+        }
+        let expected = given;
+        if (expected === undefined && a.address !== undefined) expected = new PublicKey(a.address);
+        if (expected === undefined && a.pda?.seeds.every((seed) => seed.kind === "const")) {
+          expected = pda(...a.pda.seeds.map((seed) => Uint8Array.from(seed.kind === "const" ? seed.value : [])));
+        }
+        if (expected === undefined) throw new Error(`${name}.${a.name}: no expected address`);
+        expect(built.pubkey.toBase58(), `${name}.${a.name}`).toBe(expected.toBase58());
+        expect([built.isSigner, built.isWritable], `${name}.${a.name} flags`).toEqual([
+          a.signer ?? false,
+          a.writable ?? false,
+        ]);
+      }
+      expect(ix.keys.slice(idlIx.accounts.length), `${name} remaining accounts`).toEqual(rest);
+    }
   });
 });

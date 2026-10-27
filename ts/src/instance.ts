@@ -3,12 +3,14 @@
 // state and marker accounts, as the Rust crate's `instance` reads them.
 
 import { sha256 } from "@noble/hashes/sha2";
+import BN from "bn.js";
 import {
   Connection,
   PublicKey,
   TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
+  type AccountMeta,
   type TransactionError,
   type TransactionReturnData,
 } from "@solana/web3.js";
@@ -17,7 +19,13 @@ import { coder } from "./coder.js";
 import { PADDING_LEAF } from "./constants.js";
 import { chainIdOfGenesisHash, deployment, type Deployment, type DeploymentRecord, type Environment } from "./deployments.js";
 import { idl, idlConstant, idlSeed } from "./idl.js";
-import { deriveNullifierPda, deriveRootMarkerPda, deriveVerifierRouterPdas } from "./pda.js";
+import {
+  deriveEventAuthorityPda,
+  deriveNullifierPda,
+  deriveProgramDataAddress,
+  deriveRootMarkerPda,
+  deriveVerifierRouterPdas,
+} from "./pda.js";
 
 /** Why an instance could not be made or could not answer. */
 export type InstanceErrorDetail =
@@ -88,6 +96,26 @@ export async function protocolAdapter(connection: Connection, environment: Envir
   const genesisHash = await rpc("the genesis hash", connection.getGenesisHash());
   return ProtocolAdapter.at(connection, recordedDeployment(environment, genesisHash).programId);
 }
+
+/**
+ * The accounts every settlement instruction (`settle`, `simulate_execute`,
+ * `settle_from_txdata`) names besides its payer and its upload, then its
+ * remaining accounts.
+ */
+export interface SettlementAccounts {
+  paState: PublicKey;
+  /** The marker PDA of the root a settlement that creates commitments produces; `null` for one that creates nothing. */
+  newRootMarker: PublicKey | null;
+  verifierRouterProgram: PublicKey;
+  router: PublicKey;
+  verifierEntry: PublicKey;
+  verifierProgram: PublicKey;
+  /** The nullifier PDAs, each external call's CPI segment, and the historical root markers. */
+  remainingAccounts: AccountMeta[];
+}
+
+/** A u64 argument in the form the coder encodes. */
+const u64 = (value: bigint): BN => new BN(value.toString());
 
 /** The adapter at an address, read over a connection at its commitment. */
 export class ProtocolAdapter {
@@ -239,23 +267,214 @@ export class ProtocolAdapter {
   }
 
   /**
-   * `risc_zero_verifier_paused`, for the deployment's `verifierRouter` and
-   * `proofSelector`: its accounts in the IDL's order and with its flags.
+   * The instruction `name` at the adapter's address: `accounts` by their IDL
+   * names in the IDL's order and with its flags (an account the IDL gives a
+   * fixed address may be left out; `null` is an absent optional account),
+   * then `remaining`, and `args` encoded by the coder.
    */
+  private instruction(
+    name: string,
+    accounts: Record<string, PublicKey | null>,
+    args: object,
+    remaining: AccountMeta[] = [],
+  ): TransactionInstruction {
+    const ix = idl.instructions.find((i) => i.name === name);
+    if (ix === undefined) throw new Error(`the adapter's IDL declares no instruction ${name}`);
+    const names = ix.accounts.map((a) => a.name);
+    const unknown = Object.keys(accounts).filter((n) => !names.includes(n));
+    if (unknown.length > 0) throw new Error(`${name} takes no account ${unknown.join(", ")}`);
+    const keys = ix.accounts.map((a) => {
+      if ("accounts" in a) throw new Error(`${name}: the account group ${a.name} is not supported`);
+      const given = accounts[a.name];
+      if (given === null) {
+        if (!a.optional) throw new Error(`${name}: ${a.name} is not optional`);
+        // Anchor reads an optional account as absent when it is the address of the program it runs.
+        return { pubkey: this.programId, isSigner: false, isWritable: false };
+      }
+      const pubkey = given ?? (a.address === undefined ? undefined : new PublicKey(a.address));
+      if (pubkey === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
+      return { pubkey, isSigner: a.signer ?? false, isWritable: a.writable ?? false };
+    });
+    return new TransactionInstruction({
+      programId: this.programId,
+      keys: [...keys, ...remaining],
+      data: coder.instruction.encode(name, args),
+    });
+  }
+
+  /** The accounts Anchor's `#[event_cpi]` adds to an instruction that emits events. */
+  private events(): Record<string, PublicKey> {
+    return { event_authority: deriveEventAuthorityPda(this.programId)[0], program: this.programId };
+  }
+
+  private upgradeAuthority(): PublicKey {
+    return PublicKey.findProgramAddressSync([idlSeed("UPGRADE_AUTHORITY_SEED")], this.programId)[0];
+  }
+
+  private txData(authority: PublicKey, uploadId: bigint): PublicKey {
+    const id = new Uint8Array(8);
+    new DataView(id.buffer).setBigUint64(0, uploadId, true);
+    return PublicKey.findProgramAddressSync([idlSeed("TX_DATA_SEED"), authority.toBuffer(), id], this.programId)[0];
+  }
+
+  /** `initialize`, with `payer` the program's upgrade authority. */
+  initializeIx(
+    payer: PublicKey,
+    initialOwner: PublicKey,
+    verifierRouter: PublicKey,
+    proofSelector: Uint8Array,
+  ): TransactionInstruction {
+    return this.instruction(
+      "initialize",
+      {
+        pa_state: this.paState(),
+        payer,
+        program_data: deriveProgramDataAddress(this.programId),
+        upgrade_authority: this.upgradeAuthority(),
+        verifier_entry: deriveVerifierRouterPdas(verifierRouter, proofSelector).entry,
+        ...this.events(),
+      },
+      { initial_owner: initialOwner, verifier_router: verifierRouter, proof_selector: Array.from(proofSelector) },
+    );
+  }
+
+  /** `pause`, by the owner `authority`. */
+  pauseIx(authority: PublicKey): TransactionInstruction {
+    return this.instruction("pause", { pa_state: this.paState(), authority, ...this.events() }, {});
+  }
+
+  /** `unpause`, by the owner `authority`. */
+  unpauseIx(authority: PublicKey): TransactionInstruction {
+    return this.instruction("unpause", { pa_state: this.paState(), authority, ...this.events() }, {});
+  }
+
+  /** `set_kind_tree_root`, by the owner `authority`. */
+  setKindTreeRootIx(authority: PublicKey, newKindTreeRoot: Uint8Array): TransactionInstruction {
+    return this.instruction(
+      "set_kind_tree_root",
+      { pa_state: this.paState(), authority, ...this.events() },
+      { new_kind_tree_root: Array.from(newKindTreeRoot) },
+    );
+  }
+
+  /** `transfer_ownership`, by the owner `authority`. */
+  transferOwnershipIx(authority: PublicKey, newOwner: PublicKey): TransactionInstruction {
+    return this.instruction(
+      "transfer_ownership",
+      { pa_state: this.paState(), authority, ...this.events() },
+      { new_owner: newOwner },
+    );
+  }
+
+  /** `renounce_ownership`, by the owner `authority`. */
+  renounceOwnershipIx(authority: PublicKey): TransactionInstruction {
+    return this.instruction("renounce_ownership", { pa_state: this.paState(), authority, ...this.events() }, {});
+  }
+
+  /** `update_expiry_config`, by the owner `authority`. */
+  updateExpiryConfigIx(
+    authority: PublicKey,
+    newMinExpirySlots: bigint,
+    newMaxExpirySlots: bigint,
+  ): TransactionInstruction {
+    return this.instruction(
+      "update_expiry_config",
+      { pa_state: this.paState(), authority },
+      { new_min_expiry_slots: u64(newMinExpirySlots), new_max_expiry_slots: u64(newMaxExpirySlots) },
+    );
+  }
+
+  /** `upgrade` to `buffer`'s code, by the owner `authority`. */
+  upgradeIx(authority: PublicKey, buffer: PublicKey, spill: PublicKey): TransactionInstruction {
+    return this.instruction(
+      "upgrade",
+      {
+        pa_state: this.paState(),
+        authority,
+        program_data: deriveProgramDataAddress(this.programId),
+        upgraded_program: this.programId,
+        buffer,
+        spill,
+        upgrade_authority: this.upgradeAuthority(),
+        ...this.events(),
+      },
+      {},
+    );
+  }
+
+  /** `risc_zero_verifier_paused`, for the deployment's `verifierRouter` and `proofSelector`. */
   riscZeroVerifierPausedIx(verifierRouter: PublicKey, proofSelector: Uint8Array): TransactionInstruction {
-    const name = "risc_zero_verifier_paused";
-    const accounts: Record<string, PublicKey> = {
-      pa_state: this.paState(),
-      verifier_entry: deriveVerifierRouterPdas(verifierRouter, proofSelector).entry,
-    };
-    const keys = idl.instructions
-      .find((i) => i.name === name)!
-      .accounts.map((a) => {
-        const pubkey = accounts[a.name];
-        if ("accounts" in a || pubkey === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
-        return { pubkey, isSigner: a.signer ?? false, isWritable: a.writable ?? false };
-      });
-    return new TransactionInstruction({ programId: this.programId, keys, data: coder.instruction.encode(name, {}) });
+    return this.instruction(
+      "risc_zero_verifier_paused",
+      { pa_state: this.paState(), verifier_entry: deriveVerifierRouterPdas(verifierRouter, proofSelector).entry },
+      {},
+    );
+  }
+
+  /** `version`. */
+  versionIx(): TransactionInstruction {
+    return this.instruction("version", {}, {});
+  }
+
+  /** `txdata_init` of `authority`'s upload `uploadId`. */
+  txdataInitIx(authority: PublicKey, uploadId: bigint, capacity: number, expiresSlot: bigint): TransactionInstruction {
+    return this.instruction(
+      "txdata_init",
+      { pa_state: this.paState(), tx_data: this.txData(authority, uploadId), authority },
+      { upload_id: u64(uploadId), capacity, expires_slot: u64(expiresSlot) },
+    );
+  }
+
+  /** `txdata_extend` of `authority`'s upload `uploadId`. */
+  txdataExtendIx(authority: PublicKey, uploadId: bigint, newExpiresSlot: bigint): TransactionInstruction {
+    return this.instruction(
+      "txdata_extend",
+      { pa_state: this.paState(), tx_data: this.txData(authority, uploadId), authority },
+      { upload_id: u64(uploadId), new_expires_slot: u64(newExpiresSlot) },
+    );
+  }
+
+  /** `txdata_close` of `authority`'s upload `uploadId`, its rent going to `refund`. */
+  txdataCloseIx(authority: PublicKey, refund: PublicKey, uploadId: bigint): TransactionInstruction {
+    return this.instruction(
+      "txdata_close",
+      { tx_data: this.txData(authority, uploadId), authority, refund },
+      { upload_id: u64(uploadId) },
+    );
+  }
+
+  /** `txdata_close_expired` of `authority`'s upload `uploadId`, by `payer`, its rent going to `refund`. */
+  txdataCloseExpiredIx(
+    payer: PublicKey,
+    refund: PublicKey,
+    authority: PublicKey,
+    uploadId: bigint,
+  ): TransactionInstruction {
+    return this.instruction(
+      "txdata_close_expired",
+      { tx_data: this.txData(authority, uploadId), payer, refund },
+      { upload_id: u64(uploadId), _authority: authority },
+    );
+  }
+
+  /** `settle_from_txdata` of `authority`'s upload `uploadId`. */
+  settleFromTxdataIx(authority: PublicKey, uploadId: bigint, settlement: SettlementAccounts): TransactionInstruction {
+    return this.instruction(
+      "settle_from_txdata",
+      {
+        pa_state: settlement.paState,
+        tx_data: this.txData(authority, uploadId),
+        authority,
+        new_root_marker: settlement.newRootMarker,
+        verifier_router_program: settlement.verifierRouterProgram,
+        router: settlement.router,
+        verifier_entry: settlement.verifierEntry,
+        verifier_program: settlement.verifierProgram,
+        ...this.events(),
+      },
+      { _upload_id: u64(uploadId) },
+      settlement.remainingAccounts,
+    );
   }
 }
 

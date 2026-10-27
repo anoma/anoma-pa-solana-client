@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
 import { MOCK_SELECTOR } from "./constants.js";
-import { deriveEventAuthorityPda, deriveNullifierPda, deriveRootMarkerPda, deriveVerifierRouterPdas } from "./pda.js";
+import {
+  deriveEventAuthorityPda,
+  deriveNullifierPda,
+  deriveProgramDataAddress,
+  deriveRootMarkerPda,
+  deriveVerifierRouterPdas,
+} from "./pda.js";
+import { idl } from "./idl.js";
 
 const encode = (s: string) => new TextEncoder().encode(s);
 
@@ -40,5 +47,14 @@ describe("PDA derivation", () => {
     const [expectedEntry] = PublicKey.findProgramAddressSync([encode("verifier"), selector], routerProgram);
     expect(router.equals(expectedRouter)).toBe(true);
     expect(entry.equals(expectedEntry)).toBe(true);
+  });
+
+  // The IDL records `initialize`'s program_data for the program it describes.
+  it("the program data address is the upgradeable loader's account for the program", () => {
+    const programData = idl.instructions
+      .find((i) => i.name === "initialize")!
+      .accounts.find((a) => a.name === "program_data");
+    if (programData === undefined || "accounts" in programData) throw new Error("initialize names no program_data");
+    expect(deriveProgramDataAddress(new PublicKey(idl.address)).toBase58()).toBe(programData.address);
   });
 });
