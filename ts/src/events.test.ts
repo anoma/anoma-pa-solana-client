@@ -18,7 +18,7 @@ const hex = (b: Uint8Array): string => toHex(b).slice(2);
 
 const idlEvents = (
   JSON.parse(
-    readFileSync(fileURLToPath(new URL("../../idl/protocol_adapter.json", import.meta.url)), "utf8"),
+    readFileSync(fileURLToPath(new URL("../../rust/idls/protocol_adapter.json", import.meta.url)), "utf8"),
   ) as { events: { name: string }[] }
 ).events.map((e) => e.name);
 

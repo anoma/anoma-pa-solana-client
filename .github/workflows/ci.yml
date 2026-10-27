@@ -50,8 +50,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
+      # `idl_at_tag` reads the adapter's IDL at its tag with the GitHub CLI.
       - name: cargo test --workspace --all-features
         run: cargo test --workspace --all-features
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   rust-no-default-features:
     name: Rust No-Default-Features (guest-compatible subset)

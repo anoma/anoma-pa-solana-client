@@ -14,10 +14,12 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 
-use crate::accounts::{decode_pa_state, decode_verifier_entry, PAStateAccount};
-use crate::errors::PaError;
+use crate::accounts::{decode_pa_state, decode_verifier_entry};
 use crate::forwarders::{AccountsError, Forwarders};
-use crate::pda::{derive_pa_state_pda, derive_verifier_entry_pda};
+use crate::generated::protocol_adapter::accounts::PAStateAccount;
+use crate::generated::protocol_adapter::constants::PA_STATE_SEED;
+use crate::generated::protocol_adapter::error::ProtocolAdapterError;
+use crate::pda::derive_verifier_entry_pda;
 use crate::settlement::{
     plan_settlement, plan_simulation, CallAccounts, PlanError, PlannedTransaction, SettlementPlan,
     SettlementRequest,
@@ -115,7 +117,7 @@ pub async fn read_adapter_state(
     rpc: &RpcClient,
     pa_program: &Pubkey,
 ) -> Result<PAStateAccount, SubmissionError> {
-    let (address, _) = derive_pa_state_pda(pa_program);
+    let (address, _) = Pubkey::find_program_address(&[PA_STATE_SEED], pa_program);
     let what = format!("the adapter's state {address}");
     read_account(rpc, &address, what, decode_pa_state).await
 }
@@ -130,7 +132,7 @@ pub async fn read_verifier_program(
     let entry = derive_verifier_entry_pda(router, selector);
     let what = format!("the router's verifier entry {entry}");
     let decoded = read_account(rpc, &entry, what, decode_verifier_entry).await?;
-    Ok(Pubkey::new_from_array(decoded.verifier))
+    Ok(decoded.verifier)
 }
 
 /// A transaction ready to be planned: the adapter's state and the accounts of
@@ -279,9 +281,13 @@ impl Submission {
         let logs = simulated.logs.unwrap_or_default();
         Ok(
             match settlement_failure(&logs, &self.pa_program, &self.verifier_program)? {
-                Some(Failure::Adapter(PaError::Simulated)) => SimulationOutcome::Executable {
-                    units_consumed: simulated.units_consumed,
-                },
+                Some(Failure::Adapter { code })
+                    if code == u32::from(ProtocolAdapterError::Simulated) =>
+                {
+                    SimulationOutcome::Executable {
+                        units_consumed: simulated.units_consumed,
+                    }
+                }
                 Some(failure) => SimulationOutcome::Failed(failure),
                 None => SimulationOutcome::Other {
                     error: simulated.err.map(TransactionError::from),
@@ -311,13 +317,14 @@ pub enum SimulationOutcome {
 /// The failure that ended a settlement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failure {
-    /// The adapter failed with this error of its own.
-    Adapter(PaError),
+    /// The adapter failed with custom error `code`: one of its own
+    /// (`ProtocolAdapterError`, whose `u32` is its code) or one of Anchor's.
+    Adapter { code: u32 },
     /// The verifier refused the aggregation proof with its custom error
     /// `code`.
     ProofRefused { code: u32 },
-    /// Another program failed with custom error `code`: a forwarder, or the
-    /// adapter with a code no `PaError` names.
+    /// A program other than the adapter and the verifier (a forwarder)
+    /// failed with custom error `code`.
     Program { program: Pubkey, code: u32 },
 }
 
@@ -334,9 +341,7 @@ pub fn settlement_failure(
         if program == *verifier_program {
             Failure::ProofRefused { code }
         } else if program == *pa_program {
-            PaError::from_code(code)
-                .map(Failure::Adapter)
-                .unwrap_or(Failure::Program { program, code })
+            Failure::Adapter { code }
         } else {
             Failure::Program { program, code }
         }
@@ -428,7 +433,7 @@ mod tests {
 
     #[test]
     fn the_first_failure_is_the_deepest() {
-        let code = PaError::NonExistingRoot.code();
+        let code = u32::from(ProtocolAdapterError::NonExistingRoot);
         let logs = [
             invoke(ADAPTER, 1),
             invoke(FORWARDER, 2),
@@ -449,11 +454,8 @@ mod tests {
             ];
             settlement_failure(&logs, &ADAPTER, &VERIFIER).unwrap()
         };
-        let code = PaError::NonExistingRoot.code();
-        assert_eq!(
-            failure_of(ADAPTER, code),
-            Some(Failure::Adapter(PaError::NonExistingRoot))
-        );
+        let code = u32::from(ProtocolAdapterError::NonExistingRoot);
+        assert_eq!(failure_of(ADAPTER, code), Some(Failure::Adapter { code }));
         // 6600: the mock verifier's ClaimDigestMismatch.
         assert_eq!(
             failure_of(VERIFIER, 6600),
@@ -466,26 +468,24 @@ mod tests {
                 code
             })
         );
-        // A code of the adapter's that no `PaError` names.
+        // 2006: Anchor's ConstraintSeeds, which the adapter returns for a
+        // PDA account at the wrong address.
         assert_eq!(
-            failure_of(ADAPTER, 1),
-            Some(Failure::Program {
-                program: ADAPTER,
-                code: 1
-            })
+            failure_of(ADAPTER, 2006),
+            Some(Failure::Adapter { code: 2006 })
         );
     }
 
     #[test]
     fn a_programs_log_line_reading_like_a_failure_is_not_the_failure() {
-        let code = PaError::ForwarderCallOutputMismatch.code();
+        let code = u32::from(ProtocolAdapterError::ForwarderCallOutputMismatch);
         let logs = [
             invoke(ADAPTER, 1),
             invoke(FORWARDER, 2),
             // A program's own log lines start "Program log: ", whatever follows.
             format!(
                 "Program log: {}",
-                failure(ADAPTER, PaError::NonExistingRoot.code())
+                failure(ADAPTER, u32::from(ProtocolAdapterError::NonExistingRoot))
             ),
             format!("Program {FORWARDER} success"),
             failure(ADAPTER, code),
@@ -499,7 +499,7 @@ mod tests {
             invoke(ADAPTER, 1),
             invoke(FORWARDER, 2),
             "Log truncated".to_owned(),
-            failure(ADAPTER, PaError::NonExistingRoot.code()),
+            failure(ADAPTER, u32::from(ProtocolAdapterError::NonExistingRoot)),
         ];
         assert!(matches!(
             first_failure(&logs),

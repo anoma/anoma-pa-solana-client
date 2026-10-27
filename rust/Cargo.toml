@@ -16,12 +16,18 @@ bincode = "1.3.3"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 
-# Solana SDK deps — used only by the on-chain instruction/PDA/program-id
-# builders. Optional so that consumers needing only the pure wire-format and
-# crypto modules (e.g. the zkVM transfer circuit, which compiles for
-# riscv32im-risc0-zkvm-elf) can depend on this crate with `default-features =
-# false`. These are the Solana crate versions the programs build with (Anchor
-# 1.2): pubkey, instruction and sdk-ids 3.
+# Solana SDK deps — used only by the generated bindings and the instruction,
+# PDA, event and settlement code over them. Optional so that consumers needing
+# only the pure wire-format and crypto modules (e.g. the zkVM transfer circuit,
+# which compiles for riscv32im-risc0-zkvm-elf) can depend on this crate with
+# `default-features = false`. These are the Solana crate versions the programs
+# build with (Anchor 1.2): pubkey, instruction and sdk-ids 3.
+#
+# The bindings `declare_program!` generates from `idls/protocol_adapter.json`.
+# Renamed so that `generated` can give the generator its own `anchor_lang`,
+# with the IDL's `u256` added. The adapter's pin: an Anchor commit with
+# solana-foundation/anchor#4737.
+anchor = { package = "anchor-lang", git = "https://github.com/otter-sec/anchor", rev = "2c9747a2d31bd5e94745cee6c083577f3e6675c0", optional = true }
 solana-instruction = { version = "3", optional = true }
 # The settlement's v1 transaction messages.
 solana-message = { version = "4", optional = true }
@@ -42,6 +48,11 @@ solana-signature = { version = "3", optional = true }
 solana-transaction = { version = "4", optional = true }
 solana-transaction-error = { version = "3", optional = true }
 
+# The event types it decodes the fixture as are the generated ones.
+[[test]]
+name = "events_fixture"
+required-features = ["solana"]
+
 [dev-dependencies]
 # Read the vendored IDL and the cross-package fixtures under `fixtures/`.
 serde_json = "1.0"
@@ -54,9 +65,10 @@ solana-message = { version = "4", features = ["wincode"] }
 
 [features]
 default = ["solana"]
-# Enables the modules that depend on the Solana SDK: instruction builders,
-# settlement planning, PDA derivation and program IDs.
+# Enables the modules that depend on the Solana SDK: the generated bindings,
+# instruction builders, event framing, settlement planning and PDA derivation.
 solana = [
+  "dep:anchor",
   "dep:solana-instruction",
   "dep:solana-message",
   "dep:solana-pubkey",
@@ -76,3 +88,8 @@ rpc = [
   "dep:solana-transaction",
   "dep:solana-transaction-error",
 ]
+
+# The cfgs `declare_program!`'s output tests: the Solana target, and the
+# `idl-build` feature of a program crate, which this crate is not.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("idl-build"))'] }

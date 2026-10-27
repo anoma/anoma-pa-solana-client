@@ -1,20 +1,52 @@
-//! Builders for the PA's `initialize`, `txdata_*` and `settle_from_txdata`
-//! instructions.
-//!
-//! Each builder serializes the Anchor discriminator + arguments and lays out
-//! the accounts in the order the PA program expects. The verifier-router
-//! account fan-out (4 accounts) lives in `derive_verifier_router_pdas` in the
-//! `pda` module.
+//! Builders for the adapter's instructions, over the generated
+//! `client::accounts` and `client::args` of `generated::protocol_adapter`.
+//! Each takes the address the adapter is deployed at, which its build sets
+//! (`declare_id!` from the environment), so one IDL serves every deployment.
 
+use anchor::{InstructionData, ToAccountMetas};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
 
-use crate::discriminator::anchor_instruction_disc;
+use crate::generated::protocol_adapter::client::{accounts, args};
+use crate::generated::protocol_adapter::constants::{PA_STATE_SEED, UPGRADE_AUTHORITY_SEED};
+use crate::generated::protocol_adapter::types::DeniedLogicRef;
+use crate::generated::protocol_adapter::ID;
 use crate::pda::{
-    derive_event_authority_pda, derive_pa_state_pda, derive_program_data_address,
-    derive_upgrade_authority_pda, derive_verifier_entry_pda,
+    derive_event_authority_pda, derive_program_data_address, derive_verifier_entry_pda,
 };
+
+/// The instruction of the adapter at `pa_program` with `accounts`, then
+/// `remaining_accounts`, and `args`.
+///
+/// The generated client marks an absent optional account by the IDL's
+/// address, `ID`; Anchor reads an optional account as absent when it is the
+/// address of the program it runs, `pa_program`. No other account is `ID`:
+/// every builder names the program itself as `pa_program`.
+fn instruction(
+    pa_program: &Pubkey,
+    accounts: impl ToAccountMetas,
+    remaining_accounts: Vec<AccountMeta>,
+    args: impl InstructionData,
+) -> Instruction {
+    let mut metas = accounts.to_account_metas(None);
+    for meta in &mut metas {
+        if meta.pubkey == ID {
+            meta.pubkey = *pa_program;
+        }
+    }
+    metas.extend(remaining_accounts);
+    Instruction {
+        program_id: *pa_program,
+        accounts: metas,
+        data: args.data(),
+    }
+}
+
+/// The state account of the adapter at `pa_program`.
+fn pa_state(pa_program: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[PA_STATE_SEED], pa_program).0
+}
 
 /// Build the PA's `initialize`: `payer`, the program's upgrade authority, sets
 /// the owner, verifier router and proof selector, and hands the upgrade
@@ -26,71 +58,58 @@ pub fn initialize_ix(
     verifier_router: &Pubkey,
     proof_selector: [u8; 4],
 ) -> Instruction {
-    let mut data = anchor_instruction_disc("initialize").to_vec();
-    data.extend_from_slice(initial_owner.as_ref());
-    data.extend_from_slice(verifier_router.as_ref());
-    data.extend_from_slice(&proof_selector);
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(system_program::id(), false),
-            AccountMeta::new(derive_program_data_address(pa_program), false),
-            AccountMeta::new_readonly(derive_upgrade_authority_pda(pa_program).0, false),
-            AccountMeta::new_readonly(bpf_loader_upgradeable::id(), false),
-            AccountMeta::new_readonly(
-                derive_verifier_entry_pda(verifier_router, proof_selector),
-                false,
-            ),
-            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*pa_program, false),
-        ],
-        data,
-    }
-}
-
-/// An instruction the PA's owner `authority` signs: the PA state it changes,
-/// then the event authority and program its event CPI needs.
-fn owner_ix(pa_program: &Pubkey, authority: &Pubkey, data: Vec<u8>) -> Instruction {
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*authority, true),
-            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*pa_program, false),
-        ],
-        data,
-    }
+    instruction(
+        pa_program,
+        accounts::Initialize {
+            pa_state: pa_state(pa_program),
+            payer: *payer,
+            system_program: system_program::id(),
+            program_data: derive_program_data_address(pa_program),
+            upgrade_authority: Pubkey::find_program_address(&[UPGRADE_AUTHORITY_SEED], pa_program)
+                .0,
+            bpf_loader_upgradeable: bpf_loader_upgradeable::id(),
+            verifier_entry: derive_verifier_entry_pda(verifier_router, proof_selector),
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::Initialize {
+            initial_owner: *initial_owner,
+            verifier_router: *verifier_router,
+            proof_selector,
+        },
+    )
 }
 
 /// Build the PA's `pause`: the owner `authority` stops settlement until it
 /// unpauses.
 pub fn pause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
-    owner_ix(
+    instruction(
         pa_program,
-        authority,
-        anchor_instruction_disc("pause").to_vec(),
+        accounts::Pause {
+            pa_state: pa_state(pa_program),
+            authority: *authority,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::Pause {},
     )
 }
 
 /// Build the PA's `unpause`: the owner `authority` resumes settlement.
 pub fn unpause_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
-    owner_ix(
+    instruction(
         pa_program,
-        authority,
-        anchor_instruction_disc("unpause").to_vec(),
+        accounts::Unpause {
+            pa_state: pa_state(pa_program),
+            authority: *authority,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::Unpause {},
     )
-}
-
-/// A logic ref to add to a denylist, as the PA's `DeniedLogicRef`: the one
-/// for consumed resources when `consumed`, else the one for created
-/// resources.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DeniedLogicRef {
-    pub logic_ref: [u8; 32],
-    pub consumed: bool,
 }
 
 /// Build the PA's `deny_logic_refs`: the owner `authority` adds each entry
@@ -102,24 +121,20 @@ pub fn deny_logic_refs_ix(
     authority: &Pubkey,
     logic_refs: &[DeniedLogicRef],
 ) -> Instruction {
-    let count = u32::try_from(logic_refs.len()).expect("a denial list fits a Borsh length");
-    let mut data = anchor_instruction_disc("deny_logic_refs").to_vec();
-    data.extend_from_slice(&count.to_le_bytes());
-    for entry in logic_refs {
-        data.extend_from_slice(&entry.logic_ref);
-        data.push(u8::from(entry.consumed));
-    }
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(derive_pa_state_pda(pa_program).0, false),
-            AccountMeta::new(*authority, true),
-            AccountMeta::new_readonly(system_program::id(), false),
-            AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-            AccountMeta::new_readonly(*pa_program, false),
-        ],
-        data,
-    }
+    instruction(
+        pa_program,
+        accounts::DenyLogicRefs {
+            pa_state: pa_state(pa_program),
+            authority: *authority,
+            system_program: system_program::id(),
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::DenyLogicRefs {
+            logic_refs: logic_refs.to_vec(),
+        },
+    )
 }
 
 /// Build the PA's `set_kind_tree_root`: the owner `authority` replaces
@@ -129,12 +144,17 @@ pub fn set_kind_tree_root_ix(
     authority: &Pubkey,
     new_kind_tree_root: [u8; 32],
 ) -> Instruction {
-    let data = [
-        &anchor_instruction_disc("set_kind_tree_root")[..],
-        &new_kind_tree_root,
-    ]
-    .concat();
-    owner_ix(pa_program, authority, data)
+    instruction(
+        pa_program,
+        accounts::SetKindTreeRoot {
+            pa_state: pa_state(pa_program),
+            authority: *authority,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::SetKindTreeRoot { new_kind_tree_root },
+    )
 }
 
 /// Build a PA `txdata_init` instruction.
@@ -147,23 +167,21 @@ pub fn txdata_init_ix(
     capacity: u32,
     expires_slot: u64,
 ) -> Instruction {
-    let disc = anchor_instruction_disc("txdata_init");
-    let mut data = Vec::with_capacity(8 + 8 + 4 + 8);
-    data.extend_from_slice(&disc);
-    data.extend_from_slice(&upload_id.to_le_bytes());
-    data.extend_from_slice(&capacity.to_le_bytes());
-    data.extend_from_slice(&expires_slot.to_le_bytes());
-
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new_readonly(*pa_state, false),
-            AccountMeta::new(*tx_data, false),
-            AccountMeta::new(*authority, true),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
-        data,
-    }
+    instruction(
+        pa_program,
+        accounts::TxdataInit {
+            pa_state: *pa_state,
+            tx_data: *tx_data,
+            authority: *authority,
+            system_program: system_program::id(),
+        },
+        vec![],
+        args::TxdataInit {
+            upload_id,
+            capacity,
+            expires_slot,
+        },
+    )
 }
 
 /// Build a PA `txdata_write` instruction for a single chunk.
@@ -178,195 +196,19 @@ pub fn txdata_write_ix(
     offset: u32,
     chunk: &[u8],
 ) -> Instruction {
-    let disc = anchor_instruction_disc("txdata_write");
-    let mut data = Vec::with_capacity(8 + 8 + 4 + 4 + chunk.len());
-    data.extend_from_slice(&disc);
-    data.extend_from_slice(&upload_id.to_le_bytes());
-    data.extend_from_slice(&offset.to_le_bytes());
-    // Anchor serializes Vec<u8> as 4-byte LE length prefix + bytes.
-    data.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
-    data.extend_from_slice(chunk);
-
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(*tx_data, false),
-            AccountMeta::new_readonly(*authority, true),
-        ],
-        data,
-    }
-}
-
-/// The named accounts of a settlement after the input's source (`tx_data`
-/// for `settle_from_txdata`, nothing for `settle`) and the payer, then the
-/// remaining accounts.
-///
-/// `remaining_accounts` is the caller-assembled slice covering nullifier PDAs,
-/// per-call forwarder CPI segments, and historical root markers. The
-/// new-root marker is NOT part of it: it is an optional named account,
-/// `new_root_marker` — the marker PDA of the post-settlement root for a
-/// settlement that creates commitments, and `None` for one that creates
-/// nothing (it produces no root). Anchor marks an absent optional account by
-/// the program's own address in its slot.
-///
-/// The PA emits its events as self-invocations (`#[event_cpi]`), which adds
-/// two named accounts after `verifier_program`: the event authority PDA and
-/// the PA program itself. Both are derived from `pa_program` here, so the
-/// caller never supplies them.
-#[allow(clippy::too_many_arguments)]
-fn settlement_accounts(
-    pa_program: &Pubkey,
-    pa_state: &Pubkey,
-    tx_data: Option<&Pubkey>,
-    authority: &Pubkey,
-    new_root_marker: Option<&Pubkey>,
-    verifier_router_program: &Pubkey,
-    router: &Pubkey,
-    verifier_entry: &Pubkey,
-    verifier_program: &Pubkey,
-    remaining_accounts: Vec<AccountMeta>,
-) -> Vec<AccountMeta> {
-    let mut accounts = vec![AccountMeta::new(*pa_state, false)];
-    accounts.extend(tx_data.map(|tx_data| AccountMeta::new_readonly(*tx_data, false)));
-    accounts.extend([
-        AccountMeta::new(*authority, true),
-        AccountMeta::new_readonly(system_program::id(), false),
-        match new_root_marker {
-            Some(marker) => AccountMeta::new(*marker, false),
-            None => AccountMeta::new_readonly(*pa_program, false),
+    instruction(
+        pa_program,
+        accounts::TxdataWrite {
+            tx_data: *tx_data,
+            authority: *authority,
         },
-        AccountMeta::new_readonly(*verifier_router_program, false),
-        AccountMeta::new_readonly(*router, false),
-        AccountMeta::new_readonly(*verifier_entry, false),
-        AccountMeta::new_readonly(*verifier_program, false),
-        AccountMeta::new_readonly(derive_event_authority_pda(pa_program).0, false),
-        AccountMeta::new_readonly(*pa_program, false),
-    ]);
-    accounts.extend(remaining_accounts);
-    accounts
-}
-
-/// Build a PA `settle` instruction, which carries the settlement input
-/// itself. Its accounts are `settle_from_txdata_ix`'s without the upload.
-#[allow(clippy::too_many_arguments)]
-pub fn settle_ix(
-    pa_program: &Pubkey,
-    pa_state: &Pubkey,
-    payer: &Pubkey,
-    input: &[u8],
-    new_root_marker: Option<&Pubkey>,
-    verifier_router_program: &Pubkey,
-    router: &Pubkey,
-    verifier_entry: &Pubkey,
-    verifier_program: &Pubkey,
-    remaining_accounts: Vec<AccountMeta>,
-) -> Instruction {
-    let disc = anchor_instruction_disc("settle");
-    let mut data = Vec::with_capacity(8 + 4 + input.len());
-    data.extend_from_slice(&disc);
-    // Anchor serializes Vec<u8> as 4-byte LE length prefix + bytes.
-    data.extend_from_slice(&(input.len() as u32).to_le_bytes());
-    data.extend_from_slice(input);
-
-    Instruction {
-        program_id: *pa_program,
-        accounts: settlement_accounts(
-            pa_program,
-            pa_state,
-            None,
-            payer,
-            new_root_marker,
-            verifier_router_program,
-            router,
-            verifier_entry,
-            verifier_program,
-            remaining_accounts,
-        ),
-        data,
-    }
-}
-
-/// Build a PA `simulate_execute` instruction (pa-evm's `simulateExecute`):
-/// `settle_ix`'s accounts and input, and whether to skip verifying the RISC
-/// Zero proof. It always fails: with `Simulated` when the settlement would
-/// execute, otherwise with the error `settle` would.
-#[allow(clippy::too_many_arguments)]
-pub fn simulate_execute_ix(
-    pa_program: &Pubkey,
-    pa_state: &Pubkey,
-    payer: &Pubkey,
-    input: &[u8],
-    skip_risc_zero_proof_verification: bool,
-    new_root_marker: Option<&Pubkey>,
-    verifier_router_program: &Pubkey,
-    router: &Pubkey,
-    verifier_entry: &Pubkey,
-    verifier_program: &Pubkey,
-    remaining_accounts: Vec<AccountMeta>,
-) -> Instruction {
-    let mut data = Vec::with_capacity(8 + 4 + input.len() + 1);
-    data.extend_from_slice(&anchor_instruction_disc("simulate_execute"));
-    // Anchor serializes Vec<u8> as 4-byte LE length prefix + bytes, and bool
-    // as one byte.
-    data.extend_from_slice(&(input.len() as u32).to_le_bytes());
-    data.extend_from_slice(input);
-    data.push(u8::from(skip_risc_zero_proof_verification));
-
-    Instruction {
-        program_id: *pa_program,
-        accounts: settlement_accounts(
-            pa_program,
-            pa_state,
-            None,
-            payer,
-            new_root_marker,
-            verifier_router_program,
-            router,
-            verifier_entry,
-            verifier_program,
-            remaining_accounts,
-        ),
-        data,
-    }
-}
-
-/// Build a PA `settle_from_txdata` instruction, which settles the input
-/// uploaded to `tx_data`. See `settlement_accounts` for the accounts.
-#[allow(clippy::too_many_arguments)]
-pub fn settle_from_txdata_ix(
-    pa_program: &Pubkey,
-    pa_state: &Pubkey,
-    tx_data: &Pubkey,
-    authority: &Pubkey,
-    upload_id: u64,
-    new_root_marker: Option<&Pubkey>,
-    verifier_router_program: &Pubkey,
-    router: &Pubkey,
-    verifier_entry: &Pubkey,
-    verifier_program: &Pubkey,
-    remaining_accounts: Vec<AccountMeta>,
-) -> Instruction {
-    let disc = anchor_instruction_disc("settle_from_txdata");
-    let mut data = Vec::with_capacity(8 + 8);
-    data.extend_from_slice(&disc);
-    data.extend_from_slice(&upload_id.to_le_bytes());
-
-    Instruction {
-        program_id: *pa_program,
-        accounts: settlement_accounts(
-            pa_program,
-            pa_state,
-            Some(tx_data),
-            authority,
-            new_root_marker,
-            verifier_router_program,
-            router,
-            verifier_entry,
-            verifier_program,
-            remaining_accounts,
-        ),
-        data,
-    }
+        vec![],
+        args::TxdataWrite {
+            _upload_id: upload_id,
+            offset,
+            data: chunk.to_vec(),
+        },
+    )
 }
 
 /// Build a PA `txdata_close` instruction (reclaims rent from the upload PDA).
@@ -377,150 +219,332 @@ pub fn txdata_close_ix(
     refund: &Pubkey,
     upload_id: u64,
 ) -> Instruction {
-    let disc = anchor_instruction_disc("txdata_close");
-    let mut data = Vec::with_capacity(8 + 8);
-    data.extend_from_slice(&disc);
-    data.extend_from_slice(&upload_id.to_le_bytes());
+    instruction(
+        pa_program,
+        accounts::TxdataClose {
+            tx_data: *tx_data,
+            authority: *authority,
+            refund: *refund,
+        },
+        vec![],
+        args::TxdataClose { upload_id },
+    )
+}
 
-    Instruction {
-        program_id: *pa_program,
-        accounts: vec![
-            AccountMeta::new(*tx_data, false),
-            AccountMeta::new_readonly(*authority, true),
-            AccountMeta::new(*refund, false),
-        ],
-        data,
-    }
+/// The accounts every settlement instruction (`settle`, `simulate_execute`,
+/// `settle_from_txdata`) names besides its payer and its upload, then its
+/// remaining accounts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettlementAccounts {
+    pub pa_state: Pubkey,
+    /// The marker PDA of the root a settlement that creates commitments
+    /// produces; `None` for one that creates nothing, which produces no root.
+    pub new_root_marker: Option<Pubkey>,
+    pub verifier_router_program: Pubkey,
+    pub router: Pubkey,
+    pub verifier_entry: Pubkey,
+    pub verifier_program: Pubkey,
+    /// The nullifier PDAs, each external call's CPI segment, and the
+    /// historical root markers.
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+/// Build a PA `settle` instruction, which carries the settlement input
+/// itself, paid for by `payer`.
+pub fn settle_ix(
+    pa_program: &Pubkey,
+    payer: &Pubkey,
+    input: &[u8],
+    settlement: SettlementAccounts,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::Settle {
+            pa_state: settlement.pa_state,
+            payer: *payer,
+            system_program: system_program::id(),
+            new_root_marker: settlement.new_root_marker,
+            verifier_router_program: settlement.verifier_router_program,
+            router: settlement.router,
+            verifier_entry: settlement.verifier_entry,
+            verifier_program: settlement.verifier_program,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        settlement.remaining_accounts,
+        args::Settle {
+            transaction_data: input.to_vec(),
+        },
+    )
+}
+
+/// Build a PA `simulate_execute` instruction (pa-evm's `simulateExecute`):
+/// `settle_ix`'s accounts and input, and whether to skip verifying the RISC
+/// Zero proof. It always fails: with `Simulated` when the settlement would
+/// execute, otherwise with the error `settle` would.
+pub fn simulate_execute_ix(
+    pa_program: &Pubkey,
+    payer: &Pubkey,
+    input: &[u8],
+    skip_risc_zero_proof_verification: bool,
+    settlement: SettlementAccounts,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::SimulateExecute {
+            pa_state: settlement.pa_state,
+            payer: *payer,
+            system_program: system_program::id(),
+            new_root_marker: settlement.new_root_marker,
+            verifier_router_program: settlement.verifier_router_program,
+            router: settlement.router,
+            verifier_entry: settlement.verifier_entry,
+            verifier_program: settlement.verifier_program,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        settlement.remaining_accounts,
+        args::SimulateExecute {
+            transaction_data: input.to_vec(),
+            skip_risc_zero_proof_verification,
+        },
+    )
+}
+
+/// Build a PA `settle_from_txdata` instruction, which settles the input
+/// `authority` uploaded to `tx_data` under `upload_id`.
+pub fn settle_from_txdata_ix(
+    pa_program: &Pubkey,
+    tx_data: &Pubkey,
+    authority: &Pubkey,
+    upload_id: u64,
+    settlement: SettlementAccounts,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::SettleFromTxdata {
+            pa_state: settlement.pa_state,
+            tx_data: *tx_data,
+            authority: *authority,
+            system_program: system_program::id(),
+            new_root_marker: settlement.new_root_marker,
+            verifier_router_program: settlement.verifier_router_program,
+            router: settlement.router,
+            verifier_entry: settlement.verifier_entry,
+            verifier_program: settlement.verifier_program,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        settlement.remaining_accounts,
+        args::SettleFromTxdata {
+            _upload_id: upload_id,
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generated::protocol_adapter::constants::TX_DATA_SEED;
 
-    #[test]
-    fn txdata_init_disc_is_first_8_bytes() {
-        let ix = txdata_init_ix(
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            1,
-            900,
-            100,
-        );
-        assert_eq!(&ix.data[..8], &anchor_instruction_disc("txdata_init"));
+    /// What the hand-written builders, before the generated bindings replaced
+    /// them, built for the inputs of `built()`: each instruction's program,
+    /// data in hex, and accounts (address, signer, writable), in order.
+    const HAND_WRITTEN: &str = "\
+== initialize
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data afaf6d1f0d989bed02020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303ffffffff
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+acct Hibe1esmNpASGJBynhevaMybmY2gcGcPDrfz8zMZyw1J false true
+acct CFLMyAiswuYuTmzEmBT9b9C1T1V6xqvWEfy7DT1T8MEP false false
+acct BPFLoaderUpgradeab1e11111111111111111111111 false false
+acct AdJWkJknpP3onZQWvkzhfUfz6LxxwbDF1ohYmAV7NtK1 false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== pause
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data d316ddfb4a79c12f
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== unpause
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data a99004260a8dbcff
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== deny_logic_refs
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data 97c9411f1f8d54ca02000000070707070707070707070707070707070707070707070707070707070707070700080808080808080808080808080808080808080808080808080808080808080801
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true true
+acct 11111111111111111111111111111111 false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== set_kind_tree_root
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data 61a25429e81390600707070707070707070707070707070707070707070707070707070707070707
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== settle
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data af2ab957908366d405000000696e707574
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
+acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
+acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
+acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
+acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
+acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
+== settle_no_marker
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data af2ab957908366d405000000696e707574
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
+acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
+acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
+acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== simulate_execute_false
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data 11ba5ad41f0d004705000000696e70757400
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
+acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
+acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
+acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
+acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
+acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
+== simulate_execute_true
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data 11ba5ad41f0d004705000000696e70757401
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
+acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
+acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
+acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+== settle_from_txdata
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data 8d611d6cf0fb0cbc0700000000000000
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
+acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false false
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
+acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
+acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
+acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
+acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
+acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
+acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
+acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
+acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
+== txdata_init
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data 94ddddfb41d96ac7070000000000000084030000f401000000000000
+acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
+acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
+acct 11111111111111111111111111111111 false false
+== txdata_write
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data b0bef7915392e7c60700000000000000100f0000050000000102030405
+acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
+== txdata_close
+program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
+data a518a5860e0a6bac0700000000000000
+acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
+acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
+acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
+";
+
+    fn key(n: u8) -> Pubkey {
+        Pubkey::new_from_array([n; 32])
     }
 
-    #[test]
-    fn settle_from_txdata_account_layout_matches_v2_pa() {
-        // The V2 PA's SettleFromTxData accounts struct, in declaration order:
-        // pa_state(w), tx_data, authority(s), system_program,
-        // new_root_marker(w), verifier_router_program, router,
-        // verifier_entry, verifier_program, then the two accounts
-        // `#[event_cpi]` appends: event_authority (PDA of
-        // ["__event_authority"] under the PA) and program (the PA itself).
-        // Remaining accounts follow. A builder missing the last two feeds
-        // the first nullifier PDA where the PA expects the event authority.
-        let keys: Vec<Pubkey> = (0..9).map(|_| Pubkey::new_unique()).collect();
-        let ix = settle_from_txdata_ix(
-            &keys[0],
-            &keys[1],
-            &keys[2],
-            &keys[3],
-            42,
-            Some(&keys[4]),
-            &keys[5],
-            &keys[6],
-            &keys[7],
-            &keys[8],
-            vec![],
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// `ix` in `HAND_WRITTEN`'s form.
+    fn written(name: &str, ix: &Instruction) -> String {
+        let mut out = format!(
+            "== {name}\nprogram {}\ndata {}\n",
+            ix.program_id,
+            hex(&ix.data)
         );
-        assert_eq!(ix.accounts.len(), 11);
-        let (event_authority, _) = derive_event_authority_pda(&keys[0]);
-        let expect = [
-            (keys[1], true, false),               // pa_state: writable
-            (keys[2], false, false),              // tx_data
-            (keys[3], true, true),                // authority: writable signer (pays marker rent)
-            (system_program::id(), false, false), // system_program
-            (keys[4], true, false),               // new_root_marker: writable
-            (keys[5], false, false),              // verifier_router_program
-            (keys[6], false, false),              // router
-            (keys[7], false, false),              // verifier_entry
-            (keys[8], false, false),              // verifier_program
-            (event_authority, false, false),      // event_authority
-            (keys[0], false, false),              // program
-        ];
-        for (i, (key, writable, signer)) in expect.iter().enumerate() {
-            assert_eq!(ix.accounts[i].pubkey, *key, "account {i} pubkey");
-            assert_eq!(
-                ix.accounts[i].is_writable, *writable,
-                "account {i} writable"
+        for meta in &ix.accounts {
+            out += &format!(
+                "acct {} {} {}\n",
+                meta.pubkey, meta.is_signer, meta.is_writable
             );
-            assert_eq!(ix.accounts[i].is_signer, *signer, "account {i} signer");
         }
+        out
     }
 
-    #[test]
-    fn remaining_accounts_follow_the_event_cpi_accounts() {
-        let pa = Pubkey::new_unique();
-        let nullifier_pda = Pubkey::new_unique();
-        let ix = settle_from_txdata_ix(
-            &pa,
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            1,
-            Some(&Pubkey::new_unique()),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            vec![AccountMeta::new(nullifier_pda, false)],
-        );
-        assert_eq!(ix.accounts.len(), 12);
-        assert_eq!(
-            ix.accounts[10].pubkey, pa,
-            "program precedes remaining accounts"
-        );
-        assert_eq!(ix.accounts[11].pubkey, nullifier_pda);
+    /// `HAND_WRITTEN`'s entry `name`.
+    fn hand_written(name: &str) -> String {
+        let start = HAND_WRITTEN
+            .find(&format!("== {name}\n"))
+            .unwrap_or_else(|| panic!("HAND_WRITTEN has no {name}"));
+        let rest = &HAND_WRITTEN[start + 3..];
+        let end = rest
+            .find("== ")
+            .map_or(HAND_WRITTEN.len(), |i| start + 3 + i);
+        HAND_WRITTEN[start..end].to_string()
     }
 
-    #[test]
-    fn an_absent_new_root_marker_is_the_program_address() {
-        // A settlement that creates nothing omits the optional marker;
-        // Anchor reads the program's own address in its slot as "absent".
-        let pa = Pubkey::new_unique();
-        let ix = settle_from_txdata_ix(
-            &pa,
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            1,
-            None,
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            vec![],
-        );
-        assert_eq!(ix.accounts[4], AccountMeta::new_readonly(pa, false));
+    /// `ix` is what the hand-written builder built as `name`.
+    fn assert_is_hand_written(name: &str, ix: &Instruction) {
+        let built = written(name, ix);
+        println!("{built}");
+        assert_eq!(built, hand_written(name), "{name}");
     }
 
-    #[test]
-    fn txdata_write_includes_length_prefix() {
-        let chunk = [1u8, 2, 3, 4, 5];
-        let ix = txdata_write_ix(
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            7,
-            0,
-            &chunk,
-        );
-        // 8 disc + 8 upload_id + 4 offset + 4 vec_len + 5 chunk
-        assert_eq!(ix.data.len(), 29);
-        // Length prefix at offset 20 is 5 (Anchor Vec<u8> length).
-        assert_eq!(&ix.data[20..24], &5u32.to_le_bytes());
+    /// The settlement accounts of `HAND_WRITTEN`'s settlements of `key(9)`.
+    fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
+        SettlementAccounts {
+            pa_state: pa_state(&key(9)),
+            new_root_marker,
+            verifier_router_program: key(11),
+            router: key(12),
+            verifier_entry: key(13),
+            verifier_program: key(14),
+            remaining_accounts: if remaining {
+                vec![
+                    AccountMeta::new(key(20), false),
+                    AccountMeta::new_readonly(key(21), false),
+                ]
+            } else {
+                vec![]
+            },
+        }
     }
 
     /// Checks `ix` against the adapter IDL's instruction `name`: the data is
@@ -534,7 +558,7 @@ mod tests {
     ) -> impl Fn(&str) -> Pubkey {
         let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../idl/protocol_adapter.json"
+            "/idls/protocol_adapter.json"
         )))
         .unwrap();
         let spec = idl["instructions"]
@@ -553,9 +577,12 @@ mod tests {
         );
 
         let accounts = spec["accounts"].as_array().unwrap().clone();
-        assert_eq!(ix.accounts.len(), accounts.len());
+        assert!(ix.accounts.len() >= accounts.len(), "{name}: accounts");
         for (meta, account) in ix.accounts.iter().zip(&accounts) {
             let account_name = account["name"].as_str().unwrap();
+            if account["optional"] == true && meta.pubkey == ix.program_id {
+                continue;
+            }
             assert_eq!(
                 meta.is_writable,
                 account["writable"] == true,
@@ -570,16 +597,18 @@ mod tests {
                 assert_eq!(meta.pubkey.to_string(), address, "{account_name} address");
             }
             if let Some(seeds) = account["pda"]["seeds"].as_array() {
-                let seeds: Vec<Vec<u8>> = seeds
+                if let Some(seeds) = seeds
                     .iter()
-                    .map(|s| serde_json::from_value(s["value"].clone()).unwrap())
-                    .collect();
-                let seeds: Vec<&[u8]> = seeds.iter().map(Vec::as_slice).collect();
-                assert_eq!(
-                    meta.pubkey,
-                    Pubkey::find_program_address(&seeds, &ix.program_id).0,
-                    "{account_name} PDA"
-                );
+                    .map(|s| serde_json::from_value::<Vec<u8>>(s["value"].clone()).ok())
+                    .collect::<Option<Vec<Vec<u8>>>>()
+                {
+                    let seeds: Vec<&[u8]> = seeds.iter().map(Vec::as_slice).collect();
+                    assert_eq!(
+                        meta.pubkey,
+                        Pubkey::find_program_address(&seeds, &ix.program_id).0,
+                        "{account_name} PDA"
+                    );
+                }
             }
         }
         let addresses = ix
@@ -595,15 +624,14 @@ mod tests {
 
     #[test]
     fn initialize_matches_the_adapters_idl() {
-        let pa = crate::program_ids::PA_PROGRAM_ID;
-        let (payer, owner, router) = (
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
+        assert_is_hand_written(
+            "initialize",
+            &initialize_ix(&key(9), &key(1), &key(2), &key(3), crate::MOCK_SELECTOR),
         );
-        let selector = crate::MOCK_SELECTOR;
-        let ix = initialize_ix(&pa, &payer, &owner, &router, selector);
 
+        let (payer, owner, router) = (key(1), key(2), key(3));
+        let selector = crate::MOCK_SELECTOR;
+        let ix = initialize_ix(&ID, &payer, &owner, &router, selector);
         let args = [owner.to_bytes().as_slice(), &router.to_bytes(), &selector].concat();
         let by_name = assert_matches_the_adapters_idl(&ix, "initialize", &args);
         assert_eq!(by_name("payer"), payer);
@@ -613,85 +641,158 @@ mod tests {
         );
         assert_eq!(
             by_name("event_authority"),
-            derive_event_authority_pda(&pa).0
+            derive_event_authority_pda(&ID).0
         );
-        assert_eq!(by_name("program"), pa);
+        assert_eq!(by_name("program"), ID);
     }
 
     #[test]
     fn the_inline_settlement_instructions_match_the_adapters_idl() {
-        let pa = crate::program_ids::PA_PROGRAM_ID;
-        let (pa_state, _) = crate::pda::derive_pa_state_pda(&pa);
-        let (payer, marker, router_program, router, entry, verifier) = (
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
+        let pa = key(9);
+        assert_is_hand_written(
+            "settle",
+            &settle_ix(&pa, &key(1), b"input", settlement(Some(key(10)), true)),
         );
+        // An absent new-root marker is the program's own address.
+        assert_is_hand_written(
+            "settle_no_marker",
+            &settle_ix(&pa, &key(1), b"input", settlement(None, false)),
+        );
+        assert_is_hand_written(
+            "simulate_execute_false",
+            &simulate_execute_ix(
+                &pa,
+                &key(1),
+                b"input",
+                false,
+                settlement(Some(key(10)), true),
+            ),
+        );
+        assert_is_hand_written(
+            "simulate_execute_true",
+            &simulate_execute_ix(&pa, &key(1), b"input", true, settlement(None, false)),
+        );
+
+        let accounts = SettlementAccounts {
+            pa_state: pa_state(&ID),
+            ..settlement(Some(key(10)), false)
+        };
         let input = b"input";
         let encoded_input = [&5u32.to_le_bytes()[..], input].concat();
-        let settle = settle_ix(
-            &pa,
-            &pa_state,
-            &payer,
-            input,
-            Some(&marker),
-            &router_program,
-            &router,
-            &entry,
-            &verifier,
-            vec![],
-        );
+        let settle = settle_ix(&ID, &key(1), input, accounts.clone());
         for skip in [false, true] {
-            let simulate = simulate_execute_ix(
-                &pa,
-                &pa_state,
-                &payer,
-                input,
-                skip,
-                Some(&marker),
-                &router_program,
-                &router,
-                &entry,
-                &verifier,
-                vec![],
-            );
+            let simulate = simulate_execute_ix(&ID, &key(1), input, skip, accounts.clone());
             let args = [&encoded_input[..], &[u8::from(skip)]].concat();
             let by_name = assert_matches_the_adapters_idl(&simulate, "simulate_execute", &args);
-            assert_eq!(by_name("payer"), payer);
-            assert_eq!(by_name("new_root_marker"), marker);
-            assert_eq!(by_name("verifier_program"), verifier);
+            assert_eq!(by_name("payer"), key(1));
+            assert_eq!(by_name("new_root_marker"), key(10));
+            assert_eq!(by_name("verifier_program"), key(14));
             // The same accounts as `settle`.
             assert_eq!(simulate.accounts, settle.accounts);
         }
         let by_name = assert_matches_the_adapters_idl(&settle, "settle", &encoded_input);
-        assert_eq!(by_name("new_root_marker"), marker);
+        assert_eq!(by_name("new_root_marker"), key(10));
+    }
+
+    #[test]
+    fn the_upload_instructions_match_the_adapters_idl() {
+        let pa = key(9);
+        let tx_data = |pa: &Pubkey| {
+            Pubkey::find_program_address(&[TX_DATA_SEED, key(1).as_ref(), &7u64.to_le_bytes()], pa)
+                .0
+        };
+        assert_is_hand_written(
+            "settle_from_txdata",
+            &settle_from_txdata_ix(
+                &pa,
+                &tx_data(&pa),
+                &key(1),
+                7,
+                settlement(Some(key(10)), true),
+            ),
+        );
+        assert_is_hand_written(
+            "txdata_init",
+            &txdata_init_ix(&pa, &pa_state(&pa), &tx_data(&pa), &key(1), 7, 900, 500),
+        );
+        assert_is_hand_written(
+            "txdata_write",
+            &txdata_write_ix(&pa, &tx_data(&pa), &key(1), 7, 3856, &[1, 2, 3, 4, 5]),
+        );
+        assert_is_hand_written(
+            "txdata_close",
+            &txdata_close_ix(&pa, &tx_data(&pa), &key(1), &key(2), 7),
+        );
+
+        let accounts = SettlementAccounts {
+            pa_state: pa_state(&ID),
+            ..settlement(None, false)
+        };
+        let ix = settle_from_txdata_ix(&ID, &tx_data(&ID), &key(1), 7, accounts);
+        let by_name =
+            assert_matches_the_adapters_idl(&ix, "settle_from_txdata", &7u64.to_le_bytes());
+        assert_eq!(by_name("tx_data"), tx_data(&ID));
+        assert_eq!(by_name("new_root_marker"), ID);
+        let ix = txdata_init_ix(&ID, &pa_state(&ID), &tx_data(&ID), &key(1), 7, 900, 500);
+        let args = [
+            &7u64.to_le_bytes()[..],
+            &900u32.to_le_bytes(),
+            &500u64.to_le_bytes(),
+        ]
+        .concat();
+        let by_name = assert_matches_the_adapters_idl(&ix, "txdata_init", &args);
+        assert_eq!(by_name("authority"), key(1), "txdata_init");
+        let ix = txdata_write_ix(&ID, &tx_data(&ID), &key(1), 7, 3856, &[1, 2, 3, 4, 5]);
+        let args = [
+            &7u64.to_le_bytes()[..],
+            &3856u32.to_le_bytes(),
+            &5u32.to_le_bytes(),
+            &[1, 2, 3, 4, 5],
+        ]
+        .concat();
+        let by_name = assert_matches_the_adapters_idl(&ix, "txdata_write", &args);
+        assert_eq!(by_name("authority"), key(1), "txdata_write");
+        let ix = txdata_close_ix(&ID, &tx_data(&ID), &key(1), &key(2), 7);
+        let by_name = assert_matches_the_adapters_idl(&ix, "txdata_close", &7u64.to_le_bytes());
+        assert_eq!(by_name("refund"), key(2));
     }
 
     #[test]
     fn the_owner_instructions_match_the_adapters_idl() {
-        let pa = crate::program_ids::PA_PROGRAM_ID;
-        let authority = Pubkey::new_unique();
+        let pa = key(9);
+        let entries = [
+            DeniedLogicRef {
+                logic_ref: [7; 32],
+                consumed: false,
+            },
+            DeniedLogicRef {
+                logic_ref: [8; 32],
+                consumed: true,
+            },
+        ];
+        assert_is_hand_written("pause", &pause_ix(&pa, &key(4)));
+        assert_is_hand_written("unpause", &unpause_ix(&pa, &key(4)));
+        assert_is_hand_written(
+            "deny_logic_refs",
+            &deny_logic_refs_ix(&pa, &key(4), &entries),
+        );
+        assert_is_hand_written(
+            "set_kind_tree_root",
+            &set_kind_tree_root_ix(&pa, &key(4), [7; 32]),
+        );
+
+        let authority = key(4);
         let bytes = [7; 32];
         for (ix, name, args) in [
-            (pause_ix(&pa, &authority), "pause", &[][..]),
-            (unpause_ix(&pa, &authority), "unpause", &[][..]),
+            (pause_ix(&ID, &authority), "pause", &[][..]),
+            (unpause_ix(&ID, &authority), "unpause", &[][..]),
             (
-                deny_logic_refs_ix(
-                    &pa,
-                    &authority,
-                    &[DeniedLogicRef {
-                        logic_ref: bytes,
-                        consumed: false,
-                    }],
-                ),
+                deny_logic_refs_ix(&ID, &authority, &entries[..1]),
                 "deny_logic_refs",
                 &[&[1, 0, 0, 0][..], &bytes, &[0]].concat()[..],
             ),
             (
-                set_kind_tree_root_ix(&pa, &authority, bytes),
+                set_kind_tree_root_ix(&ID, &authority, bytes),
                 "set_kind_tree_root",
                 &bytes[..],
             ),
@@ -700,10 +801,10 @@ mod tests {
             assert_eq!(by_name("authority"), authority, "{name}");
             assert_eq!(
                 by_name("event_authority"),
-                derive_event_authority_pda(&pa).0,
+                derive_event_authority_pda(&ID).0,
                 "{name}"
             );
-            assert_eq!(by_name("program"), pa, "{name}");
+            assert_eq!(by_name("program"), ID, "{name}");
         }
     }
 }

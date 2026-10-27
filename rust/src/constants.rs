@@ -38,9 +38,3 @@ pub const MAX_TREE_DEPTH: usize = 32;
 /// holds a claim digest instead of a proof. The local validator registers the
 /// mock verifier under it.
 pub const MOCK_SELECTOR: [u8; 4] = [0xff; 4];
-
-/// Anchor account-discriminator prefix length (constant across all Anchor programs).
-pub const ANCHOR_DISCRIMINATOR_LEN: usize = 8;
-
-/// 32-byte length used by `Pubkey`, `Digest`, commitment hashes, and nullifier bytes.
-pub const HASH_LEN: usize = 32;

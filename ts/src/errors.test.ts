@@ -6,7 +6,7 @@ import { ANCHOR_ERROR_CODE_OFFSET, PA_ERRORS, paErrorCode, paErrorFromCode } fro
 
 const idlErrors = (
   JSON.parse(
-    readFileSync(fileURLToPath(new URL("../../idl/protocol_adapter.json", import.meta.url)), "utf8"),
+    readFileSync(fileURLToPath(new URL("../../rust/idls/protocol_adapter.json", import.meta.url)), "utf8"),
   ) as { errors: { code: number; name: string }[] }
 ).errors;
 

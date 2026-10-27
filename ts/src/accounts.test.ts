@@ -13,7 +13,7 @@ const idlStateFields = (
   JSON.parse(
     readFileSync(
       fileURLToPath(
-        new URL("../../idl/protocol_adapter.json", import.meta.url),
+        new URL("../../rust/idls/protocol_adapter.json", import.meta.url),
       ),
       "utf8",
     ),

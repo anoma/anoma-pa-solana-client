@@ -13,7 +13,7 @@ describe("program ids", () => {
     // The IDL is regenerated from the paired adapter commit; the constant and
     // the IDL's `address` must name the same deployment.
     const idl = JSON.parse(
-      readFileSync(fileURLToPath(new URL("../../idl/protocol_adapter.json", import.meta.url)), "utf8"),
+      readFileSync(fileURLToPath(new URL("../../rust/idls/protocol_adapter.json", import.meta.url)), "utf8"),
     ) as { address: string };
     expect(idl.address).toBe(PA_PROGRAM_ID.toBase58());
   });

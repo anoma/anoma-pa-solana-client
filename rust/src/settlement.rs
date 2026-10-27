@@ -9,20 +9,18 @@ use solana_message::v1::{self, TransactionConfig};
 use solana_message::{CompileError, Hash};
 use solana_pubkey::Pubkey;
 
-use crate::accounts::PAStateAccount;
 use crate::constants::{
     MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES,
     TXDATA_CHUNK_SIZE, UPLOAD_COMPUTE_UNIT_LIMIT,
 };
+use crate::generated::protocol_adapter::accounts::PAStateAccount;
+use crate::generated::protocol_adapter::constants::{PA_STATE_SEED, TX_DATA_SEED};
 use crate::instructions::{
     settle_from_txdata_ix, settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix,
-    txdata_write_ix,
+    txdata_write_ix, SettlementAccounts,
 };
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
-use crate::pda::{
-    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda,
-    derive_verifier_router_pdas,
-};
+use crate::pda::{derive_nullifier_pda, derive_root_marker_pda, derive_verifier_router_pdas};
 
 /// The v1 transaction settings of a settlement transaction: its compute and
 /// heap budgets, and the runtime's maximum of loaded account data, which a v1
@@ -197,14 +195,8 @@ impl From<CompileError> for PlanError {
 /// the adapter's.
 struct Settling<'a> {
     pa_program: Pubkey,
-    pa_state: Pubkey,
     payer: Pubkey,
-    new_root_marker: Option<Pubkey>,
-    verifier_router: Pubkey,
-    router: Pubkey,
-    verifier_entry: Pubkey,
-    verifier_program: Pubkey,
-    remaining: Vec<AccountMeta>,
+    accounts: SettlementAccounts,
     /// The root the settlement produces; `None` when it creates nothing.
     new_root: Option<[u8; 32]>,
     input: &'a [u8],
@@ -234,7 +226,7 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
                 preceding,
             },
     } = request;
-    let (pa_state, _) = derive_pa_state_pda(&pa_program);
+    let (pa_state, _) = Pubkey::find_program_address(&[PA_STATE_SEED], &pa_program);
 
     let new_root = if created.is_empty() {
         None
@@ -265,23 +257,33 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
         )
     }));
 
-    let verifier_router = Pubkey::new_from_array(state.verifier_router);
     let (router, verifier_entry) =
-        derive_verifier_router_pdas(&verifier_router, state.proof_selector);
+        derive_verifier_router_pdas(&state.verifier_router, state.proof_selector);
     Ok(Settling {
         pa_program,
-        pa_state,
         payer,
-        new_root_marker,
-        verifier_router,
-        router,
-        verifier_entry,
-        verifier_program,
-        remaining,
+        accounts: SettlementAccounts {
+            pa_state,
+            new_root_marker,
+            verifier_router_program: state.verifier_router,
+            router,
+            verifier_entry,
+            verifier_program,
+            remaining_accounts: remaining,
+        },
         new_root,
         input,
         preceding,
     })
+}
+
+/// The upload `upload_id` of `payer` to the adapter at `pa_program`.
+fn tx_data_address(pa_program: &Pubkey, payer: &Pubkey, upload_id: u64) -> Pubkey {
+    Pubkey::find_program_address(
+        &[TX_DATA_SEED, payer.as_ref(), &upload_id.to_le_bytes()],
+        pa_program,
+    )
+    .0
 }
 
 /// Refuses a settlement transaction, `message`, that names more accounts
@@ -316,15 +318,9 @@ pub fn plan_settlement(
     let mut instructions = s.preceding;
     instructions.push(settle_ix(
         &s.pa_program,
-        &s.pa_state,
         &s.payer,
         s.input,
-        s.new_root_marker.as_ref(),
-        &s.verifier_router,
-        &s.router,
-        &s.verifier_entry,
-        &s.verifier_program,
-        s.remaining.clone(),
+        s.accounts.clone(),
     ));
     let mut settle = PlannedTransaction {
         instructions,
@@ -335,20 +331,15 @@ pub fn plan_settlement(
     let upload = if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
         None
     } else {
-        let (tx_data, _) = derive_tx_data_pda(&s.pa_program, &s.payer, upload_id);
+        let tx_data = tx_data_address(&s.pa_program, &s.payer, upload_id);
+        let pa_state = s.accounts.pa_state;
         settle.instructions.pop();
         settle.instructions.push(settle_from_txdata_ix(
             &s.pa_program,
-            &s.pa_state,
             &tx_data,
             &s.payer,
             upload_id,
-            s.new_root_marker.as_ref(),
-            &s.verifier_router,
-            &s.router,
-            &s.verifier_entry,
-            &s.verifier_program,
-            s.remaining,
+            s.accounts,
         ));
         message = settle.message(&s.payer, Hash::default())?;
         let upload_transaction = |ix| PlannedTransaction {
@@ -358,7 +349,7 @@ pub fn plan_settlement(
         Some(Upload {
             init: upload_transaction(txdata_init_ix(
                 &s.pa_program,
-                &s.pa_state,
+                &pa_state,
                 &tx_data,
                 &s.payer,
                 upload_id,
@@ -412,16 +403,10 @@ pub fn plan_simulation(
     let mut instructions = s.preceding;
     instructions.push(simulate_execute_ix(
         &s.pa_program,
-        &s.pa_state,
         &s.payer,
         s.input,
         skip_risc_zero_proof_verification,
-        s.new_root_marker.as_ref(),
-        &s.verifier_router,
-        &s.router,
-        &s.verifier_entry,
-        &s.verifier_program,
-        s.remaining,
+        s.accounts,
     ));
     let simulation = PlannedTransaction {
         instructions,
@@ -435,6 +420,13 @@ pub fn plan_simulation(
 pub(crate) mod tests {
     use super::*;
     use crate::constants::MOCK_SELECTOR;
+    use crate::generated::protocol_adapter::client::args;
+    use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
+    use anchor::Discriminator;
+
+    fn pa_state_of(pa_program: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(&[PA_STATE_SEED], pa_program).0
+    }
 
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
@@ -443,10 +435,10 @@ pub(crate) mod tests {
     pub(crate) fn state_with(leaves: &[[u8; 32]]) -> PAStateAccount {
         let tree = CommitmentTreeState::over(leaves).unwrap();
         PAStateAccount {
-            schema_version: 3,
+            schema_version: SCHEMA_VERSION,
             bump: 255,
-            owner: [1; 32],
-            verifier_router: [2; 32],
+            owner: key(1),
+            verifier_router: key(2),
             proof_selector: MOCK_SELECTOR,
             kind_tree_root: [0; 32],
             paused: false,
@@ -525,7 +517,7 @@ pub(crate) mod tests {
             AccountMeta::new_readonly(key(20), false),
             AccountMeta::new(key(21), false),
         ];
-        let (pa_state, _) = derive_pa_state_pda(&key(9));
+        let pa_state = pa_state_of(&key(9));
         let mut expected: Vec<AccountMeta> = nullifiers
             .iter()
             .map(|nf| AccountMeta::new(derive_nullifier_pda(&key(9), &pa_state, nf).0, false))
@@ -577,7 +569,7 @@ pub(crate) mod tests {
             .unwrap()
             .root;
         assert_eq!(plan.new_root, Some(expected_root));
-        let (pa_state, _) = derive_pa_state_pda(&key(9));
+        let pa_state = pa_state_of(&key(9));
         let marker = derive_root_marker_pda(&key(9), &pa_state, &expected_root).0;
         // new_root_marker follows pa_state, the payer and the system program.
         let (settle, _) = settle_instruction(&plan);
@@ -606,13 +598,10 @@ pub(crate) mod tests {
         assert_eq!(transaction.len(), 2);
         assert_eq!(transaction[0], preceding);
         let settle = &transaction[1];
-        assert_eq!(
-            settle.data[..8],
-            crate::discriminator::anchor_instruction_disc("settle")
-        );
+        assert_eq!(&settle.data[..8], args::Settle::DISCRIMINATOR);
         assert_eq!(settle.data[8..12], 5u32.to_le_bytes());
         assert_eq!(&settle.data[12..], b"input");
-        let router_program = Pubkey::new_from_array(state.verifier_router);
+        let router_program = state.verifier_router;
         let (router, entry) = derive_verifier_router_pdas(&router_program, MOCK_SELECTOR);
         for k in [router_program, router, entry, key(6)] {
             assert!(
@@ -658,8 +647,8 @@ pub(crate) mod tests {
             instructions: vec![ix],
             config: UPLOAD_TRANSACTION_CONFIG,
         };
-        let (tx_data, _) = derive_tx_data_pda(&key(9), &key(8), 7);
-        let (pa_state, _) = derive_pa_state_pda(&key(9));
+        let tx_data = tx_data_address(&key(9), &key(8), 7);
+        let pa_state = pa_state_of(&key(9));
         assert_eq!(
             init,
             upload_transaction(txdata_init_ix(
@@ -693,10 +682,7 @@ pub(crate) mod tests {
         let settle = &plan.settle.instructions;
         assert_eq!(settle.len(), 2);
         assert_eq!(settle[0], preceding);
-        assert_eq!(
-            settle[1].data[..8],
-            crate::discriminator::anchor_instruction_disc("settle_from_txdata")
-        );
+        assert_eq!(&settle[1].data[..8], args::SettleFromTxdata::DISCRIMINATOR);
         assert_eq!(
             settle[1].accounts[1],
             AccountMeta::new_readonly(tx_data, false)
@@ -829,7 +815,7 @@ pub(crate) mod tests {
             assert_eq!(
                 simulate.data,
                 [
-                    &crate::discriminator::anchor_instruction_disc("simulate_execute")[..],
+                    args::SimulateExecute::DISCRIMINATOR,
                     &5u32.to_le_bytes(),
                     b"input",
                     &[u8::from(skip)],
