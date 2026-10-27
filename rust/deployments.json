@@ -1,0 +1,10 @@
+{
+  "staging": [
+    {
+      "chainId": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+      "programId": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx",
+      "deploymentSlot": null
+    }
+  ],
+  "production": []
+}

@@ -16,6 +16,8 @@ pub mod settlement_input;
 #[cfg(feature = "solana")]
 pub mod accounts;
 #[cfg(feature = "solana")]
+pub mod deployments;
+#[cfg(feature = "solana")]
 pub mod events;
 #[cfg(feature = "rpc")]
 pub mod forwarders;

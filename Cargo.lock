@@ -535,6 +535,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "solana-cluster-type",
  "solana-instruction 3.5.1",
  "solana-message",
  "solana-pubkey 3.0.0",

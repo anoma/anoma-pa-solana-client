@@ -34,6 +34,9 @@ solana-message = { version = "4", optional = true }
 # `curve25519`: PDA derivation (`Pubkey::find_program_address`).
 solana-pubkey = { version = "3", optional = true, features = ["curve25519"] }
 solana-sdk-ids = { version = "3", optional = true }
+# The deployment record: each cluster's genesis hash, its chain id's source.
+serde_json = { version = "1.0", optional = true }
+solana-cluster-type = { version = "3", optional = true }
 
 # The settlement input (`arm` feature): a proven ARM transaction in the form
 # the adapter settles. Without the prover: no `prove` feature.
@@ -59,6 +62,14 @@ heck = "0.5"
 name = "events_fixture"
 required-features = ["solana"]
 
+[[test]]
+name = "deployments"
+required-features = ["solana"]
+
+[[test]]
+name = "deployed"
+required-features = ["rpc"]
+
 [dev-dependencies]
 # Read the vendored IDL and the cross-package fixtures under `fixtures/`.
 serde_json = "1.0"
@@ -72,13 +83,16 @@ solana-message = { version = "4", features = ["wincode"] }
 [features]
 default = ["solana"]
 # Enables the modules that depend on the Solana SDK: the generated bindings,
-# instruction builders, event framing, settlement planning and PDA derivation.
+# instruction builders, event framing, settlement planning, PDA derivation and
+# the deployment record.
 solana = [
   "dep:anchor",
   "dep:solana-instruction",
   "dep:solana-message",
   "dep:solana-pubkey",
   "dep:solana-sdk-ids",
+  "dep:serde_json",
+  "dep:solana-cluster-type",
 ]
 # The settlement input: a proven ARM transaction with its aggregation proof
 # re-encoded as the verifier-router seal the adapter decodes.
