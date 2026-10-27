@@ -116,7 +116,17 @@ mod tests {
     /// The address the IDL's `pda.seeds` give `account` of `instruction`
     /// under `program`: const seeds as the IDL gives them, `account` seeds
     /// the address `accounts` names for that path, `arg` seeds the value
-    /// `args` names for that path as the IDL arg type's little-endian bytes.
+    /// `args` names for the instruction arg the path resolves to, encoded as
+    /// that arg's IDL type is on the wire (integers little-endian, a `pubkey`
+    /// given in base58 as its 32 bytes).
+    ///
+    /// An `arg` seed's path is a name in the accounts struct's
+    /// `#[instruction(...)]`, which Anchor decodes positionally from the
+    /// instruction data, while the IDL names each arg after the handler's
+    /// parameter. The two differ only when the handler leaves the parameter
+    /// unused, which Rust spells with a leading `_` (`txdata_close_expired`'s
+    /// `_authority` is its accounts' `authority`), so the path resolves to the
+    /// arg of its own name, or else to the arg of that name with a leading `_`.
     fn idl_pda(
         idl: &Value,
         instruction: &str,
@@ -159,21 +169,29 @@ mod tests {
                     }
                     "arg" => {
                         let path = path.unwrap();
-                        let ty = &ix["args"]
-                            .as_array()
-                            .unwrap()
+                        let ix_args = ix["args"].as_array().unwrap();
+                        let unused = format!("_{path}");
+                        let arg = ix_args
                             .iter()
                             .find(|a| a["name"] == path)
-                            .unwrap_or_else(|| panic!("{instruction} has no arg {path}"))["type"];
+                            .or_else(|| ix_args.iter().find(|a| a["name"] == unused.as_str()))
+                            .unwrap_or_else(|| {
+                                panic!("{instruction} has no arg {path} or {unused}")
+                            });
+                        let (name, ty) = (arg["name"].as_str().unwrap(), &arg["type"]);
                         let (_, value) = args
                             .iter()
-                            .find(|(name, _)| *name == path)
-                            .unwrap_or_else(|| panic!("no value given for {path}"));
+                            .find(|(given, _)| *given == name)
+                            .unwrap_or_else(|| panic!("no value given for {name}"));
                         let int = || value.as_u64().unwrap();
                         match ty.as_str() {
                             Some("u8") => vec![u8::try_from(int()).unwrap()],
                             Some("u32") => u32::try_from(int()).unwrap().to_le_bytes().to_vec(),
                             Some("u64") => int().to_le_bytes().to_vec(),
+                            Some("pubkey") => Pubkey::from_str(value.as_str().unwrap())
+                                .unwrap()
+                                .to_bytes()
+                                .to_vec(),
                             _ if ty["array"][0] == "u8" => {
                                 serde_json::from_value(value.clone()).unwrap()
                             }
@@ -207,6 +225,20 @@ mod tests {
                 &pa,
                 &[("authority", authority)],
                 &[("upload_id", upload_id.into())],
+            )
+        );
+        assert_eq!(
+            derive_tx_data_pda(&pa, &authority, upload_id).0,
+            idl_pda(
+                &idl,
+                "txdata_close_expired",
+                "tx_data",
+                &pa,
+                &[],
+                &[
+                    ("upload_id", upload_id.into()),
+                    ("_authority", authority.to_string().into()),
+                ],
             )
         );
         assert_eq!(
