@@ -50,6 +50,8 @@ solana-rpc-client-api = { version = "4", optional = true }
 solana-signature = { version = "3", optional = true }
 solana-transaction = { version = "4", optional = true }
 solana-transaction-error = { version = "3", optional = true }
+# Decodes the return data of a simulated read.
+base64 = { version = "0.22", optional = true }
 
 [build-dependencies]
 # Reads the adapter IDL's errors for `build.rs`.
@@ -107,6 +109,7 @@ rpc = [
   "dep:solana-signature",
   "dep:solana-transaction",
   "dep:solana-transaction-error",
+  "dep:base64",
 ]
 
 # The cfgs `declare_program!`'s output tests: the Solana target, and the

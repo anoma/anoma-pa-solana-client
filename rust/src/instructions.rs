@@ -6,7 +6,7 @@
 use anchor::{InstructionData, ToAccountMetas};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
+use solana_sdk_ids::{bpf_loader_upgradeable, system_program, sysvar};
 
 use crate::generated::protocol_adapter::client::{accounts, args};
 use crate::generated::protocol_adapter::types::DeniedLogicRef;
@@ -151,6 +151,115 @@ pub fn set_kind_tree_root_ix(
     )
 }
 
+/// Build the PA's `transfer_ownership`: the owner `authority` hands the
+/// ownership to `new_owner`.
+pub fn transfer_ownership_ix(
+    pa_program: &Pubkey,
+    authority: &Pubkey,
+    new_owner: &Pubkey,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::TransferOwnership {
+            pa_state: derive_pa_state_pda(pa_program).0,
+            authority: *authority,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::TransferOwnership {
+            new_owner: *new_owner,
+        },
+    )
+}
+
+/// Build the PA's `renounce_ownership`: the owner `authority` gives up the
+/// ownership for good.
+pub fn renounce_ownership_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::RenounceOwnership {
+            pa_state: derive_pa_state_pda(pa_program).0,
+            authority: *authority,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::RenounceOwnership {},
+    )
+}
+
+/// Build the PA's `update_expiry_config`: the owner `authority` sets the
+/// bounds of an upload's expiry.
+pub fn update_expiry_config_ix(
+    pa_program: &Pubkey,
+    authority: &Pubkey,
+    new_min_expiry_slots: u64,
+    new_max_expiry_slots: u64,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::UpdateExpiryConfig {
+            pa_state: derive_pa_state_pda(pa_program).0,
+            authority: *authority,
+        },
+        vec![],
+        args::UpdateExpiryConfig {
+            new_min_expiry_slots,
+            new_max_expiry_slots,
+        },
+    )
+}
+
+/// Build the PA's `upgrade`: the owner `authority` replaces the program's
+/// code with `buffer`'s, whose rent goes to `spill`.
+pub fn upgrade_ix(
+    pa_program: &Pubkey,
+    authority: &Pubkey,
+    buffer: &Pubkey,
+    spill: &Pubkey,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::Upgrade {
+            pa_state: derive_pa_state_pda(pa_program).0,
+            authority: *authority,
+            program_data: derive_program_data_address(pa_program),
+            upgraded_program: *pa_program,
+            buffer: *buffer,
+            spill: *spill,
+            upgrade_authority: derive_upgrade_authority_pda(pa_program).0,
+            rent: sysvar::rent::id(),
+            clock: sysvar::clock::id(),
+            bpf_loader_upgradeable: bpf_loader_upgradeable::id(),
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::Upgrade {},
+    )
+}
+
+/// Build the PA's `risc_zero_verifier_paused`, which returns whether the
+/// router has paused the verifier `verifier_entry`, the router's entry for
+/// the adapter's selector, names.
+pub fn risc_zero_verifier_paused_ix(pa_program: &Pubkey, verifier_entry: &Pubkey) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::RiscZeroVerifierPaused {
+            pa_state: derive_pa_state_pda(pa_program).0,
+            verifier_entry: *verifier_entry,
+        },
+        vec![],
+        args::RiscZeroVerifierPaused {},
+    )
+}
+
+/// Build the PA's `version`, which returns the program's version.
+pub fn version_ix(pa_program: &Pubkey) -> Instruction {
+    instruction(pa_program, accounts::Version {}, vec![], args::Version {})
+}
+
 /// Build a PA `txdata_init` instruction.
 pub fn txdata_init_ix(
     pa_program: &Pubkey,
@@ -222,6 +331,55 @@ pub fn txdata_close_ix(
         },
         vec![],
         args::TxdataClose { upload_id },
+    )
+}
+
+/// Build a PA `txdata_extend` instruction: `authority` moves its upload's
+/// expiry to `new_expires_slot`.
+pub fn txdata_extend_ix(
+    pa_program: &Pubkey,
+    tx_data: &Pubkey,
+    authority: &Pubkey,
+    upload_id: u64,
+    new_expires_slot: u64,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::TxdataExtend {
+            pa_state: derive_pa_state_pda(pa_program).0,
+            tx_data: *tx_data,
+            authority: *authority,
+        },
+        vec![],
+        args::TxdataExtend {
+            upload_id,
+            new_expires_slot,
+        },
+    )
+}
+
+/// Build a PA `txdata_close_expired` instruction: anyone (`payer`) closes
+/// `authority`'s expired upload `upload_id`, its rent going to `refund`.
+pub fn txdata_close_expired_ix(
+    pa_program: &Pubkey,
+    tx_data: &Pubkey,
+    payer: &Pubkey,
+    refund: &Pubkey,
+    upload_id: u64,
+    authority: &Pubkey,
+) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::TxdataCloseExpired {
+            tx_data: *tx_data,
+            payer: *payer,
+            refund: *refund,
+        },
+        vec![],
+        args::TxdataCloseExpired {
+            upload_id,
+            _authority: *authority,
+        },
     )
 }
 
@@ -801,6 +959,21 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
                 "set_kind_tree_root",
                 &bytes[..],
             ),
+            (
+                transfer_ownership_ix(&ID, &authority, &key(5)),
+                "transfer_ownership",
+                &key(5).to_bytes()[..],
+            ),
+            (
+                renounce_ownership_ix(&ID, &authority),
+                "renounce_ownership",
+                &[][..],
+            ),
+            (
+                upgrade_ix(&ID, &authority, &key(6), &key(7)),
+                "upgrade",
+                &[][..],
+            ),
         ] {
             let by_name = assert_matches_the_adapters_idl(&ix, name, args);
             assert_eq!(by_name("authority"), authority, "{name}");
@@ -811,5 +984,54 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
             );
             assert_eq!(by_name("program"), ID, "{name}");
         }
+    }
+
+    #[test]
+    fn upgrade_names_the_buffer_and_the_programs_own_accounts() {
+        let ix = upgrade_ix(&ID, &key(4), &key(6), &key(7));
+        let by_name = assert_matches_the_adapters_idl(&ix, "upgrade", &[]);
+        assert_eq!(by_name("buffer"), key(6));
+        assert_eq!(by_name("spill"), key(7));
+        assert_eq!(by_name("program_data"), derive_program_data_address(&ID));
+        assert_eq!(by_name("upgraded_program"), ID);
+        // At another address, its own program data and itself.
+        let other = upgrade_ix(&key(9), &key(4), &key(6), &key(7));
+        let accounts: Vec<Pubkey> = other.accounts.iter().map(|meta| meta.pubkey).collect();
+        println!("{accounts:#?}");
+        assert_eq!(accounts[2], derive_program_data_address(&key(9)));
+        assert_eq!(accounts[3], key(9));
+        assert!(!accounts.contains(&ID), "{accounts:?}");
+    }
+
+    #[test]
+    fn the_remaining_instructions_match_the_adapters_idl() {
+        let ix = update_expiry_config_ix(&ID, &key(4), 100, 200);
+        let args = [&100u64.to_le_bytes()[..], &200u64.to_le_bytes()].concat();
+        let by_name = assert_matches_the_adapters_idl(&ix, "update_expiry_config", &args);
+        assert_eq!(by_name("authority"), key(4));
+
+        let entry = derive_verifier_entry_pda(&key(3), crate::MOCK_SELECTOR);
+        let ix = risc_zero_verifier_paused_ix(&ID, &entry);
+        let by_name = assert_matches_the_adapters_idl(&ix, "risc_zero_verifier_paused", &[]);
+        assert_eq!(by_name("verifier_entry"), entry);
+
+        let ix = version_ix(&ID);
+        // `version` takes no account, so no name has an address.
+        let _ = assert_matches_the_adapters_idl(&ix, "version", &[]);
+        assert!(ix.accounts.is_empty());
+
+        let tx_data = crate::pda::derive_tx_data_pda(&ID, &key(1), 7).0;
+        let ix = txdata_extend_ix(&ID, &tx_data, &key(1), 7, 900);
+        let args = [&7u64.to_le_bytes()[..], &900u64.to_le_bytes()].concat();
+        let by_name = assert_matches_the_adapters_idl(&ix, "txdata_extend", &args);
+        assert_eq!(by_name("tx_data"), tx_data);
+        assert_eq!(by_name("authority"), key(1));
+
+        let ix = txdata_close_expired_ix(&ID, &tx_data, &key(2), &key(3), 7, &key(1));
+        let args = [&7u64.to_le_bytes()[..], &key(1).to_bytes()].concat();
+        let by_name = assert_matches_the_adapters_idl(&ix, "txdata_close_expired", &args);
+        assert_eq!(by_name("tx_data"), tx_data);
+        assert_eq!(by_name("payer"), key(2));
+        assert_eq!(by_name("refund"), key(3));
     }
 }

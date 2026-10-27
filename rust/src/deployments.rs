@@ -4,6 +4,7 @@
 
 use serde::Deserialize;
 use solana_cluster_type::ClusterType;
+use solana_message::Hash;
 use solana_pubkey::Pubkey;
 use std::sync::LazyLock;
 
@@ -35,17 +36,50 @@ struct Entry {
     deployment_slot: Option<u64>,
 }
 
+/// A deployment record, as `deployments.json` holds one.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Record {
+pub(crate) struct Record {
     staging: Vec<Entry>,
     production: Vec<Entry>,
 }
 
-static RECORD: LazyLock<Record> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../deployments.json"))
-        .unwrap_or_else(|e| panic!("deployments.json is not a deployment record: {e}"))
-});
+impl Record {
+    /// The record `json` holds, or a panic saying why it is none.
+    pub(crate) fn parse(json: &str) -> Self {
+        serde_json::from_str(json)
+            .unwrap_or_else(|e| panic!("not a deployment record: {e}: {json}"))
+    }
+
+    /// The adapter `environment` records on the cluster `chain_id` names, or
+    /// `None` when it records none there or records it as not yet deployed
+    /// (a `null` deployment slot).
+    pub(crate) fn deployment(
+        &self,
+        environment: Environment,
+        chain_id: &str,
+    ) -> Option<Deployment> {
+        let entries = match environment {
+            Environment::Staging => &self.staging,
+            Environment::Production => &self.production,
+        };
+        let entry = entries.iter().find(|entry| entry.chain_id == chain_id)?;
+        Some(Deployment {
+            chain_id: entry.chain_id.clone(),
+            program_id: entry.program_id.parse().unwrap_or_else(|e| {
+                panic!(
+                    "deployment record: {environment:?} program id {} on {chain_id}: {e}",
+                    entry.program_id
+                )
+            }),
+            deployment_slot: entry.deployment_slot?,
+        })
+    }
+}
+
+/// `deployments.json`.
+pub(crate) static RECORD: LazyLock<Record> =
+    LazyLock::new(|| Record::parse(include_str!("../deployments.json")));
 
 /// The CAIP-2 chain id of `cluster`: `solana:` and the first 32 characters of
 /// its genesis hash in base58 (CAIP-30), or `None` for a cluster without a
@@ -56,28 +90,22 @@ pub fn chain_id(cluster: ClusterType) -> Option<String> {
         .map(|hash| format!("solana:{}", &hash.to_string()[..32]))
 }
 
+/// The public cluster whose genesis hash is `genesis_hash`, if any.
+pub fn cluster(genesis_hash: &Hash) -> Option<ClusterType> {
+    ClusterType::STRINGS
+        .iter()
+        .map(|name| {
+            name.parse::<ClusterType>()
+                .expect("ClusterType parses its STRINGS")
+        })
+        .find(|cluster| cluster.get_genesis_hash().as_ref() == Some(genesis_hash))
+}
+
 /// The adapter `environment` records on the cluster `chain_id` names, or
 /// `None` when it records none there or records it as not yet deployed (a
 /// `null` deployment slot).
 pub fn deployment(environment: Environment, chain_id: &str) -> Option<Deployment> {
-    match environment {
-        Environment::Staging => find(&RECORD.staging, chain_id),
-        Environment::Production => find(&RECORD.production, chain_id),
-    }
-}
-
-fn find(entries: &[Entry], chain_id: &str) -> Option<Deployment> {
-    let entry = entries.iter().find(|entry| entry.chain_id == chain_id)?;
-    Some(Deployment {
-        chain_id: entry.chain_id.clone(),
-        program_id: entry.program_id.parse().unwrap_or_else(|e| {
-            panic!(
-                "deployments.json: program id {} on {chain_id}: {e}",
-                entry.program_id
-            )
-        }),
-        deployment_slot: entry.deployment_slot?,
-    })
+    RECORD.deployment(environment, chain_id)
 }
 
 #[cfg(test)]
@@ -108,17 +136,19 @@ mod tests {
         assert_eq!(chain_id(ClusterType::Development), None);
     }
 
-    fn entries(json: &str) -> Vec<Entry> {
-        serde_json::from_str(json).unwrap()
+    /// The record of one entry in each environment: `staging_slot` the
+    /// devnet entry's slot, mainnet-beta's 9.
+    fn record(staging_slot: &str) -> Record {
+        Record::parse(&format!(
+            r#"{{"staging": [{{"chainId": "solana:a", "programId": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx", "deploymentSlot": {staging_slot}}}],
+                "production": [{{"chainId": "solana:b", "programId": "11111111111111111111111111111111", "deploymentSlot": 9}}]}}"#
+        ))
     }
 
     #[test]
     fn the_entry_on_the_chain_is_its_deployment() {
-        let entries = entries(
-            r#"[{"chainId": "solana:a", "programId": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx", "deploymentSlot": 7},
-                {"chainId": "solana:b", "programId": "11111111111111111111111111111111", "deploymentSlot": 9}]"#,
-        );
-        let found = find(&entries, "solana:b");
+        let record = record("7");
+        let found = record.deployment(Environment::Production, "solana:b");
         println!("{found:?}");
         assert_eq!(
             found,
@@ -128,15 +158,35 @@ mod tests {
                 deployment_slot: 9,
             })
         );
-        assert_eq!(find(&entries, "solana:c"), None);
+        assert_eq!(
+            record
+                .deployment(Environment::Staging, "solana:a")
+                .map(|d| d.deployment_slot),
+            Some(7)
+        );
+        assert_eq!(record.deployment(Environment::Staging, "solana:b"), None);
+        assert_eq!(record.deployment(Environment::Production, "solana:c"), None);
     }
 
     /// An entry whose program is not deployed yet has a `null` slot.
     #[test]
     fn an_entry_without_a_deployment_slot_is_no_deployment() {
-        let entries = entries(
-            r#"[{"chainId": "solana:a", "programId": "11111111111111111111111111111111", "deploymentSlot": null}]"#,
+        assert_eq!(
+            record("null").deployment(Environment::Staging, "solana:a"),
+            None
         );
-        assert_eq!(find(&entries, "solana:a"), None);
+    }
+
+    #[test]
+    fn each_clusters_genesis_hash_is_that_cluster() {
+        for name in ClusterType::STRINGS {
+            let expected: ClusterType = name.parse().unwrap();
+            let found = expected.get_genesis_hash().map(|hash| cluster(&hash));
+            println!("{name}: {found:?}");
+            if let Some(found) = found {
+                assert_eq!(found, Some(expected), "{name}");
+            }
+        }
+        assert_eq!(cluster(&Hash::new_from_array([0; 32])), None);
     }
 }

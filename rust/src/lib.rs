@@ -5,7 +5,8 @@
 //! accounts and arguments are generated from its IDL (`generated`); the rest is
 //! what the IDL does not describe: settlement planning, the CPI event framing,
 //! the PDAs the instructions take as remaining accounts, the Merkle helpers, the
-//! settlement input, RPC submission, and the external calls' wire format.
+//! settlement input, RPC submission, the external calls' wire format, the
+//! deployment record (`deployments`), and the adapter instance (`instance`).
 
 pub mod constants;
 pub mod external_call;
@@ -23,6 +24,8 @@ pub mod events;
 pub mod forwarders;
 #[cfg(feature = "solana")]
 pub mod generated;
+#[cfg(feature = "rpc")]
+pub mod instance;
 #[cfg(feature = "solana")]
 pub mod instructions;
 #[cfg(feature = "solana")]
@@ -45,9 +48,11 @@ pub use accounts::{decode_pa_state, StateDecodeError};
 pub use events::{cpi_event_discriminator, decode_cpi_event, EventDecodeError};
 #[cfg(feature = "solana")]
 pub use instructions::{
-    deny_logic_refs_ix, initialize_ix, pause_ix, set_kind_tree_root_ix, settle_from_txdata_ix,
-    settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix, unpause_ix,
-    SettlementAccounts,
+    deny_logic_refs_ix, initialize_ix, pause_ix, renounce_ownership_ix,
+    risc_zero_verifier_paused_ix, set_kind_tree_root_ix, settle_from_txdata_ix, settle_ix,
+    simulate_execute_ix, transfer_ownership_ix, txdata_close_expired_ix, txdata_close_ix,
+    txdata_extend_ix, txdata_init_ix, txdata_write_ix, unpause_ix, update_expiry_config_ix,
+    upgrade_ix, version_ix, SettlementAccounts,
 };
 #[cfg(feature = "solana")]
 pub use pda::{
