@@ -216,6 +216,20 @@ mod tests {
             )
         );
         assert_eq!(
+            derive_tx_data_pda(&pa, &authority, upload_id).0,
+            idl_pda(
+                &idl,
+                "txdata_close_expired",
+                "tx_data",
+                &pa,
+                &[],
+                &[
+                    ("upload_id", upload_id.into()),
+                    ("authority", authority.to_string().into()),
+                ],
+            )
+        );
+        assert_eq!(
             derive_upgrade_authority_pda(&pa).0,
             idl_pda(&idl, "upgrade", "upgrade_authority", &pa, &[], &[])
         );

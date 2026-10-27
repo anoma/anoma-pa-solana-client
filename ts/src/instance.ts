@@ -453,7 +453,7 @@ export class ProtocolAdapter {
     return this.instruction(
       "txdata_close_expired",
       { tx_data: this.txData(authority, uploadId), payer, refund },
-      { upload_id: u64(uploadId), _authority: authority },
+      { upload_id: u64(uploadId), authority },
     );
   }
 
@@ -472,7 +472,7 @@ export class ProtocolAdapter {
         verifier_program: settlement.verifierProgram,
         ...this.events(),
       },
-      { _upload_id: u64(uploadId) },
+      { upload_id: u64(uploadId) },
       settlement.remainingAccounts,
     );
   }

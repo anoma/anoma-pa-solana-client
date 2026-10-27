@@ -307,7 +307,7 @@ pub fn txdata_write_ix(
         },
         vec![],
         args::TxdataWrite {
-            _upload_id: upload_id,
+            upload_id,
             offset,
             data: chunk.to_vec(),
         },
@@ -378,7 +378,7 @@ pub fn txdata_close_expired_ix(
         vec![],
         args::TxdataCloseExpired {
             upload_id,
-            _authority: *authority,
+            authority: *authority,
         },
     )
 }
@@ -488,9 +488,7 @@ pub fn settle_from_txdata_ix(
             program: *pa_program,
         },
         settlement.remaining_accounts,
-        args::SettleFromTxdata {
-            _upload_id: upload_id,
-        },
+        args::SettleFromTxdata { upload_id },
     )
 }
 
