@@ -28,7 +28,7 @@
     "prebuild": "npm run copy-data",
     "build": "tsc",
     "pretsc": "npm run copy-data",
-    "tsc": "tsc --noEmit",
+    "tsc": "tsc -p tsconfig.test.json",
     "pretest": "npm run copy-data",
     "test": "vitest run --project unit",
     "pretest:deployed": "npm run copy-data",
@@ -41,6 +41,7 @@
     "bs58": "^6.0.0"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "typescript": "~5.9.3",
     "vitest": "^4.0.0"
   }
