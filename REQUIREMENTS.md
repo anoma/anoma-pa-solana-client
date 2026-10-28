@@ -54,7 +54,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 - `simulate_execute` (pa-evm's `simulateExecute`: `settle`'s accounts and input, and whether to skip verifying the RISC Zero proof; it always fails, with `Simulated` when the settlement would execute)
 - `txdata_close`
 
-Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `TransactionInstruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address; the settlement builders take the accounts every settlement names as `SettlementAccounts`.
+Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `TransactionInstruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address and deriving every account that address and the instruction's own arguments determine (the state, the upload and the event accounts); the settlement builders take the accounts every settlement names as `SettlementAccounts`.
 
 ### 3.4 Settle transaction orchestration
 

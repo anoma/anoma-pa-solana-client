@@ -24,8 +24,7 @@ use crate::generated::protocol_adapter::types::DeniedLogicRef;
 use crate::instructions::{self, SettlementAccounts};
 use crate::merkle::{hash_two, PADDING_LEAF};
 use crate::pda::{
-    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda,
-    derive_verifier_entry_pda,
+    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_verifier_entry_pda,
 };
 
 /// Why an instance could not be made or could not answer.
@@ -399,8 +398,6 @@ impl<'a> ProtocolAdapter<'a> {
     ) -> Instruction {
         instructions::txdata_init_ix(
             &self.program_id,
-            &self.pa_state(),
-            &self.tx_data(authority, upload_id),
             authority,
             upload_id,
             capacity,
@@ -417,14 +414,7 @@ impl<'a> ProtocolAdapter<'a> {
         offset: u32,
         chunk: &[u8],
     ) -> Instruction {
-        instructions::txdata_write_ix(
-            &self.program_id,
-            &self.tx_data(authority, upload_id),
-            authority,
-            upload_id,
-            offset,
-            chunk,
-        )
+        instructions::txdata_write_ix(&self.program_id, authority, upload_id, offset, chunk)
     }
 
     /// `txdata_extend` of `authority`'s upload `upload_id`.
@@ -434,13 +424,7 @@ impl<'a> ProtocolAdapter<'a> {
         upload_id: u64,
         new_expires_slot: u64,
     ) -> Instruction {
-        instructions::txdata_extend_ix(
-            &self.program_id,
-            &self.tx_data(authority, upload_id),
-            authority,
-            upload_id,
-            new_expires_slot,
-        )
+        instructions::txdata_extend_ix(&self.program_id, authority, upload_id, new_expires_slot)
     }
 
     /// `txdata_close` of `authority`'s upload `upload_id`, its rent going to
@@ -451,13 +435,7 @@ impl<'a> ProtocolAdapter<'a> {
         refund: &Pubkey,
         upload_id: u64,
     ) -> Instruction {
-        instructions::txdata_close_ix(
-            &self.program_id,
-            &self.tx_data(authority, upload_id),
-            authority,
-            refund,
-            upload_id,
-        )
+        instructions::txdata_close_ix(&self.program_id, authority, refund, upload_id)
     }
 
     /// `txdata_close_expired` of `authority`'s upload `upload_id`, by
@@ -469,14 +447,7 @@ impl<'a> ProtocolAdapter<'a> {
         authority: &Pubkey,
         upload_id: u64,
     ) -> Instruction {
-        instructions::txdata_close_expired_ix(
-            &self.program_id,
-            &self.tx_data(authority, upload_id),
-            payer,
-            refund,
-            upload_id,
-            authority,
-        )
+        instructions::txdata_close_expired_ix(&self.program_id, payer, refund, upload_id, authority)
     }
 
     /// `settle` of `input`, paid for by `payer`.
@@ -513,17 +484,7 @@ impl<'a> ProtocolAdapter<'a> {
         upload_id: u64,
         settlement: SettlementAccounts,
     ) -> Instruction {
-        instructions::settle_from_txdata_ix(
-            &self.program_id,
-            &self.tx_data(authority, upload_id),
-            authority,
-            upload_id,
-            settlement,
-        )
-    }
-
-    fn tx_data(&self, authority: &Pubkey, upload_id: u64) -> Pubkey {
-        derive_tx_data_pda(&self.program_id, authority, upload_id).0
+        instructions::settle_from_txdata_ix(&self.program_id, authority, upload_id, settlement)
     }
 }
 
@@ -814,9 +775,7 @@ mod tests {
         let pa = key(9);
         let adapter = ProtocolAdapter::at(&rpc, pa);
         assert_eq!(adapter.program_id(), pa);
-        let tx_data = derive_tx_data_pda(&pa, &key(1), 7).0;
         let settlement = SettlementAccounts {
-            pa_state: derive_pa_state_pda(&pa).0,
             new_root_marker: None,
             verifier_router_program: key(11),
             router: key(12),
@@ -824,7 +783,6 @@ mod tests {
             verifier_program: key(14),
             remaining_accounts: vec![],
         };
-        let pa_state = derive_pa_state_pda(&pa).0;
         let entries = [DeniedLogicRef {
             logic_ref: [7; 32],
             consumed: true,
@@ -891,27 +849,27 @@ mod tests {
             (
                 "txdata_init",
                 adapter.txdata_init_ix(&key(1), 7, 900, 500),
-                instructions::txdata_init_ix(&pa, &pa_state, &tx_data, &key(1), 7, 900, 500),
+                instructions::txdata_init_ix(&pa, &key(1), 7, 900, 500),
             ),
             (
                 "txdata_write",
                 adapter.txdata_write_ix(&key(1), 7, 3, &[1, 2]),
-                instructions::txdata_write_ix(&pa, &tx_data, &key(1), 7, 3, &[1, 2]),
+                instructions::txdata_write_ix(&pa, &key(1), 7, 3, &[1, 2]),
             ),
             (
                 "txdata_extend",
                 adapter.txdata_extend_ix(&key(1), 7, 900),
-                instructions::txdata_extend_ix(&pa, &tx_data, &key(1), 7, 900),
+                instructions::txdata_extend_ix(&pa, &key(1), 7, 900),
             ),
             (
                 "txdata_close",
                 adapter.txdata_close_ix(&key(1), &key(2), 7),
-                instructions::txdata_close_ix(&pa, &tx_data, &key(1), &key(2), 7),
+                instructions::txdata_close_ix(&pa, &key(1), &key(2), 7),
             ),
             (
                 "txdata_close_expired",
                 adapter.txdata_close_expired_ix(&key(2), &key(3), &key(1), 7),
-                instructions::txdata_close_expired_ix(&pa, &tx_data, &key(2), &key(3), 7, &key(1)),
+                instructions::txdata_close_expired_ix(&pa, &key(2), &key(3), 7, &key(1)),
             ),
             (
                 "settle",
@@ -926,7 +884,7 @@ mod tests {
             (
                 "settle_from_txdata",
                 adapter.settle_from_txdata_ix(&key(1), 7, settlement.clone()),
-                instructions::settle_from_txdata_ix(&pa, &tx_data, &key(1), 7, settlement.clone()),
+                instructions::settle_from_txdata_ix(&pa, &key(1), 7, settlement.clone()),
             ),
         ] {
             println!("{name}: {} accounts", built.accounts.len());

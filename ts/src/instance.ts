@@ -103,7 +103,6 @@ export async function protocolAdapter(connection: Connection, environment: Envir
  * remaining accounts.
  */
 export interface SettlementAccounts {
-  paState: PublicKey;
   /** The marker PDA of the root a settlement that creates commitments produces; `null` for one that creates nothing. */
   newRootMarker: PublicKey | null;
   verifierRouterProgram: PublicKey;
@@ -462,7 +461,7 @@ export class ProtocolAdapter {
     return this.instruction(
       "settle_from_txdata",
       {
-        pa_state: settlement.paState,
+        pa_state: this.paState(),
         tx_data: this.txData(authority, uploadId),
         authority,
         new_root_marker: settlement.newRootMarker,

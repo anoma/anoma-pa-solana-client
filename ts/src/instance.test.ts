@@ -175,7 +175,6 @@ describe("ProtocolAdapter's builders", () => {
   const upgradeAuthority = pda(encode("upgrade_authority"));
   const remaining = [{ pubkey: key(), isSigner: false, isWritable: true }];
   const settlement = {
-    paState,
     newRootMarker: null,
     verifierRouterProgram: key(),
     router: key(),

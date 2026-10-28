@@ -20,8 +20,7 @@ use crate::instructions::{
 };
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
 use crate::pda::{
-    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda,
-    derive_verifier_router_pdas,
+    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_verifier_router_pdas,
 };
 
 /// The v1 transaction settings of a settlement transaction: its compute and
@@ -265,7 +264,6 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
         pa_program,
         payer,
         accounts: SettlementAccounts {
-            pa_state,
             new_root_marker,
             verifier_router_program: state.verifier_router,
             router,
@@ -324,12 +322,9 @@ pub fn plan_settlement(
     let upload = if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
         None
     } else {
-        let (tx_data, _) = derive_tx_data_pda(&s.pa_program, &s.payer, upload_id);
-        let pa_state = s.accounts.pa_state;
         settle.instructions.pop();
         settle.instructions.push(settle_from_txdata_ix(
             &s.pa_program,
-            &tx_data,
             &s.payer,
             upload_id,
             s.accounts,
@@ -342,8 +337,6 @@ pub fn plan_settlement(
         Some(Upload {
             init: upload_transaction(txdata_init_ix(
                 &s.pa_program,
-                &pa_state,
-                &tx_data,
                 &s.payer,
                 upload_id,
                 s.input.len() as u32,
@@ -356,7 +349,6 @@ pub fn plan_settlement(
                 .map(|(i, chunk)| {
                     upload_transaction(txdata_write_ix(
                         &s.pa_program,
-                        &tx_data,
                         &s.payer,
                         upload_id,
                         (i * TXDATA_CHUNK_SIZE) as u32,
@@ -366,7 +358,6 @@ pub fn plan_settlement(
                 .collect(),
             close: upload_transaction(txdata_close_ix(
                 &s.pa_program,
-                &tx_data,
                 &s.payer,
                 &s.payer,
                 upload_id,
@@ -415,6 +406,7 @@ pub(crate) mod tests {
     use crate::constants::MOCK_SELECTOR;
     use crate::generated::protocol_adapter::client::args;
     use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
+    use crate::pda::derive_tx_data_pda;
     use anchor::Discriminator;
 
     fn key(n: u8) -> Pubkey {
@@ -637,18 +629,9 @@ pub(crate) mod tests {
             config: UPLOAD_TRANSACTION_CONFIG,
         };
         let (tx_data, _) = derive_tx_data_pda(&key(9), &key(8), 7);
-        let (pa_state, _) = derive_pa_state_pda(&key(9));
         assert_eq!(
             init,
-            upload_transaction(txdata_init_ix(
-                &key(9),
-                &pa_state,
-                &tx_data,
-                &key(8),
-                7,
-                input.len() as u32,
-                500
-            ))
+            upload_transaction(txdata_init_ix(&key(9), &key(8), 7, input.len() as u32, 500))
         );
         // Two full chunks, then the 5-byte rest.
         let c = TXDATA_CHUNK_SIZE;
@@ -657,7 +640,6 @@ pub(crate) mod tests {
             .map(|&(start, end)| {
                 upload_transaction(txdata_write_ix(
                     &key(9),
-                    &tx_data,
                     &key(8),
                     7,
                     start as u32,
@@ -678,7 +660,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             close,
-            upload_transaction(txdata_close_ix(&key(9), &tx_data, &key(8), &key(8), 7))
+            upload_transaction(txdata_close_ix(&key(9), &key(8), &key(8), 7))
         );
     }
 
@@ -833,7 +815,7 @@ pub(crate) mod tests {
     #[test]
     fn a_full_chunk_is_the_largest_whose_write_transaction_fits() {
         let size = |len: usize| {
-            let write = txdata_write_ix(&key(9), &key(7), &key(8), 7, 0, &vec![0u8; len]);
+            let write = txdata_write_ix(&key(9), &key(8), 7, 0, &vec![0u8; len]);
             let transaction = PlannedTransaction {
                 instructions: vec![write],
                 config: UPLOAD_TRANSACTION_CONFIG,

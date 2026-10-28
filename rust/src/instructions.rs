@@ -13,7 +13,7 @@ use crate::generated::protocol_adapter::types::DeniedLogicRef;
 use crate::generated::protocol_adapter::ID;
 use crate::pda::{
     derive_event_authority_pda, derive_pa_state_pda, derive_program_data_address,
-    derive_upgrade_authority_pda, derive_verifier_entry_pda,
+    derive_tx_data_pda, derive_upgrade_authority_pda, derive_verifier_entry_pda,
 };
 
 /// The instruction of the adapter at `pa_program` with `accounts`, then
@@ -263,8 +263,6 @@ pub fn version_ix(pa_program: &Pubkey) -> Instruction {
 /// Build a PA `txdata_init` instruction.
 pub fn txdata_init_ix(
     pa_program: &Pubkey,
-    pa_state: &Pubkey,
-    tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
     capacity: u32,
@@ -273,8 +271,8 @@ pub fn txdata_init_ix(
     instruction(
         pa_program,
         accounts::TxdataInit {
-            pa_state: *pa_state,
-            tx_data: *tx_data,
+            pa_state: derive_pa_state_pda(pa_program).0,
+            tx_data: derive_tx_data_pda(pa_program, authority, upload_id).0,
             authority: *authority,
             system_program: system_program::id(),
         },
@@ -293,7 +291,6 @@ pub fn txdata_init_ix(
 /// write transaction fits a v1 transaction.
 pub fn txdata_write_ix(
     pa_program: &Pubkey,
-    tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
     offset: u32,
@@ -302,7 +299,7 @@ pub fn txdata_write_ix(
     instruction(
         pa_program,
         accounts::TxdataWrite {
-            tx_data: *tx_data,
+            tx_data: derive_tx_data_pda(pa_program, authority, upload_id).0,
             authority: *authority,
         },
         vec![],
@@ -317,7 +314,6 @@ pub fn txdata_write_ix(
 /// Build a PA `txdata_close` instruction (reclaims rent from the upload PDA).
 pub fn txdata_close_ix(
     pa_program: &Pubkey,
-    tx_data: &Pubkey,
     authority: &Pubkey,
     refund: &Pubkey,
     upload_id: u64,
@@ -325,7 +321,7 @@ pub fn txdata_close_ix(
     instruction(
         pa_program,
         accounts::TxdataClose {
-            tx_data: *tx_data,
+            tx_data: derive_tx_data_pda(pa_program, authority, upload_id).0,
             authority: *authority,
             refund: *refund,
         },
@@ -338,7 +334,6 @@ pub fn txdata_close_ix(
 /// expiry to `new_expires_slot`.
 pub fn txdata_extend_ix(
     pa_program: &Pubkey,
-    tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
     new_expires_slot: u64,
@@ -347,7 +342,7 @@ pub fn txdata_extend_ix(
         pa_program,
         accounts::TxdataExtend {
             pa_state: derive_pa_state_pda(pa_program).0,
-            tx_data: *tx_data,
+            tx_data: derive_tx_data_pda(pa_program, authority, upload_id).0,
             authority: *authority,
         },
         vec![],
@@ -362,7 +357,6 @@ pub fn txdata_extend_ix(
 /// `authority`'s expired upload `upload_id`, its rent going to `refund`.
 pub fn txdata_close_expired_ix(
     pa_program: &Pubkey,
-    tx_data: &Pubkey,
     payer: &Pubkey,
     refund: &Pubkey,
     upload_id: u64,
@@ -371,7 +365,7 @@ pub fn txdata_close_expired_ix(
     instruction(
         pa_program,
         accounts::TxdataCloseExpired {
-            tx_data: *tx_data,
+            tx_data: derive_tx_data_pda(pa_program, authority, upload_id).0,
             payer: *payer,
             refund: *refund,
         },
@@ -388,7 +382,6 @@ pub fn txdata_close_expired_ix(
 /// remaining accounts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettlementAccounts {
-    pub pa_state: Pubkey,
     /// The marker PDA of the root a settlement that creates commitments
     /// produces; `None` for one that creates nothing, which produces no root.
     pub new_root_marker: Option<Pubkey>,
@@ -412,7 +405,7 @@ pub fn settle_ix(
     instruction(
         pa_program,
         accounts::Settle {
-            pa_state: settlement.pa_state,
+            pa_state: derive_pa_state_pda(pa_program).0,
             payer: *payer,
             system_program: system_program::id(),
             new_root_marker: settlement.new_root_marker,
@@ -444,7 +437,7 @@ pub fn simulate_execute_ix(
     instruction(
         pa_program,
         accounts::SimulateExecute {
-            pa_state: settlement.pa_state,
+            pa_state: derive_pa_state_pda(pa_program).0,
             payer: *payer,
             system_program: system_program::id(),
             new_root_marker: settlement.new_root_marker,
@@ -467,7 +460,6 @@ pub fn simulate_execute_ix(
 /// `authority` uploaded to `tx_data` under `upload_id`.
 pub fn settle_from_txdata_ix(
     pa_program: &Pubkey,
-    tx_data: &Pubkey,
     authority: &Pubkey,
     upload_id: u64,
     settlement: SettlementAccounts,
@@ -475,8 +467,8 @@ pub fn settle_from_txdata_ix(
     instruction(
         pa_program,
         accounts::SettleFromTxdata {
-            pa_state: settlement.pa_state,
-            tx_data: *tx_data,
+            pa_state: derive_pa_state_pda(pa_program).0,
+            tx_data: derive_tx_data_pda(pa_program, authority, upload_id).0,
             authority: *authority,
             system_program: system_program::id(),
             new_root_marker: settlement.new_root_marker,
@@ -495,7 +487,6 @@ pub fn settle_from_txdata_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pda::derive_tx_data_pda;
 
     /// Each instruction the tests below build, for their inputs (the program
     /// `key(9)`, other accounts `key(n)`): its program id, its data in hex, and
@@ -678,7 +669,6 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
     /// The settlement accounts of `EXPECTED`'s settlements of `key(9)`.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
         SettlementAccounts {
-            pa_state: derive_pa_state_pda(&key(9)).0,
             new_root_marker,
             verifier_router_program: key(11),
             router: key(12),
@@ -821,10 +811,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
             &simulate_execute_ix(&pa, &key(1), b"input", true, settlement(None, false)),
         );
 
-        let accounts = SettlementAccounts {
-            pa_state: derive_pa_state_pda(&ID).0,
-            ..settlement(Some(key(10)), false)
-        };
+        let accounts = settlement(Some(key(10)), false);
         let input = b"input";
         let encoded_input = [&5u32.to_le_bytes()[..], input].concat();
         let settle = settle_ix(&ID, &key(1), input, accounts.clone());
@@ -848,53 +835,22 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         let tx_data = |pa: &Pubkey| derive_tx_data_pda(pa, &key(1), 7).0;
         assert_is_expected(
             "settle_from_txdata",
-            &settle_from_txdata_ix(
-                &pa,
-                &tx_data(&pa),
-                &key(1),
-                7,
-                settlement(Some(key(10)), true),
-            ),
+            &settle_from_txdata_ix(&pa, &key(1), 7, settlement(Some(key(10)), true)),
         );
-        assert_is_expected(
-            "txdata_init",
-            &txdata_init_ix(
-                &pa,
-                &derive_pa_state_pda(&pa).0,
-                &tx_data(&pa),
-                &key(1),
-                7,
-                900,
-                500,
-            ),
-        );
+        assert_is_expected("txdata_init", &txdata_init_ix(&pa, &key(1), 7, 900, 500));
         assert_is_expected(
             "txdata_write",
-            &txdata_write_ix(&pa, &tx_data(&pa), &key(1), 7, 3856, &[1, 2, 3, 4, 5]),
+            &txdata_write_ix(&pa, &key(1), 7, 3856, &[1, 2, 3, 4, 5]),
         );
-        assert_is_expected(
-            "txdata_close",
-            &txdata_close_ix(&pa, &tx_data(&pa), &key(1), &key(2), 7),
-        );
+        assert_is_expected("txdata_close", &txdata_close_ix(&pa, &key(1), &key(2), 7));
 
-        let accounts = SettlementAccounts {
-            pa_state: derive_pa_state_pda(&ID).0,
-            ..settlement(None, false)
-        };
-        let ix = settle_from_txdata_ix(&ID, &tx_data(&ID), &key(1), 7, accounts);
+        let accounts = settlement(None, false);
+        let ix = settle_from_txdata_ix(&ID, &key(1), 7, accounts);
         let by_name =
             assert_matches_the_adapters_idl(&ix, "settle_from_txdata", &7u64.to_le_bytes());
         assert_eq!(by_name("tx_data"), tx_data(&ID));
         assert_eq!(by_name("new_root_marker"), ID);
-        let ix = txdata_init_ix(
-            &ID,
-            &derive_pa_state_pda(&ID).0,
-            &tx_data(&ID),
-            &key(1),
-            7,
-            900,
-            500,
-        );
+        let ix = txdata_init_ix(&ID, &key(1), 7, 900, 500);
         let args = [
             &7u64.to_le_bytes()[..],
             &900u32.to_le_bytes(),
@@ -903,7 +859,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         .concat();
         let by_name = assert_matches_the_adapters_idl(&ix, "txdata_init", &args);
         assert_eq!(by_name("authority"), key(1), "txdata_init");
-        let ix = txdata_write_ix(&ID, &tx_data(&ID), &key(1), 7, 3856, &[1, 2, 3, 4, 5]);
+        let ix = txdata_write_ix(&ID, &key(1), 7, 3856, &[1, 2, 3, 4, 5]);
         let args = [
             &7u64.to_le_bytes()[..],
             &3856u32.to_le_bytes(),
@@ -913,7 +869,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         .concat();
         let by_name = assert_matches_the_adapters_idl(&ix, "txdata_write", &args);
         assert_eq!(by_name("authority"), key(1), "txdata_write");
-        let ix = txdata_close_ix(&ID, &tx_data(&ID), &key(1), &key(2), 7);
+        let ix = txdata_close_ix(&ID, &key(1), &key(2), 7);
         let by_name = assert_matches_the_adapters_idl(&ix, "txdata_close", &7u64.to_le_bytes());
         assert_eq!(by_name("refund"), key(2));
     }
@@ -1019,13 +975,13 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         assert!(ix.accounts.is_empty());
 
         let tx_data = derive_tx_data_pda(&ID, &key(1), 7).0;
-        let ix = txdata_extend_ix(&ID, &tx_data, &key(1), 7, 900);
+        let ix = txdata_extend_ix(&ID, &key(1), 7, 900);
         let args = [&7u64.to_le_bytes()[..], &900u64.to_le_bytes()].concat();
         let by_name = assert_matches_the_adapters_idl(&ix, "txdata_extend", &args);
         assert_eq!(by_name("tx_data"), tx_data);
         assert_eq!(by_name("authority"), key(1));
 
-        let ix = txdata_close_expired_ix(&ID, &tx_data, &key(2), &key(3), 7, &key(1));
+        let ix = txdata_close_expired_ix(&ID, &key(2), &key(3), 7, &key(1));
         let args = [&7u64.to_le_bytes()[..], &key(1).to_bytes()].concat();
         let by_name = assert_matches_the_adapters_idl(&ix, "txdata_close_expired", &args);
         assert_eq!(by_name("tx_data"), tx_data);
