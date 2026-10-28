@@ -488,185 +488,49 @@ pub fn settle_from_txdata_ix(
 mod tests {
     use super::*;
 
-    /// Each instruction the tests below build, for their inputs (the program
-    /// `key(9)`, other accounts `key(n)`): its program id, its data in hex, and
-    /// its accounts (address, signer, writable), in order.
-    const EXPECTED: &str = "\
-== initialize
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data afaf6d1f0d989bed02020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303ffffffff
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct Hibe1esmNpASGJBynhevaMybmY2gcGcPDrfz8zMZyw1J false true
-acct CFLMyAiswuYuTmzEmBT9b9C1T1V6xqvWEfy7DT1T8MEP false false
-acct BPFLoaderUpgradeab1e11111111111111111111111 false false
-acct AdJWkJknpP3onZQWvkzhfUfz6LxxwbDF1ohYmAV7NtK1 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== pause
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data d316ddfb4a79c12f
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== unpause
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data a99004260a8dbcff
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== deny_logic_refs
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 97c9411f1f8d54ca02000000070707070707070707070707070707070707070707070707070707070707070700080808080808080808080808080808080808080808080808080808080808080801
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true true
-acct 11111111111111111111111111111111 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== set_kind_tree_root
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 61a25429e81390600707070707070707070707070707070707070707070707070707070707070707
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== settle
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data af2ab957908366d405000000696e707574
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== settle_no_marker
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data af2ab957908366d405000000696e707574
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== simulate_execute_false
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 11ba5ad41f0d004705000000696e70757400
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== simulate_execute_true
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 11ba5ad41f0d004705000000696e70757401
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== settle_from_txdata
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 8d611d6cf0fb0cbc0700000000000000
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false false
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== txdata_init
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 94ddddfb41d96ac7070000000000000084030000f401000000000000
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-== txdata_write
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data b0bef7915392e7c60700000000000000100f0000050000000102030405
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-== txdata_close
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data a518a5860e0a6bac0700000000000000
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
-";
-
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
     }
 
-    fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
-
-    /// `ix` in `EXPECTED`'s form.
-    fn written(name: &str, ix: &Instruction) -> String {
-        let mut out = format!(
-            "== {name}\nprogram {}\ndata {}\n",
-            ix.program_id,
-            hex(&ix.data)
+    /// The entry `name` of `fixtures/instructions_fixture.json`, the
+    /// instructions `tests/instructions_fixture.rs` builds for these tests'
+    /// inputs (the program `key(9)`, other accounts `key(n)`).
+    fn expected(name: &str) -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../fixtures/instructions_fixture.json"
         );
-        for meta in &ix.accounts {
-            out += &format!(
-                "acct {} {} {}\n",
-                meta.pubkey, meta.is_signer, meta.is_writable
-            );
-        }
-        out
+        let fixture: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}")),
+        )
+        .expect("the instructions fixture is JSON");
+        fixture["instructions"]
+            .as_array()
+            .expect("the fixture lists instructions")
+            .iter()
+            .find(|e| e["name"] == name)
+            .unwrap_or_else(|| panic!("the instructions fixture has no {name}"))
+            .clone()
     }
 
-    /// `EXPECTED`'s entry `name`.
-    fn expected(name: &str) -> String {
-        let start = EXPECTED
-            .find(&format!("== {name}\n"))
-            .unwrap_or_else(|| panic!("EXPECTED has no {name}"));
-        let rest = &EXPECTED[start + 3..];
-        let end = rest.find("== ").map_or(EXPECTED.len(), |i| start + 3 + i);
-        EXPECTED[start..end].to_string()
-    }
-
-    /// `ix` is `EXPECTED`'s entry `name`.
+    /// `ix` is the instructions fixture's entry `name`: its program, its data
+    /// in hex, and its accounts (address, signer, writable), in order.
     fn assert_is_expected(name: &str, ix: &Instruction) {
-        let built = written(name, ix);
-        println!("{built}");
+        let built = serde_json::json!({
+            "name": name,
+            "program": ix.program_id.to_string(),
+            "data_hex": ix.data.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+            "accounts": ix.accounts.iter().map(|m| serde_json::json!({
+                "address": m.pubkey.to_string(),
+                "signer": m.is_signer,
+                "writable": m.is_writable,
+            })).collect::<Vec<_>>(),
+        });
+        println!("{built:#}");
         assert_eq!(built, expected(name), "{name}");
     }
 
-    /// The settlement accounts of `EXPECTED`'s settlements of `key(9)`.
+    /// The settlement accounts of the fixture's settlements of `key(9)`.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
         SettlementAccounts {
             new_root_marker,
