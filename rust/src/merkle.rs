@@ -8,7 +8,7 @@ use crate::constants::MAX_TREE_DEPTH;
 
 /// The canonical padding leaf used for empty positions in the commitment
 /// tree: the ARM empty-hash constant (the PA's `EMPTY_HASH_WORDS`, from
-/// `arm_core::constants`), which is also the empty tree's root at depth 1.
+/// `arm_core::constants`), which is also the empty tree's root.
 /// Note this is NOT `sha256("")` (`e3b0c442…`).
 pub const PADDING_LEAF: [u8; 32] = [
     0xcc, 0x1d, 0x2f, 0x83, 0x84, 0x45, 0xdb, 0x7a, 0xec, 0x43, 0x1d, 0xf9, 0xee, 0x8a, 0x87, 0x1f,
@@ -74,6 +74,9 @@ impl CommitmentTreeState {
         let depth = self.current_depth as usize;
         let zeros = zero_hashes();
         let mut index = self.next_index;
+        // The root of the subtree the leaf completes, the one left sibling
+        // pa-evm V2's `MerkleTree.push` writes.
+        let completed_level = index.trailing_ones() as usize;
         self.next_index = self
             .next_index
             .checked_add(1)
@@ -82,7 +85,9 @@ impl CommitmentTreeState {
         let mut current = leaf;
         for (level, zero) in zeros.iter().enumerate().take(depth) {
             if index & 1 == 0 {
-                self.frontier[level] = current;
+                if level == completed_level {
+                    self.frontier[level] = current;
+                }
                 current = hash_two(&current, zero);
             } else {
                 current = hash_two(&self.frontier[level], &current);
@@ -108,11 +113,10 @@ impl CommitmentTreeState {
 }
 
 /// The depth of the tree once `leaf_count` leaves are appended: the tree
-/// starts at depth 1 and gains a level whenever it fills, so it is the bit
-/// length of the count, at least 1.
+/// starts at depth 0 and gains a level whenever it fills, so it is the bit
+/// length of the count.
 pub fn depth_for_leaves(leaf_count: u64) -> usize {
-    let bits = (u64::BITS - leaf_count.leading_zeros()) as usize;
-    bits.max(1)
+    (u64::BITS - leaf_count.leading_zeros()) as usize
 }
 
 impl CommitmentTreeState {
@@ -121,8 +125,8 @@ impl CommitmentTreeState {
         CommitmentTreeState {
             root: PADDING_LEAF,
             next_index: 0,
-            current_depth: 1,
-            frontier: vec![PADDING_LEAF],
+            current_depth: 0,
+            frontier: Vec::new(),
         }
     }
 
@@ -176,9 +180,32 @@ pub fn path_root(leaf: &[u8; 32], path: &[([u8; 32], bool)]) -> [u8; 32] {
 mod tests {
     use super::*;
 
+    /// The PA's empty tree is pa-evm V2's `MerkleTree.setup`: depth 0, no
+    /// left siblings, the padding leaf as its root.
+    #[test]
+    fn empty_tree_has_depth_zero_and_no_left_siblings() {
+        let empty = CommitmentTreeState::empty();
+        assert_eq!(empty.current_depth, 0);
+        assert!(empty.frontier.is_empty(), "frontier {:?}", empty.frontier);
+        assert_eq!(empty.root, PADDING_LEAF);
+    }
+
+    /// Each append writes only the root of the subtree the leaf completes, as
+    /// pa-evm V2's `MerkleTree.push` writes one left sibling: after five
+    /// leaves the level-1 entry is still `hash(l0, l1)`, not the fifth leaf's
+    /// parent.
+    #[test]
+    fn append_writes_only_the_left_sibling_the_leaf_completes() {
+        let leaves: Vec<[u8; 32]> = (0..5u8).map(|i| [i + 1; 32]).collect();
+        let tree = CommitmentTreeState::over(&leaves).unwrap();
+        let a = hash_two(&leaves[0], &leaves[1]);
+        let c = hash_two(&a, &hash_two(&leaves[2], &leaves[3]));
+        assert_eq!(tree.frontier, vec![leaves[4], a, c]);
+    }
+
     #[test]
     fn depth_for_leaves_gains_a_level_whenever_the_tree_fills() {
-        assert_eq!(depth_for_leaves(0), 1);
+        assert_eq!(depth_for_leaves(0), 0);
         assert_eq!(depth_for_leaves(1), 1);
         assert_eq!(depth_for_leaves(2), 2);
         assert_eq!(depth_for_leaves(3), 2);
@@ -231,12 +258,7 @@ mod tests {
 
     #[test]
     fn append_single_leaf_advances_index() {
-        let mut state = CommitmentTreeState {
-            root: PADDING_LEAF,
-            next_index: 0,
-            current_depth: 1,
-            frontier: vec![[0u8; 32]],
-        };
+        let mut state = CommitmentTreeState::empty();
         state.append([7u8; 32]).expect("append");
         assert_eq!(state.next_index, 1);
     }
