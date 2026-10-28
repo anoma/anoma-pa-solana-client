@@ -78,6 +78,22 @@ jobs:
       - name: cargo clippy -p anoma-pa-solana-client --all-targets --no-default-features -- -D warnings
         run: cargo clippy -p anoma-pa-solana-client --all-targets --no-default-features -- -D warnings
 
+  rust-idl-build:
+    name: Rust with Anchor's idl-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Every Anchor program crate building its IDL turns on `anchor-lang`'s
+      # `idl-build`, and Cargo unifies it onto this crate in a program's
+      # build; the generated bindings must compile under it.
+      - name: cargo clippy -p anoma-pa-solana-client --all-targets --all-features --features anchor/idl-build -- -D warnings
+        run: cargo clippy -p anoma-pa-solana-client --all-targets --all-features --features anchor/idl-build -- -D warnings
+
   ts:
     name: TS (tsc + vitest)
     runs-on: ubuntu-latest

@@ -56,7 +56,8 @@ fn type_def<'a>(idl: &'a Value, name: &str) -> &'a Value {
 
 /// How `{:?}` writes `value`, the fixture's form of a value of the IDL type
 /// `ty`, as a field of a generated type: byte arrays and vectors as lists of
-/// decimal bytes, keys in base58, integers in decimal.
+/// decimal bytes, a `u256` as its `U256LeBytes` of them, keys in base58,
+/// integers in decimal.
 fn debug_of(idl: &Value, ty: &Value, value: &Value) -> String {
     if let Some(name) = ty["defined"]["name"].as_str() {
         let def = &type_def(idl, name)["type"];
@@ -77,7 +78,8 @@ fn debug_of(idl: &Value, ty: &Value, value: &Value) -> String {
         Some("bool") => value.as_bool().unwrap().to_string(),
         Some("u64") => text().to_string(),
         Some("pubkey") => Pubkey::new_from_array(hex(text()).try_into().unwrap()).to_string(),
-        Some("bytes") | Some("u256") => format!("{:?}", hex(text())),
+        Some("bytes") => format!("{:?}", hex(text())),
+        Some("u256") => format!("U256LeBytes({:?})", hex(text())),
         _ if ty.get("array").is_some() => format!("{:?}", hex(text())),
         _ => panic!("no fixture form for the IDL type {ty}"),
     }

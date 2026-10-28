@@ -12,11 +12,8 @@
 pub mod anchor_lang {
     pub use ::anchor::*;
 
-    /// A `u256` as Borsh writes it: its 32 little-endian bytes.
-    pub type U256LeBytes = [u8; 32];
-
     pub mod prelude {
-        pub use super::U256LeBytes as u256;
+        pub use super::super::U256LeBytes as u256;
         pub use ::anchor::prelude::*;
         // Anchor's prelude names the real crate `anchor_lang`, as the module
         // `declare_program!` reads it from does; this names the shim the
@@ -24,6 +21,15 @@ pub mod anchor_lang {
         pub use super::super::anchor_lang;
     }
 }
+
+/// A `u256` as Borsh writes it: its 32 little-endian bytes. A type of this
+/// crate, not an alias of `[u8; 32]`: under `idl-build`, the `IdlBuild` derive
+/// on every generated type with a `u256` field calls `IdlBuild` on `u256`,
+/// which this crate cannot implement for `[u8; 32]`.
+#[derive(
+    anchor_lang::AnchorSerialize, anchor_lang::AnchorDeserialize, Clone, Copy, Debug, Default,
+)]
+pub struct U256LeBytes(pub [u8; 32]);
 
 ::anchor::declare_program!(protocol_adapter);
 ::anchor::declare_program!(verifier_router);

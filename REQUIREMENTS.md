@@ -81,7 +81,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 ### 3.7 Event decoders
 
 - Every Anchor event emitted by the PA, as the IDL declares it:
-  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is its 32 little-endian bytes in Rust and the coder's `BN` in TypeScript
+  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is `U256LeBytes`, its 32 little-endian bytes, in Rust and the coder's `BN` in TypeScript
   - `ActionExecuted { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
   - `TransactionExecuted { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
   - `ForwarderCallExecuted { untrusted_forwarder, input, output }`
