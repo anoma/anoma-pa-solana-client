@@ -171,10 +171,17 @@ function plain(value: unknown): unknown {
   return value;
 }
 
-/** The accounts and data of `ix`, which every builder sets. */
-function parts(ix: Instruction): { accounts: readonly AccountMeta[]; data: Uint8Array } {
+/**
+ * The accounts (each its address and role) and data of `ix`, which every
+ * builder sets. No builder names an account through a lookup table.
+ */
+function parts(ix: Instruction): { accounts: AccountMeta[]; data: Uint8Array } {
   if (ix.accounts === undefined || ix.data === undefined) throw new Error("the instruction has no accounts or data");
-  return { accounts: ix.accounts as readonly AccountMeta[], data: Uint8Array.from(ix.data) };
+  expect(
+    ix.accounts.filter((m) => "lookupTableAddress" in m),
+    "accounts named through a lookup table",
+  ).toEqual([]);
+  return { accounts: ix.accounts.map(({ address, role }) => ({ address, role })), data: Uint8Array.from(ix.data) };
 }
 
 // The inputs of the Rust crate's `instructions` tests: the adapter `key(9)`,

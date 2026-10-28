@@ -111,6 +111,9 @@ jobs:
         run: npm ci
       - name: npm run tsc
         run: npm run tsc
+      # The published output (`dist/`), which consumers import.
+      - name: npm run build
+        run: npm run build
       - name: npm run test
         run: npm run test
 
