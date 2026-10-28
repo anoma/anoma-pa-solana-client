@@ -32,8 +32,8 @@ export function deriveRootMarkerPda(
  *
  * Anchor's `#[event_cpi]` signs each event self-invocation with this PDA and
  * requires it, followed by the program's own address, after an instruction's
- * other named accounts: for the PA, `settle` and `settle_from_txdata`. Any
- * program that emits events this way derives its event authority with the
+ * other named accounts: for the PA, every instruction that emits an event.
+ * Any program that emits events this way derives its event authority with the
  * same seed.
  */
 export function deriveEventAuthorityPda(program: PublicKey): [PublicKey, number] {

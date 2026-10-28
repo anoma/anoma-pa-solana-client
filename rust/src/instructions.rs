@@ -1018,7 +1018,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
         let _ = assert_matches_the_adapters_idl(&ix, "version", &[]);
         assert!(ix.accounts.is_empty());
 
-        let tx_data = crate::pda::derive_tx_data_pda(&ID, &key(1), 7).0;
+        let tx_data = derive_tx_data_pda(&ID, &key(1), 7).0;
         let ix = txdata_extend_ix(&ID, &tx_data, &key(1), 7, 900);
         let args = [&7u64.to_le_bytes()[..], &900u64.to_le_bytes()].concat();
         let by_name = assert_matches_the_adapters_idl(&ix, "txdata_extend", &args);

@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use anchor_lang::AccountDeserialize;
+use anchor::AccountDeserialize;
 use anoma_pa_solana_client::generated::protocol_adapter::events::{
     ActionExecuted, CommitmentTreeRootAdded, ForwarderCallExecuted, TransactionExecuted,
 };

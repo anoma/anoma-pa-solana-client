@@ -24,10 +24,7 @@ sha2 = "0.10"
 # build with (Anchor 1.2): pubkey, instruction and sdk-ids 3.
 #
 # The bindings `declare_program!` generates from `idls/protocol_adapter.json`.
-# Renamed so that `generated` can give the generator its own `anchor_lang`,
-# with the IDL's `u256` added. The adapter's pin: an Anchor commit with
-# solana-foundation/anchor#4737.
-anchor = { package = "anchor-lang", git = "https://github.com/otter-sec/anchor", rev = "2c9747a2d31bd5e94745cee6c083577f3e6675c0", optional = true }
+anchor = { workspace = true, optional = true }
 solana-instruction = { version = "3", optional = true }
 # The settlement's v1 transaction messages.
 solana-message = { version = "4", optional = true }

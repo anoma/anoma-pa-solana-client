@@ -8,8 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-# Reads the generated account types (`AccountDeserialize`); the client crate's pin.
-anchor-lang = { git = "https://github.com/otter-sec/anchor", rev = "2c9747a2d31bd5e94745cee6c083577f3e6675c0" }
+# Reads the generated account types (`AccountDeserialize`).
+anchor = { workspace = true }
 anoma-pa-solana-client = { path = "../../rust" }
 base64 = "0.22"
 bs58 = "0.5"

@@ -13,9 +13,10 @@
 // once the transactions are no longer on chain. Without arguments, no
 // transaction is recorded: for a deployment that has emitted no event yet.
 // The expected values come from @anchor-lang/core's BorshCoder against
-// rust/idls/protocol_adapter.json, a decoder independent of this package's. Every event type in the IDL that none of
-// the transactions emitted gets one entry encoded by that coder from fixed
-// values, so the fixture covers the IDL's whole event set. Byte fields are
+// rust/idls/protocol_adapter.json, a decoder independent of this package's.
+// Every event type in the IDL that none of the transactions emitted gets one
+// entry encoded by that coder from fixed values, so the fixture covers the
+// IDL's whole event set. Byte fields are
 // recorded as lowercase hex, u256 fields as their 32 little-endian bytes in
 // lowercase hex, u64 fields as decimal strings (a JSON number loses
 // precision past 2^53), bool fields as JSON booleans.
