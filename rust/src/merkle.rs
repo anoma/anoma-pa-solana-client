@@ -23,14 +23,15 @@ pub fn hash_two(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Precomputed zero hashes at each level of the commitment tree.
+/// Precomputed zero hashes at each level of the commitment tree, up to the
+/// deepest tree's, `MAX_TREE_DEPTH + 1` levels.
 ///
 /// `zero_hashes()[0] = PADDING_LEAF`, then each subsequent level hashes the
 /// previous level's pair: `H[i] = hash_two(H[i-1], H[i-1])`.
-pub fn zero_hashes() -> [[u8; 32]; MAX_TREE_DEPTH] {
-    let mut zeros = [[0u8; 32]; MAX_TREE_DEPTH];
+pub fn zero_hashes() -> [[u8; 32]; MAX_TREE_DEPTH + 1] {
+    let mut zeros = [[0u8; 32]; MAX_TREE_DEPTH + 1];
     zeros[0] = PADDING_LEAF;
-    for level in 1..MAX_TREE_DEPTH {
+    for level in 1..=MAX_TREE_DEPTH {
         zeros[level] = hash_two(&zeros[level - 1], &zeros[level - 1]);
     }
     zeros
@@ -50,16 +51,13 @@ pub struct CommitmentTreeState {
 /// Errors produced by the Merkle replay.
 #[derive(Debug)]
 pub enum MerkleError {
-    NextIndexOverflow,
-    CapacityOverflow,
+    /// The tree holds 2^`MAX_TREE_DEPTH` leaves, the most the adapter takes.
     MaxDepthReached,
 }
 
 impl core::fmt::Display for MerkleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            MerkleError::NextIndexOverflow => write!(f, "tree next_index overflow"),
-            MerkleError::CapacityOverflow => write!(f, "tree capacity overflow"),
             MerkleError::MaxDepthReached => write!(f, "commitment tree max depth reached"),
         }
     }
@@ -69,18 +67,20 @@ impl std::error::Error for MerkleError {}
 
 impl CommitmentTreeState {
     /// Append a new commitment to the tree, updating `root`, `next_index`,
-    /// `frontier`, and (if the tree fills at the current depth) `current_depth`.
+    /// `frontier`, and (if the tree fills at the current depth) `current_depth`,
+    /// as the adapter's `merkle::push`: refused once the tree holds
+    /// 2^`MAX_TREE_DEPTH` leaves, before any change.
     pub fn append(&mut self, leaf: [u8; 32]) -> Result<(), MerkleError> {
+        if self.next_index >= 1 << MAX_TREE_DEPTH {
+            return Err(MerkleError::MaxDepthReached);
+        }
         let depth = self.current_depth as usize;
         let zeros = zero_hashes();
         let mut index = self.next_index;
         // The root of the subtree the leaf completes, the one left sibling
         // pa-evm V2's `MerkleTree.push` writes.
         let completed_level = index.trailing_ones() as usize;
-        self.next_index = self
-            .next_index
-            .checked_add(1)
-            .ok_or(MerkleError::NextIndexOverflow)?;
+        self.next_index += 1;
 
         let mut current = leaf;
         for (level, zero) in zeros.iter().enumerate().take(depth) {
@@ -95,13 +95,7 @@ impl CommitmentTreeState {
             index >>= 1;
         }
 
-        let capacity = 1u64
-            .checked_shl(self.current_depth as u32)
-            .ok_or(MerkleError::CapacityOverflow)?;
-        if self.next_index == capacity {
-            if depth >= MAX_TREE_DEPTH {
-                return Err(MerkleError::MaxDepthReached);
-            }
+        if self.next_index == 1 << depth {
             self.frontier.push(current);
             self.current_depth += 1;
             current = hash_two(&current, &zeros[depth]);
@@ -251,9 +245,84 @@ mod tests {
     #[test]
     fn zero_hashes_chain_correctly() {
         let zeros = zero_hashes();
-        for level in 1..MAX_TREE_DEPTH {
+        for level in 1..=MAX_TREE_DEPTH {
             assert_eq!(zeros[level], hash_two(&zeros[level - 1], &zeros[level - 1]));
         }
+    }
+
+    /// The tree one leaf short of 2^`MAX_TREE_DEPTH` leaves, at depth
+    /// `MAX_TREE_DEPTH`, with distinct left siblings.
+    fn tree_one_leaf_short_of_full() -> CommitmentTreeState {
+        CommitmentTreeState {
+            root: [0; 32],
+            next_index: (1u64 << MAX_TREE_DEPTH) - 1,
+            current_depth: MAX_TREE_DEPTH as u8,
+            frontier: (0..MAX_TREE_DEPTH)
+                .map(|level| [level as u8 + 1; 32])
+                .collect(),
+        }
+    }
+
+    /// The 2^32nd leaf fills the depth-32 tree, so, as pa-evm V2's
+    /// `MerkleTree.push`, the root of the full tree becomes the left sibling
+    /// on a new level 32, and the root is that padded with the empty
+    /// depth-32 subtree.
+    #[test]
+    fn the_leaf_that_fills_the_deepest_tree_grows_it() {
+        let mut tree = tree_one_leaf_short_of_full();
+        let leaf = [0x77; 32];
+        let full = tree
+            .frontier
+            .iter()
+            .fold(leaf, |node, left| hash_two(left, &node));
+        let mut frontier = tree.frontier.clone();
+        frontier.push(full);
+        let zeros = zero_hashes();
+        let empty = hash_two(&zeros[MAX_TREE_DEPTH - 1], &zeros[MAX_TREE_DEPTH - 1]);
+
+        let appended = tree.append(leaf);
+
+        println!(
+            "append: {appended:?}, count {}, depth {}",
+            tree.next_index, tree.current_depth
+        );
+        appended.expect("the 2^32nd leaf is accepted");
+        assert_eq!(tree.next_index, 1u64 << MAX_TREE_DEPTH);
+        assert_eq!(tree.current_depth as usize, MAX_TREE_DEPTH + 1);
+        assert_eq!(tree.frontier, frontier);
+        assert_eq!(tree.root, hash_two(&full, &empty));
+    }
+
+    /// The adapter refuses the leaf after the 2^32nd, so the replay does,
+    /// without changing the tree.
+    #[test]
+    fn the_leaf_after_the_two_to_the_thirty_second_is_refused() {
+        let mut tree = tree_one_leaf_short_of_full();
+        tree.append([0x77; 32])
+            .expect("the 2^32nd leaf is accepted");
+        let before = tree.clone();
+
+        let refused = tree.append([0x88; 32]);
+
+        println!("append: {refused:?}");
+        assert!(
+            matches!(refused, Err(MerkleError::MaxDepthReached)),
+            "{refused:?}"
+        );
+        assert_eq!(
+            (
+                tree.root,
+                tree.next_index,
+                tree.current_depth,
+                &tree.frontier
+            ),
+            (
+                before.root,
+                before.next_index,
+                before.current_depth,
+                &before.frontier
+            )
+        );
     }
 
     #[test]

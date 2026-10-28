@@ -538,7 +538,7 @@ mod tests {
     use super::*;
     use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
     use crate::merkle::{zero_hashes, CommitmentTreeState};
-    use crate::MOCK_SELECTOR;
+    use crate::{MAX_TREE_DEPTH, MOCK_SELECTOR};
     use solana_cluster_type::ClusterType;
 
     fn key(n: u8) -> Pubkey {
@@ -689,13 +689,16 @@ mod tests {
             assert_eq!(roots, zeros[..roots.len()]);
         }
         let deepest = PAStateAccount {
-            current_depth: 32,
+            current_depth: MAX_TREE_DEPTH as u8 + 1,
             ..state(&[])
         };
         let roots = empty_subtree_roots(&deepest);
-        assert_eq!(roots.len(), 33);
-        assert_eq!(roots[..32], zeros[..]);
-        assert_eq!(roots[32], hash_two(&zeros[31], &zeros[31]));
+        assert_eq!(roots.len(), MAX_TREE_DEPTH + 2);
+        assert_eq!(roots[..MAX_TREE_DEPTH + 1], zeros[..]);
+        assert_eq!(
+            roots[MAX_TREE_DEPTH + 1],
+            hash_two(&zeros[MAX_TREE_DEPTH], &zeros[MAX_TREE_DEPTH])
+        );
     }
 
     #[test]

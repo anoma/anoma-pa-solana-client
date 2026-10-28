@@ -31,7 +31,9 @@ pub const TXDATA_CHUNK_SIZE: usize = 3856;
 /// at current Solana slot times.
 pub const TXDATA_EXPIRY_SLOTS_DEFAULT: u64 = 300;
 
-/// Maximum supported commitment-tree depth. Mirrors the PA's tree cap.
+/// The commitment tree holds at most 2^`MAX_TREE_DEPTH` leaves, as the
+/// adapter's; the leaf that fills it grows the tree to depth
+/// `MAX_TREE_DEPTH + 1`.
 pub const MAX_TREE_DEPTH: usize = 32;
 
 /// The selector a mock seal carries, risc0's convention for a receipt that

@@ -99,7 +99,7 @@ describe("recordedDeployment", () => {
 
 describe("the reads computed from the state", () => {
   it("gives a tree the capacity two to its depth", () => {
-    for (const depth of [1, 2, 3, 31, 32]) {
+    for (const depth of [1, 2, 3, 31, 32, 33]) {
       console.log(`depth ${depth}: capacity ${capacity(depth)}`);
       expect(capacity(depth)).toBe(2n ** BigInt(depth));
     }
@@ -108,7 +108,7 @@ describe("the reads computed from the state", () => {
   // Each height's empty subtree root, up to the depth: the padding leaf, then
   // each the hash of the one below with itself.
   it("gives the empty subtree roots of every height up to the depth", () => {
-    for (const depth of [1, 2, 5, 32]) {
+    for (const depth of [1, 2, 5, 32, 33]) {
       const roots = emptySubtreeRoots(depth);
       console.log(`depth ${depth}: ${roots.length} roots`);
       expect(roots.length).toBe(depth + 1);

@@ -29,7 +29,11 @@ export const TXDATA_CHUNK_SIZE = 3856;
 /** Default expiry window (in slots) for a `tx_data` upload PDA. */
 export const TXDATA_EXPIRY_SLOTS_DEFAULT = 300n;
 
-/** Maximum supported commitment-tree depth. */
+/**
+ * The commitment tree holds at most 2^`MAX_TREE_DEPTH` leaves, as the
+ * adapter's; the leaf that fills it grows the tree to depth
+ * `MAX_TREE_DEPTH + 1`.
+ */
 export const MAX_TREE_DEPTH = 32;
 
 /**
