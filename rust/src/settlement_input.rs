@@ -124,21 +124,26 @@ pub fn settled_resources(tx: &Transaction) -> Result<SettledResources, Settlemen
         .ok_or(SettlementInputError::NoAggregation)?
         .instance
         .actions;
-    let consumed = || actions.iter().flat_map(|action| &action.consumed_publics);
+    let resources = || actions.iter().flat_map(|action| &action.resource_instances);
+    let tags = |consumed: bool| {
+        resources()
+            .filter(move |r| r.is_consumed() == consumed)
+            .map(|r| r.tag().into())
+            .collect()
+    };
     Ok(SettledResources {
-        nullifiers: consumed().map(|c| c.resource_nullifier.into()).collect(),
-        consumed_roots: consumed().map(|c| c.commitment_tree_root.into()).collect(),
-        created: actions
-            .iter()
-            .flat_map(|action| &action.created_publics)
-            .map(|c| c.resource_commitment.into())
+        nullifiers: tags(true),
+        consumed_roots: resources()
+            .filter_map(|r| r.commitment_tree_root())
+            .map(Into::into)
             .collect(),
+        created: tags(false),
     })
 }
 
 /// The external calls a settlement of `tx` runs, in the order the adapter runs
-/// them: for each action, its consumed resources' calls, then its created
-/// resources', each resource's in the order its external payload lists them.
+/// them: for each action, its resources' calls in the order the action lists
+/// its resources, each resource's in the order its external payload lists them.
 /// The proof commits each call; the accounts of its CPI segment are the
 /// submitter's to supply.
 pub fn external_calls(tx: &Transaction) -> Result<Vec<SolanaExternalCall>, SettlementInputError> {
@@ -148,11 +153,8 @@ pub fn external_calls(tx: &Transaction) -> Result<Vec<SolanaExternalCall>, Settl
         .instance
         .actions
         .iter()
-        .flat_map(|action| {
-            let consumed = action.consumed_publics.iter().map(|c| &c.app_data);
-            consumed.chain(action.created_publics.iter().map(|c| &c.app_data))
-        })
-        .flat_map(|app_data| &app_data.external_payload)
+        .flat_map(|action| &action.resource_instances)
+        .flat_map(|resource| &resource.app_data().external_payload)
         .map(|blob| {
             SolanaExternalCall::decode(words_to_bytes(&blob.blob))
                 .map_err(|e| SettlementInputError::ExternalCall(e.to_string()))
@@ -202,58 +204,93 @@ fn mock_seal(claim: Digest) -> Vec<u8> {
 pub(crate) mod tests {
     use super::*;
     use anoma_pa_testkit::environment::Prover;
-    use anoma_pa_testkit::fixtures::trivial;
+    use anoma_pa_testkit::fixtures::{action, trivial};
     use anoma_pa_testkit::prover::LocalProver;
+    use anoma_pa_testkit::witness::ActionWitnesses;
+    use anoma_rm_risc0::aggregation_instance::AggregationResourceInstance;
     use anoma_rm_risc0::constants::BATCH_AGGREGATION_VK;
-    use anoma_rm_risc0::resource::Resource;
+    use anoma_rm_risc0::logic_instance::{AppData, ExpirableBlob};
+    use anoma_rm_risc0::resource::ResourceWitness;
     use risc0_zkvm::sha::Sha256;
     use risc0_zkvm::{FakeReceipt, Groth16Receipt, MaybePruned, ReceiptClaim};
 
-    #[tokio::test]
-    async fn the_settled_resources_are_each_actions_nullifiers_and_commitments_in_order() {
-        let first = trivial::build(1, trivial::Overrides::default()).expect("trivial action");
-        let second = trivial::build(
-            2,
-            trivial::Overrides {
-                consumed_count: Some(2),
-                created_count: Some(2),
-                ..Default::default()
-            },
-        )
-        .expect("trivial action");
-        let created: Vec<[u8; 32]> = first
-            .created_ephemerals
-            .iter()
-            .chain(&second.created_ephemerals)
-            .map(|r| r.commitment().into())
-            .collect();
-        let created_nonces: Vec<Vec<[u8; 32]>> = [&first, &second]
-            .iter()
-            .map(|a| a.created_ephemerals.iter().map(|r| r.nonce).collect())
-            .collect();
-        let tx = LocalProver
-            .prove(&[first.witnesses, second.witnesses])
+    /// A resource of a trivial action: consumed or created, with its seed.
+    #[derive(Clone, Copy)]
+    enum Trivial {
+        Consumed(u8),
+        Created(u8),
+    }
+
+    /// The witnesses of one action of trivial resources, in `resources`'
+    /// order.
+    fn trivial_action(resources: &[Trivial]) -> ActionWitnesses {
+        action::build(resources.iter().map(|resource| match *resource {
+            Trivial::Consumed(seed) => trivial::consumed(seed, trivial::Overrides::default()),
+            Trivial::Created(seed) => trivial::created(seed),
+        }))
+        .expect("trivial action")
+    }
+
+    async fn proven(actions: &[ActionWitnesses]) -> Transaction {
+        LocalProver
+            .prove(&actions.iter().collect::<Vec<_>>())
             .await
             .expect("local proof")
-            .into_arm();
+            .into_arm()
+    }
+
+    #[tokio::test]
+    async fn the_settled_resources_are_each_actions_nullifiers_and_commitments_in_list_order() {
+        use Trivial::{Consumed, Created};
+        let actions = [
+            trivial_action(&[Consumed(1), Created(2)]),
+            trivial_action(&[Created(3), Consumed(4), Created(5), Consumed(6)]),
+        ];
+        let witnesses = || {
+            actions
+                .iter()
+                .flat_map(|a| &a.compliance_witness.resource_witnesses)
+        };
+        let nullifiers: Vec<[u8; 32]> = witnesses()
+            .filter_map(|w| match w {
+                ResourceWitness::Consumed(c) => {
+                    Some(c.resource.nullifier(&c.nf_key).unwrap().into())
+                }
+                ResourceWitness::Created(_) => None,
+            })
+            .collect();
+        let created: Vec<[u8; 32]> = witnesses()
+            .filter_map(|w| match w {
+                ResourceWitness::Created(r) => Some(r.commitment().into()),
+                ResourceWitness::Consumed(_) => None,
+            })
+            .collect();
+        let ephemeral_roots: Vec<[u8; 32]> = actions
+            .iter()
+            .flat_map(|a| {
+                let consumed = a
+                    .compliance_witness
+                    .resource_witnesses
+                    .iter()
+                    .filter(|w| matches!(w, ResourceWitness::Consumed(_)));
+                consumed.map(|_| a.compliance_witness.ephemeral_root.into())
+            })
+            .collect();
+        let tx = proven(&actions).await;
 
         let resources = settled_resources(&tx).expect("settled resources");
-        assert_eq!(resources.created, created);
-        assert_eq!(resources.nullifiers.len(), 3);
-        assert_eq!(resources.consumed_roots.len(), 3);
-        // A created resource's nonce derives from its action's nullifiers, so
-        // the nullifiers are each action's, in order.
-        for (nullifiers, nonces) in [&resources.nullifiers[..1], &resources.nullifiers[1..]]
-            .iter()
-            .zip(&created_nonces)
-        {
-            let digests: Vec<Digest> = nullifiers.iter().map(|n| Digest::from(*n)).collect();
-            for (index, nonce) in nonces.iter().enumerate() {
-                let derived =
-                    Resource::derive_nonce_from_nullifiers(index as u32, &digests).unwrap();
-                assert_eq!(&derived, nonce, "created nonce {index}");
-            }
-        }
+        assert_eq!(
+            resources.nullifiers, nullifiers,
+            "the consumed resources' nullifiers in list order"
+        );
+        assert_eq!(
+            resources.consumed_roots, ephemeral_roots,
+            "each consumed resource's root"
+        );
+        assert_eq!(
+            resources.created, created,
+            "the created resources' commitments in list order"
+        );
 
         let mut no_aggregation = tx;
         no_aggregation.aggregation = None;
@@ -269,11 +306,8 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_tampered_local_proof_keeps_its_digest_for_the_verifier_to_refuse() {
-        let built = trivial::build(1, trivial::Overrides::default()).expect("trivial action");
-        let mut proven = LocalProver
-            .prove(&[built.witnesses])
-            .await
-            .expect("local proof");
+        let built = trivial_action(&[Trivial::Consumed(1), Trivial::Created(2)]);
+        let mut proven = LocalProver.prove(&[&built]).await.expect("local proof");
         let mut tampered = claim_of(proven.as_arm()).as_bytes().to_vec();
         tampered[0] ^= 0xff;
         proven
@@ -287,10 +321,16 @@ pub(crate) mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn the_external_calls_are_each_actions_consumed_then_created_resources_calls() {
-        use anoma_rm_risc0::logic_instance::ExpirableBlob;
+    fn app_data_mut(resource: &mut AggregationResourceInstance) -> &mut AppData {
+        match resource {
+            AggregationResourceInstance::Consumed { app_data, .. }
+            | AggregationResourceInstance::Created { app_data, .. } => app_data,
+        }
+    }
 
+    #[tokio::test]
+    async fn the_external_calls_are_each_actions_resources_calls_in_list_order() {
+        use Trivial::{Consumed, Created};
         let call = |n: u8| SolanaExternalCall {
             program_id: [n; 32],
             instruction_data: vec![n; n as usize],
@@ -302,33 +342,35 @@ pub(crate) mod tests {
             blob: anoma_rm_risc0::utils::bytes_to_words(&call(n).encode()),
             deletion_criterion: 0,
         };
-        let actions = trivial::build_many(2, 1).expect("trivial actions");
-        let mut tx = LocalProver
-            .prove(&actions)
-            .await
-            .expect("local proof")
-            .into_arm();
+        let mut tx = proven(&[
+            trivial_action(&[Created(1), Consumed(2), Created(3)]),
+            trivial_action(&[Consumed(4), Created(5)]),
+        ])
+        .await;
         let instance = &mut tx.aggregation.as_mut().unwrap().instance;
-        // Listed out of run order: the second action's, then the first's
-        // created resource's, then its consumed resource's two.
-        instance.actions[1].consumed_publics[0]
-            .app_data
-            .external_payload = vec![blob(4)];
-        instance.actions[0].created_publics[0]
-            .app_data
-            .external_payload = vec![blob(3)];
-        instance.actions[0].consumed_publics[0]
-            .app_data
-            .external_payload = vec![blob(1), blob(2)];
+        let first = &mut instance.actions[0].resource_instances;
+        assert_eq!(
+            first.iter().map(|r| r.is_consumed()).collect::<Vec<_>>(),
+            [false, true, false],
+            "the instance keeps the action's list order"
+        );
+        // Each resource lists its calls in run order; the created resources
+        // around the consumed one run before and after it.
+        app_data_mut(&mut first[0]).external_payload = vec![blob(1), blob(2)];
+        app_data_mut(&mut first[1]).external_payload = vec![blob(3)];
+        app_data_mut(&mut first[2]).external_payload = vec![blob(4)];
+        app_data_mut(&mut instance.actions[1].resource_instances[1]).external_payload =
+            vec![blob(5)];
 
         assert_eq!(
             external_calls(&tx).expect("external calls"),
-            (1..=4).map(call).collect::<Vec<_>>()
+            (1..=5).map(call).collect::<Vec<_>>()
         );
 
-        tx.aggregation.as_mut().unwrap().instance.actions[1].consumed_publics[0]
-            .app_data
-            .external_payload = vec![ExpirableBlob {
+        app_data_mut(
+            &mut tx.aggregation.as_mut().unwrap().instance.actions[1].resource_instances[0],
+        )
+        .external_payload = vec![ExpirableBlob {
             blob: vec![u32::MAX],
             deletion_criterion: 0,
         }];
@@ -340,21 +382,10 @@ pub(crate) mod tests {
 
     /// A locally proven transaction of one action consuming and creating
     /// `count` resources each.
-    pub(crate) async fn proven_trivial_transaction(count: usize) -> Transaction {
-        let built = trivial::build(
-            1,
-            trivial::Overrides {
-                consumed_count: Some(count),
-                created_count: Some(count),
-                ..Default::default()
-            },
-        )
-        .expect("trivial action");
-        LocalProver
-            .prove(&[built.witnesses])
-            .await
-            .expect("local proof")
-            .into_arm()
+    pub(crate) async fn proven_trivial_transaction(count: u8) -> Transaction {
+        let consumed = (0..count).map(Trivial::Consumed);
+        let created = (count..2 * count).map(Trivial::Created);
+        proven(&[trivial_action(&consumed.chain(created).collect::<Vec<_>>())]).await
     }
 
     fn claim_of(tx: &Transaction) -> Digest {
