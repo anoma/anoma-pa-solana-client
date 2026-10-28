@@ -27,7 +27,15 @@ pub mod anchor_lang {
 /// on every generated type with a `u256` field calls `IdlBuild` on `u256`,
 /// which this crate cannot implement for `[u8; 32]`.
 #[derive(
-    anchor_lang::AnchorSerialize, anchor_lang::AnchorDeserialize, Clone, Copy, Debug, Default,
+    anchor_lang::AnchorSerialize,
+    anchor_lang::AnchorDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
 )]
 pub struct U256LeBytes(pub [u8; 32]);
 
@@ -60,6 +68,26 @@ mod tests {
         )))
         .unwrap();
         idl["errors"].as_array().unwrap().clone()
+    }
+
+    /// A `u256` is its 32 bytes on the wire, as Borsh writes a `u256`.
+    #[test]
+    fn a_u256_is_its_32_bytes() {
+        use anchor::{AnchorDeserialize, AnchorSerialize};
+        let bytes: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let mut encoded = Vec::new();
+        U256LeBytes(bytes).serialize(&mut encoded).unwrap();
+        println!("{encoded:02x?}");
+        assert_eq!(encoded, bytes);
+        assert_eq!(
+            U256LeBytes::try_from_slice(&bytes).unwrap(),
+            U256LeBytes(bytes)
+        );
+        for len in [31, 33] {
+            let data = vec![0; len];
+            let result = U256LeBytes::try_from_slice(&data);
+            assert!(result.is_err(), "{len} bytes decode: {result:?}");
+        }
     }
 
     #[test]
