@@ -39,8 +39,12 @@ export const MAX_TREE_DEPTH = 32;
  */
 export const MOCK_SELECTOR = new Uint8Array([0xff, 0xff, 0xff, 0xff]);
 
-/** Anchor account-discriminator prefix length (constant across all Anchor programs). */
-export const ANCHOR_DISCRIMINATOR_LEN = 8;
-
-/** 32-byte length used by Pubkey, Digest, commitment hashes, and nullifier bytes. */
-export const HASH_LEN = 32;
+/**
+ * The commitment tree's padding leaf, the leaf of every empty position: the
+ * ARM empty-hash constant (the PA's `EMPTY_HASH_WORDS`), as the Rust crate's
+ * `PADDING_LEAF`. Not `sha256("")` (`e3b0c442…`).
+ */
+export const PADDING_LEAF = new Uint8Array([
+  0xcc, 0x1d, 0x2f, 0x83, 0x84, 0x45, 0xdb, 0x7a, 0xec, 0x43, 0x1d, 0xf9, 0xee, 0x8a, 0x87, 0x1f,
+  0x40, 0xe7, 0xaa, 0x5e, 0x06, 0x4f, 0xc0, 0x56, 0x63, 0x3e, 0xf8, 0xc6, 0x0f, 0xab, 0x7b, 0x06,
+]);

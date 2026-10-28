@@ -50,8 +50,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
+      # `idl_at_tag` reads the adapter's IDL at its tag with the GitHub CLI.
       - name: cargo test --workspace --all-features
         run: cargo test --workspace --all-features
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   rust-no-default-features:
     name: Rust No-Default-Features (guest-compatible subset)
@@ -74,6 +77,22 @@ jobs:
       # the `solana` feature back on and check nothing.
       - name: cargo clippy -p anoma-pa-solana-client --all-targets --no-default-features -- -D warnings
         run: cargo clippy -p anoma-pa-solana-client --all-targets --no-default-features -- -D warnings
+
+  rust-idl-build:
+    name: Rust with Anchor's idl-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Every Anchor program crate building its IDL turns on `anchor-lang`'s
+      # `idl-build`, and Cargo unifies it onto this crate in a program's
+      # build; the generated bindings must compile under it.
+      - name: cargo clippy -p anoma-pa-solana-client --all-targets --all-features --features anchor/idl-build -- -D warnings
+        run: cargo clippy -p anoma-pa-solana-client --all-targets --all-features --features anchor/idl-build -- -D warnings
 
   ts:
     name: TS (tsc + vitest)

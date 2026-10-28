@@ -3,7 +3,13 @@ members = ["rust", "tools/settle-fixture"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/anoma/anoma-pa-solana-client"
+
+[workspace.dependencies]
+# Renamed so that the client's `generated` can give `declare_program!` its own
+# `anchor_lang`, with the IDL's `u256` added. The adapter's pin: an Anchor
+# commit with solana-foundation/anchor#4737.
+anchor = { package = "anchor-lang", git = "https://github.com/otter-sec/anchor", rev = "2c9747a2d31bd5e94745cee6c083577f3e6675c0" }

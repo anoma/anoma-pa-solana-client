@@ -1,60 +1,30 @@
-// Program-derived-address helpers for the PA.
-//
-// These mirror the seed schemas baked into the on-chain programs. They are pure
-// functions: same inputs always produce the same PublicKey + bump.
+// The program-derived addresses the IDL does not resolve: the markers a
+// settlement takes as remaining accounts, the event authority, and the
+// verifier router's accounts. Pure functions: same inputs always produce the
+// same PublicKey + bump.
 
 import { PublicKey } from "@solana/web3.js";
 
-const u64Le = (value: bigint): Uint8Array => {
-  const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setBigUint64(0, value, true);
-  return buf;
-};
+import { idlSeed } from "./idl.js";
 
 // ---- PA program PDAs --------------------------------------------------------
 
-/** Derive the global PA state PDA. Seed: `["pa_state"]`. */
-export function derivePaStatePda(paProgram: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("pa_state")],
-    paProgram,
-  );
-}
-
-/** Derive a per-authority+upload `tx_data` PDA. */
-export function deriveTxDataPda(
-  paProgram: PublicKey,
-  authority: PublicKey,
-  uploadId: bigint,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("tx_data"), authority.toBuffer(), u64Le(uploadId)],
-    paProgram,
-  );
-}
-
-/** Derive a nullifier marker PDA. */
+/** Derive a nullifier marker PDA, from the IDL's `NULLIFIER_SEED`. */
 export function deriveNullifierPda(
   paProgram: PublicKey,
   paState: PublicKey,
   nullifier: Uint8Array,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("nullifier"), paState.toBuffer(), nullifier],
-    paProgram,
-  );
+  return PublicKey.findProgramAddressSync([idlSeed("NULLIFIER_SEED"), paState.toBuffer(), nullifier], paProgram);
 }
 
-/** Derive a root marker PDA. */
+/** Derive a root marker PDA, from the IDL's `ROOT_SEED`. */
 export function deriveRootMarkerPda(
   paProgram: PublicKey,
   paState: PublicKey,
   root: Uint8Array,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("root"), paState.toBuffer(), root],
-    paProgram,
-  );
+  return PublicKey.findProgramAddressSync([idlSeed("ROOT_SEED"), paState.toBuffer(), root], paProgram);
 }
 
 /**
@@ -62,8 +32,8 @@ export function deriveRootMarkerPda(
  *
  * Anchor's `#[event_cpi]` signs each event self-invocation with this PDA and
  * requires it, followed by the program's own address, after an instruction's
- * other named accounts: for the PA, `settle` and `settle_from_txdata`. Any
- * program that emits events this way derives its event authority with the
+ * other named accounts: for the PA, every instruction that emits an event.
+ * Any program that emits events this way derives its event authority with the
  * same seed.
  */
 export function deriveEventAuthorityPda(program: PublicKey): [PublicKey, number] {
@@ -92,4 +62,12 @@ export function deriveVerifierRouterPdas(
     verifierRouterProgram,
   );
   return { router, entry };
+}
+
+/** The upgradeable BPF loader, which owns every upgradeable program's ProgramData account. */
+const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/** Derive the upgradeable loader's ProgramData account of `program`, which `initialize` and `upgrade` take. */
+export function deriveProgramDataAddress(program: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([program.toBuffer()], BPF_LOADER_UPGRADEABLE)[0];
 }

@@ -16,18 +16,24 @@ bincode = "1.3.3"
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 
-# Solana SDK deps — used only by the on-chain instruction/PDA/program-id
-# builders. Optional so that consumers needing only the pure wire-format and
-# crypto modules (e.g. the zkVM transfer circuit, which compiles for
-# riscv32im-risc0-zkvm-elf) can depend on this crate with `default-features =
-# false`. These are the Solana crate versions the programs build with (Anchor
-# 1.2): pubkey, instruction and sdk-ids 3.
+# Solana SDK deps — used only by the generated bindings and the instruction,
+# PDA, event and settlement code over them. Optional so that consumers needing
+# only the pure wire-format and crypto modules (e.g. the zkVM transfer circuit,
+# which compiles for riscv32im-risc0-zkvm-elf) can depend on this crate with
+# `default-features = false`. These are the Solana crate versions the programs
+# build with (Anchor 1.2): pubkey, instruction and sdk-ids 3.
+#
+# The bindings `declare_program!` generates from `idls/protocol_adapter.json`.
+anchor = { workspace = true, optional = true }
 solana-instruction = { version = "3", optional = true }
 # The settlement's v1 transaction messages.
 solana-message = { version = "4", optional = true }
 # `curve25519`: PDA derivation (`Pubkey::find_program_address`).
 solana-pubkey = { version = "3", optional = true, features = ["curve25519"] }
 solana-sdk-ids = { version = "3", optional = true }
+# The deployment record: each cluster's genesis hash, its chain id's source.
+serde_json = { version = "1.0", optional = true }
+solana-cluster-type = { version = "3", optional = true }
 
 # The settlement input (`arm` feature): a proven ARM transaction in the form
 # the adapter settles. Without the prover: no `prove` feature.
@@ -41,6 +47,27 @@ solana-rpc-client-api = { version = "4", optional = true }
 solana-signature = { version = "3", optional = true }
 solana-transaction = { version = "4", optional = true }
 solana-transaction-error = { version = "3", optional = true }
+# Decodes the return data of a simulated read.
+base64 = { version = "0.22", optional = true }
+
+[build-dependencies]
+# Reads the adapter IDL's errors for `build.rs`.
+serde_json = "1.0"
+# The case conversion `declare_program!` names the error enum with.
+heck = "0.5"
+
+# The event types it decodes the fixture as are the generated ones.
+[[test]]
+name = "events_fixture"
+required-features = ["solana"]
+
+[[test]]
+name = "deployments"
+required-features = ["solana"]
+
+[[test]]
+name = "deployed"
+required-features = ["rpc"]
 
 [dev-dependencies]
 # Read the vendored IDL and the cross-package fixtures under `fixtures/`.
@@ -54,13 +81,17 @@ solana-message = { version = "4", features = ["wincode"] }
 
 [features]
 default = ["solana"]
-# Enables the modules that depend on the Solana SDK: instruction builders,
-# settlement planning, PDA derivation and program IDs.
+# Enables the modules that depend on the Solana SDK: the generated bindings,
+# instruction builders, event framing, settlement planning, PDA derivation and
+# the deployment record.
 solana = [
+  "dep:anchor",
   "dep:solana-instruction",
   "dep:solana-message",
   "dep:solana-pubkey",
   "dep:solana-sdk-ids",
+  "dep:serde_json",
+  "dep:solana-cluster-type",
 ]
 # The settlement input: a proven ARM transaction with its aggregation proof
 # re-encoded as the verifier-router seal the adapter decodes.
@@ -75,4 +106,10 @@ rpc = [
   "dep:solana-signature",
   "dep:solana-transaction",
   "dep:solana-transaction-error",
+  "dep:base64",
 ]
+
+# The cfgs `declare_program!`'s output tests: the Solana target, and the
+# `idl-build` feature of a program crate, which this crate is not.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("idl-build"))'] }

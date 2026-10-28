@@ -1,12 +1,12 @@
 //! Settle one adapter fixture on a cluster through this crate's builders.
 //!
-//! This is the pairing check behind `PA_COMMIT.txt`: the instruction layout,
+//! This is the pairing check behind `PA_TAG.txt`: the instruction layout,
 //! PDA derivations, state decoder, Merkle replay and event decoders of the
 //! client crate are exercised against a live adapter, end to end. Usage:
 //!
 //! ```text
 //! cargo run -p settle-fixture -- --url <rpc> --keypair <path> --fixture <path>
-//!     [--pa <program id>] [--call-accounts <b58>,<b58>]...
+//!     --pa <program id> [--call-accounts <b58>,<b58>]...
 //! ```
 //!
 //! `--call-accounts` gives the account segment of one external call, in call
@@ -17,11 +17,16 @@
 
 use std::str::FromStr;
 
+use anchor::AccountDeserialize;
+use anoma_pa_solana_client::generated::protocol_adapter::events::{
+    ActionExecuted, CommitmentTreeRootAdded, ForwarderCallExecuted, TransactionExecuted,
+};
+use anoma_pa_solana_client::generated::verifier_router::accounts::VerifierEntry;
 use anoma_pa_solana_client::settlement::CallAccounts;
 use anoma_pa_solana_client::{
-    decode_event_instruction, decode_pa_state, decode_verifier_entry, derive_pa_state_pda,
-    derive_verifier_entry_pda, plan_settlement, transaction_size, PaEvent, PlannedTransaction,
-    SettlementRequest, EVENT_IX_TAG, PA_PROGRAM_ID, TXDATA_EXPIRY_SLOTS_DEFAULT,
+    cpi_event_discriminator, decode_cpi_event, decode_pa_state, derive_pa_state_pda,
+    derive_verifier_entry_pda, plan_settlement, transaction_size, EventDecodeError,
+    PlannedTransaction, SettlementRequest, TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_client::rpc_client::RpcClient;
@@ -59,7 +64,7 @@ fn parse_args() -> Args {
     let mut url = None;
     let mut keypair = None;
     let mut fixture = None;
-    let mut pa = PA_PROGRAM_ID;
+    let mut pa = None;
     let mut call_accounts = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -68,7 +73,7 @@ fn parse_args() -> Args {
             "--url" => url = Some(value),
             "--keypair" => keypair = Some(value),
             "--fixture" => fixture = Some(value),
-            "--pa" => pa = Pubkey::from_str(&value).expect("--pa is a base58 pubkey"),
+            "--pa" => pa = Some(Pubkey::from_str(&value).expect("--pa is a base58 pubkey")),
             "--call-accounts" => call_accounts.push(
                 value
                     .split(',')
@@ -82,7 +87,7 @@ fn parse_args() -> Args {
         url: url.expect("--url is required"),
         keypair: keypair.expect("--keypair is required"),
         fixture: fixture.expect("--fixture is required"),
-        pa,
+        pa: pa.expect("--pa is required"),
         call_accounts,
     }
 }
@@ -190,8 +195,7 @@ fn main() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let verifier_entry =
-        derive_verifier_entry_pda(&Pubkey::from(state.verifier_router), state.proof_selector);
+    let verifier_entry = derive_verifier_entry_pda(&state.verifier_router, state.proof_selector);
     let plan = plan_settlement(
         SettlementRequest {
             pa_program: args.pa,
@@ -249,11 +253,9 @@ fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
     let data = client
         .get_account_data(verifier_entry)
         .expect("verifier entry account");
-    Pubkey::from(
-        decode_verifier_entry(&data)
-            .expect("decode the verifier entry")
-            .verifier,
-    )
+    VerifierEntry::try_deserialize(&mut &*data)
+        .expect("decode the verifier entry")
+        .verifier
 }
 
 fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
@@ -287,31 +289,40 @@ fn print_events(client: &RpcClient, pa: &Pubkey, sig: &Signature) {
                 continue;
             }
             let data = bs58::decode(&ix.data).into_vec().expect("base58 ix data");
-            if !data.starts_with(&EVENT_IX_TAG) {
-                continue;
-            }
+            let discriminator = match cpi_event_discriminator(&data) {
+                Ok(discriminator) => discriminator,
+                Err(EventDecodeError::NotAnEvent) => continue,
+                Err(e) => panic!("an adapter event self-invocation: {e}"),
+            };
             count += 1;
-            match decode_event_instruction(&data).expect("decode event") {
-                PaEvent::TransactionExecuted(e) => println!(
+            if let Some(e) = decode_cpi_event::<TransactionExecuted>(&data).expect("decode event") {
+                println!(
                     "event TransactionExecuted: transaction id {}",
                     hex(&e.transaction_id)
-                ),
-                PaEvent::ActionExecuted(e) => println!(
+                );
+            } else if let Some(e) = decode_cpi_event::<ActionExecuted>(&data).expect("decode event")
+            {
+                println!(
                     "event ActionExecuted: root {} nullifiers {} commitments {}",
                     hex(&e.action_tree_root),
                     e.nullifiers.len(),
                     e.commitments.len()
-                ),
-                PaEvent::CommitmentTreeRootAdded(e) => {
-                    println!("event CommitmentTreeRootAdded: root {}", hex(&e.root))
-                }
-                PaEvent::ForwarderCallExecuted(e) => println!(
+                );
+            } else if let Some(e) =
+                decode_cpi_event::<CommitmentTreeRootAdded>(&data).expect("decode event")
+            {
+                println!("event CommitmentTreeRootAdded: root {}", hex(&e.root));
+            } else if let Some(e) =
+                decode_cpi_event::<ForwarderCallExecuted>(&data).expect("decode event")
+            {
+                println!(
                     "event ForwarderCallExecuted: forwarder {} input {} B output {} B",
-                    Pubkey::from(e.untrusted_forwarder),
+                    e.untrusted_forwarder,
                     e.input.len(),
                     e.output.len()
-                ),
-                other => println!("event {other:?}"),
+                );
+            } else {
+                println!("event with discriminator {}", hex(&discriminator));
             }
         }
     }

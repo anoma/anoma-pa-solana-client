@@ -8,6 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+# Reads the generated account types (`AccountDeserialize`).
+anchor = { workspace = true }
 anoma-pa-solana-client = { path = "../../rust" }
 base64 = "0.22"
 bs58 = "0.5"

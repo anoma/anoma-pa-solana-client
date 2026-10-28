@@ -22,7 +22,7 @@ This is the Solana analog of the existing EVM bindings `anoma-pa-evm-bindings`. 
 |------------|-------------------------------|
 | `anomapay-backend` (Rust) | Adds the Rust crate as a Cargo dependency. Uses instruction builders, PA state decoder, settle-transaction orchestration. |
 | `pay-interface-app` (TypeScript) | Adds the npm package as a dependency. Uses the PA state decoder. |
-| `galileo-indexer` (Elixir) | Consumes the IDL files (`idl/*.json`) for Anchor event decoding via whichever indexing service it uses. Does not link the language packages directly. |
+| `galileo-indexer` (Elixir) | Consumes the IDL files (`rust/idls/*.json`) for Anchor event decoding via whichever indexing service it uses. Does not link the language packages directly. |
 
 Each integrator must be able to point its build at a specific tagged release. Major-version bumps signal PA-incompatible changes.
 
@@ -32,16 +32,17 @@ Each integrator must be able to point its build at a specific tagged release. Ma
 
 The package must expose, in both Rust and TypeScript, the items below. Names are illustrative; final naming follows each language's conventions.
 
-### 3.1 Program identifiers
+### 3.1 Generated bindings
 
-- `PA_PROGRAM_ID` — the on-chain address of the Protocol Adapter.
-- These are environment-parameterizable (devnet vs mainnet) with sensible defaults shipped per release.
+- In Rust, Anchor's `declare_program!` generates `generated::protocol_adapter` from `rust/idls/protocol_adapter.json`, and `generated::verifier_router` from `rust/idls/verifier_router.json`: the program id (`ID`), the account types (`accounts::PAStateAccount`, `accounts::TxDataAccount`), the event types (`events::*`), the defined types (`types::*`, `U256` as its 32 little-endian bytes), the constants (`constants::*`, the PDA seeds among them), the error enum (`error::ProtocolAdapterError`, whose `u32` is the custom program error code a failed transaction reports; `build.rs` generates its `TryFrom<u32>` from the IDL's errors), and every instruction's accounts and arguments (`client::accounts`, `client::args`). Each instruction, account and event type carries its discriminator (`DISCRIMINATOR`), read from the IDL.
+- In TypeScript, `@anchor-lang/core`'s `BorshCoder` over the IDL the package ships (`idl`, a copy of `rust/idls/protocol_adapter.json`, §3.12): `coder` encodes and decodes the adapter's accounts, events, instructions and types, each with its IDL discriminator; `idl.address` is the adapter's address and `idlConstant` reads the IDL's constants.
+- The program id is the one the IDL records; the instruction builders take the address of the deployment they address, since a build sets it (`declare_id!` from the environment).
 
 ### 3.2 Anchor discriminators
 
 - 8-byte instruction discriminators for every PA instruction the integrator may call.
-- 8-byte event discriminators for every event the indexer must decode.
-- Computed once at build time from instruction/event names; not hand-typed constants.
+- 8-byte event discriminators for every event the indexer must decode: the first 8 bytes of `sha256("event:" + signature)`, the signature being the event's name and its field types in order, as the IDL records them.
+- Read from the IDL; not hand-typed constants.
 
 ### 3.3 Instruction builders — Protocol Adapter
 
@@ -53,7 +54,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 - `simulate_execute` (pa-evm's `simulateExecute`: `settle`'s accounts and input, and whether to skip verifying the RISC Zero proof; it always fails, with `Simulated` when the settlement would execute)
 - `txdata_close`
 
-Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `TransactionInstruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments.
+Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `TransactionInstruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address and deriving every account that address and the instruction's own arguments determine (the state, the upload and the event accounts); the settlement builders take the accounts every settlement names as `SettlementAccounts`.
 
 ### 3.4 Settle transaction orchestration
 
@@ -64,38 +65,35 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 ### 3.5 PDA derivation
 
-- `derive_pa_state_pda()`
-- `derive_tx_data_pda(authority, upload_id)`
-- `derive_nullifier_pda(pa_state, nullifier_bytes)`
-- `derive_root_marker_pda(pa_state, root_bytes)`
+- `derive_pa_state_pda()`, `derive_tx_data_pda(authority, upload_id)`, `derive_upgrade_authority_pda()` — from the seeds the IDL declares (`PA_STATE_SEED`, `TX_DATA_SEED`, `UPGRADE_AUTHORITY_SEED`); the generated client derives no PDA. A test checks each against the IDL's `pda.seeds` of an account that uses it.
+- `derive_nullifier_pda(pa_state, nullifier_bytes)`, `derive_root_marker_pda(pa_state, root_bytes)` — the remaining accounts of a settlement, from the IDL's `NULLIFIER_SEED` and `ROOT_SEED`
+- `derive_event_authority_pda(program)` — Anchor's `["__event_authority"]`
 - `derive_verifier_router_pdas(router_program, selector)` — the router's state PDA and its verifier entry for the adapter's proof selector; `derive_verifier_entry_pda(router_program, selector)` — the entry alone
-- `derive_upgrade_authority_pda()` — `[b"upgrade_authority"]`: the program's upgrade authority once `initialize` ran
 - `derive_program_data_address(program)` — the upgradeable loader's ProgramData account, which `initialize` checks
-
-Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
+- The TypeScript package derives the PDAs the IDL gives no seeds for: `deriveNullifierPda` and `deriveRootMarkerPda` (from the IDL's `NULLIFIER_SEED` and `ROOT_SEED`), `deriveEventAuthorityPda` and `deriveVerifierRouterPdas`.
 
 ### 3.6 Account decoders
 
-- `decode_pa_state(bytes) -> PAStateAccount` — **cursor-based parser** that walks the Borsh schema field by field. No hardcoded offsets. The struct shape must match the on-chain `PAStateAccount` exactly (schema version 4): `schema_version: u8`, `bump`, `owner: [u8; 32]`, `verifier_router`, `proof_selector: [u8; 4]`, `kind_tree_root: [u8; 32]`, `paused: bool`, `root: [u8; 32]`, `next_index: u64`, `current_depth: u8`, `frontier: Vec<[u8; 32]>`, `min_expiry_slots: u64`, `max_expiry_slots: u64`, `denied_consumed_logic_refs: Vec<[u8; 32]>`, `denied_created_logic_refs: Vec<[u8; 32]>`. The decoder refuses any other schema version.
-- `decode_verifier_entry(bytes) -> VerifierEntryAccount` — the verifier router's `VerifierEntry` (`selector: [u8; 4]`, `verifier`, `paused: bool`), cursor-based likewise: the verifier program a settlement passes for the adapter's selector.
+- `decode_pa_state(bytes) -> PAStateAccount` — the adapter's state account. In Rust, the generated `PAStateAccount` read with its discriminator checked, after refusing a schema version other than the IDL's `SCHEMA_VERSION` (the adapter refuses every instruction on such an account). In TypeScript, `coder.accounts.decode("PAStateAccount", data)`, which checks the discriminator; the instance (§3.13) also refuses another schema version.
+- The verifier router's `VerifierEntry` (`selector: [u8; 4]`, `verifier`, `estopped: bool`): the verifier program a settlement passes for the adapter's selector. In Rust, the generated `verifier_router::accounts::VerifierEntry`, from the router IDL the adapter repo commits (`solana-pa-prototype/idls/verifier_router.json`).
 - The schema is sourced from the PA repository at the commit tagged by this package's version. When the PA's struct changes, the new struct shape ships in the next release.
 
 ### 3.7 Event decoders
 
-- Decoders for every Anchor event emitted by the PA:
-  - `ResourcePayloadEvent`, `DiscoveryPayloadEvent`, `ExternalPayloadEvent`, `ApplicationPayloadEvent` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is a `U256` in Rust (its 32 little-endian bytes, converted to `u32` with a range check) and a `bigint` in TypeScript
-  - `ActionExecutedEvent { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
-  - `TransactionExecutedEvent { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
-  - `ForwarderCallExecutedEvent { untrusted_forwarder, input, output }`
-  - `CommitmentTreeRootAddedEvent { root }`, `KindTreeRootUpdatedEvent { kind_tree_root }`, `LogicRefDeniedEvent { logic_ref, consumed }`
-  - `PausedEvent { account }`, `UnpausedEvent { account }`
-  - `OwnershipTransferredEvent { previous_owner, new_owner }`, `InitializedEvent { version: u64 }`, `UpgradedEvent { executable_hash: [u8; 32] }`
-- The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log: one helper takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body), dispatches on the discriminator, and returns the typed event.
-- The indexer consumes the IDL file (`idl/protocol_adapter.json`) for the same decoding in non-Rust/TS contexts.
+- Every Anchor event emitted by the PA, as the IDL declares it:
+  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is `U256LeBytes`, its 32 little-endian bytes, in Rust and the coder's `BN` in TypeScript
+  - `ActionExecuted { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
+  - `TransactionExecuted { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
+  - `ForwarderCallExecuted { untrusted_forwarder, input, output }`
+  - `CommitmentTreeRootAdded { root }`, `KindTreeRootUpdated { kind_tree_root }`, `LogicRefDenied { logic_ref, consumed }`
+  - `Paused { account }`, `Unpaused { account }`
+  - `OwnershipTransferred { previous_owner, new_owner }`, `Initialized { version: u64 }`, `Upgraded { implementation_hash: [u8; 32] }`
+- The PA emits every event as a self-invocation (Anchor `#[event_cpi]`), never in the program log. In Rust, the event types are the generated ones, and the framing is hand-written, with no list of events: `cpi_event_discriminator` takes one such inner instruction's data (the 8-byte event tag, the discriminator, the Borsh body) and returns its discriminator, which a caller matches against the generated types' `DISCRIMINATOR`; `decode_cpi_event::<E>` returns the event `E`, or `None` when the data holds another event, and refuses data without the tag, a body that is not one `E`, and trailing bytes. In TypeScript, `decodeCpiEvent(data)` checks the tag (`EVENT_IX_TAG`) and decodes the rest with the coder, returning the event's IDL name and its fields under their IDL names; it refuses (`EventDecodeError`) data without the tag, a discriminator no IDL event has, a body that does not decode or ends short, and bytes after the body.
+- The indexer consumes the IDL file (`rust/idls/protocol_adapter.json`) for the same decoding in non-Rust/TS contexts.
 
 ### 3.8 Errors
 
-- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): `PaError` with `PaError::from_code` and `code()` in Rust, `PA_ERRORS` with `paErrorFromCode` and `paErrorCode` in TypeScript. A test checks both against the IDL's names and codes, so a caller matches errors by type, never by name or log text.
+- Every error the PA returns, by the custom program error code a failed transaction reports (Anchor's `6000` plus its position in the program's `PAError`): the generated `ProtocolAdapterError` in Rust, with `TryFrom<u32>` and `u32::from` for its code, and the IDL's `errors` in TypeScript (`idl.errors`, which `@anchor-lang/core`'s `parseIdlErrors` and `translateError` read). A test checks the Rust mapping against the IDL's names and codes, so a caller matches errors by type, never by name or log text.
 
 ### 3.9 External call construction
 
@@ -119,8 +117,14 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 3.12 IDL files
 
-- `idl/protocol_adapter.json` — Anchor IDL for the PA program at this version.
-- Regenerated from the PA repo on every release. The integrator's indexer (Elixir or any other non-Rust/TS consumer) reads it directly.
+- `rust/idls/protocol_adapter.json` — Anchor IDL for the PA program at this version, and `rust/idls/verifier_router.json`, the verifier router's: the files committed at the adapter tag in `PA_TAG.txt`, byte for byte, which a test checks. `declare_program!` reads them from the `idls/` directory beside the crate's manifest.
+- Copied from the PA repo on every release. The integrator's indexer (Elixir or any other non-Rust/TS consumer) reads it directly.
+- The TS package's `copy-data` script copies `protocol_adapter.json` and `rust/deployments.json` into `ts/src/data/` (git-ignored) on `npm install`, `npm pack` and before every build, type check and test, so the package ships, and its tests read, the files the Rust crate is built from.
+
+### 3.13 Deployments and the adapter instance
+
+- `rust/deployments.json` records, per environment (`staging` on devnet, `production` on mainnet-beta), the adapter program on each cluster under its CAIP-2 chain id (`solana:` and the first 32 characters of the genesis hash, CAIP-30), with the slot of its first deployment, `null` until it is deployed. `deployment(environment, chain_id)` reads it; `chain_id_of_genesis_hash(genesis_hash)` (TypeScript: `chainIdOfGenesisHash`) computes a cluster's chain id from its genesis hash, and in Rust `chain_id(cluster)` gives a `solana-cluster-type` cluster's, which the record's tests check every entry against.
+- `protocol_adapter(rpc, environment)` (TypeScript: `protocolAdapter(connection, environment)`) is pa-evm's `contract::protocol_adapter`: the adapter the environment records on the cluster behind the RPC, found by the chain id of its genesis hash, or `NoDeployment` with that chain id when the environment records no deployed adapter there. `ProtocolAdapter::at` (TypeScript: `ProtocolAdapter.at`) is the adapter at a given address. Its reads carry pa-evm's names (`paused`, `riscZeroVerifierPaused`, `RISC_ZERO_VERIFIER_ROUTER`, `RISC_ZERO_VERIFIER_SELECTOR`, `commitmentCount`, `commitmentTreeDepth`, `commitmentTreeCapacity`, `commitmentTreeLeftSiblings`, `commitmentTreeEmptySubtreeRoots`, `latestCommitmentTreeRoot`, `isCommitmentTreeRootHistorical`, `isNullifierContained`, `getKindTreeRoot`, `EMPTY_KIND_TREE_ROOT`, `isLogicRefDenied`, `owner`), in snake case in Rust and camel case in TypeScript, and fail with `InstanceError`. In TypeScript the u64 reads (`commitmentCount`, `commitmentTreeCapacity`) and the builders' u64 arguments are `bigint`, while the events `decodeCpiEvent` returns carry the coder's `BN` for their integers. In both languages it builds the adapter's instructions at its address (`initialize_ix` / `initializeIx` and so on): in TypeScript, each through `coder.instruction.encode` with its accounts in the IDL's order and with the IDL's flags.
 
 ---
 
@@ -134,7 +138,7 @@ Each function takes the canonical inputs and returns the `(Pubkey, bump)` pair.
 
 ### 4.2 Source-of-truth coupling to the PA
 
-- This package is paired with a specific PA commit. The pinned commit is recorded in the repo (e.g. `PA_COMMIT.txt` or in CI config) and the IDLs are generated from that commit.
+- This package is paired with a specific PA release. Its tag is recorded in `PA_TAG.txt`, and the adapter IDL is the one committed at that tag.
 - A PA security or feature release that changes anything in §3 triggers a new release of this package against the new PA commit.
 - The package does not "track main" of the PA — releases are explicit, tagged, and reviewed.
 
@@ -172,8 +176,8 @@ The following are **not** in this package, regardless of how convenient they mig
 ## 6. Release process
 
 1. **Trigger.** A PA release (new tag in `solana-protocol-adapter`) that changes any item in §3.
-2. **Pin update.** Update this repo's `PA_COMMIT.txt` to the new tag.
-3. **Regenerate.** Run the IDL extraction and code generation. Hand-written items are reviewed against the new PA source.
+2. **Pin update.** Update this repo's `PA_TAG.txt` to the new tag.
+3. **Regenerate.** Copy the adapter's IDL at that tag to `rust/idls/protocol_adapter.json`; `declare_program!` regenerates the Rust bindings from it. Hand-written items are reviewed against the new PA source.
 4. **Test.** Full CI pass: unit, round-trip, and integration tests against the new PA commit.
 5. **Tag.** Cut a SemVer release; major bump for wire-incompatible changes.
 6. **Notify integrators.** Backend, frontend, and indexer maintainers receive a release notification with the changelog and a summary of which fields/values changed.
@@ -207,7 +211,7 @@ Smallest useful version. Ship these and integrators can start adopting:
 - `decode_pa_state` cursor-based decoder.
 - `SolanaExternalCall` type + `OutputMode` enum.
 - Constants in §3.11.
-- IDL files in `idl/`.
+- IDL files in `rust/idls/`.
 - Basic README pointing at this REQUIREMENTS.md.
 
 Items deferred to v0.2+: full settle-tx orchestrator, commitment-tree replay primitives, full event-decoder set with log-line dispatch.

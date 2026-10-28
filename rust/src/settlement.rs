@@ -9,19 +9,18 @@ use solana_message::v1::{self, TransactionConfig};
 use solana_message::{CompileError, Hash};
 use solana_pubkey::Pubkey;
 
-use crate::accounts::PAStateAccount;
 use crate::constants::{
     MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, SETTLE_COMPUTE_UNIT_LIMIT, SETTLE_HEAP_FRAME_BYTES,
     TXDATA_CHUNK_SIZE, UPLOAD_COMPUTE_UNIT_LIMIT,
 };
+use crate::generated::protocol_adapter::accounts::PAStateAccount;
 use crate::instructions::{
     settle_from_txdata_ix, settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix,
-    txdata_write_ix,
+    txdata_write_ix, SettlementAccounts,
 };
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
 use crate::pda::{
-    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda,
-    derive_verifier_router_pdas,
+    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_verifier_router_pdas,
 };
 
 /// The v1 transaction settings of a settlement transaction: its compute and
@@ -197,14 +196,8 @@ impl From<CompileError> for PlanError {
 /// the adapter's.
 struct Settling<'a> {
     pa_program: Pubkey,
-    pa_state: Pubkey,
     payer: Pubkey,
-    new_root_marker: Option<Pubkey>,
-    verifier_router: Pubkey,
-    router: Pubkey,
-    verifier_entry: Pubkey,
-    verifier_program: Pubkey,
-    remaining: Vec<AccountMeta>,
+    accounts: SettlementAccounts,
     /// The root the settlement produces; `None` when it creates nothing.
     new_root: Option<[u8; 32]>,
     input: &'a [u8],
@@ -265,19 +258,19 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
         )
     }));
 
-    let verifier_router = Pubkey::new_from_array(state.verifier_router);
     let (router, verifier_entry) =
-        derive_verifier_router_pdas(&verifier_router, state.proof_selector);
+        derive_verifier_router_pdas(&state.verifier_router, state.proof_selector);
     Ok(Settling {
         pa_program,
-        pa_state,
         payer,
-        new_root_marker,
-        verifier_router,
-        router,
-        verifier_entry,
-        verifier_program,
-        remaining,
+        accounts: SettlementAccounts {
+            new_root_marker,
+            verifier_router_program: state.verifier_router,
+            router,
+            verifier_entry,
+            verifier_program,
+            remaining_accounts: remaining,
+        },
         new_root,
         input,
         preceding,
@@ -316,15 +309,9 @@ pub fn plan_settlement(
     let mut instructions = s.preceding;
     instructions.push(settle_ix(
         &s.pa_program,
-        &s.pa_state,
         &s.payer,
         s.input,
-        s.new_root_marker.as_ref(),
-        &s.verifier_router,
-        &s.router,
-        &s.verifier_entry,
-        &s.verifier_program,
-        s.remaining.clone(),
+        s.accounts.clone(),
     ));
     let mut settle = PlannedTransaction {
         instructions,
@@ -335,20 +322,12 @@ pub fn plan_settlement(
     let upload = if transaction_size(&message) <= v1::MAX_TRANSACTION_SIZE {
         None
     } else {
-        let (tx_data, _) = derive_tx_data_pda(&s.pa_program, &s.payer, upload_id);
         settle.instructions.pop();
         settle.instructions.push(settle_from_txdata_ix(
             &s.pa_program,
-            &s.pa_state,
-            &tx_data,
             &s.payer,
             upload_id,
-            s.new_root_marker.as_ref(),
-            &s.verifier_router,
-            &s.router,
-            &s.verifier_entry,
-            &s.verifier_program,
-            s.remaining,
+            s.accounts,
         ));
         message = settle.message(&s.payer, Hash::default())?;
         let upload_transaction = |ix| PlannedTransaction {
@@ -358,8 +337,6 @@ pub fn plan_settlement(
         Some(Upload {
             init: upload_transaction(txdata_init_ix(
                 &s.pa_program,
-                &s.pa_state,
-                &tx_data,
                 &s.payer,
                 upload_id,
                 s.input.len() as u32,
@@ -372,7 +349,6 @@ pub fn plan_settlement(
                 .map(|(i, chunk)| {
                     upload_transaction(txdata_write_ix(
                         &s.pa_program,
-                        &tx_data,
                         &s.payer,
                         upload_id,
                         (i * TXDATA_CHUNK_SIZE) as u32,
@@ -382,7 +358,6 @@ pub fn plan_settlement(
                 .collect(),
             close: upload_transaction(txdata_close_ix(
                 &s.pa_program,
-                &tx_data,
                 &s.payer,
                 &s.payer,
                 upload_id,
@@ -412,16 +387,10 @@ pub fn plan_simulation(
     let mut instructions = s.preceding;
     instructions.push(simulate_execute_ix(
         &s.pa_program,
-        &s.pa_state,
         &s.payer,
         s.input,
         skip_risc_zero_proof_verification,
-        s.new_root_marker.as_ref(),
-        &s.verifier_router,
-        &s.router,
-        &s.verifier_entry,
-        &s.verifier_program,
-        s.remaining,
+        s.accounts,
     ));
     let simulation = PlannedTransaction {
         instructions,
@@ -435,6 +404,10 @@ pub fn plan_simulation(
 pub(crate) mod tests {
     use super::*;
     use crate::constants::MOCK_SELECTOR;
+    use crate::generated::protocol_adapter::client::args;
+    use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
+    use crate::pda::derive_tx_data_pda;
+    use anchor::Discriminator;
 
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
@@ -443,10 +416,10 @@ pub(crate) mod tests {
     pub(crate) fn state_with(leaves: &[[u8; 32]]) -> PAStateAccount {
         let tree = CommitmentTreeState::over(leaves).unwrap();
         PAStateAccount {
-            schema_version: 3,
+            schema_version: SCHEMA_VERSION,
             bump: 255,
-            owner: [1; 32],
-            verifier_router: [2; 32],
+            owner: key(1),
+            verifier_router: key(2),
             proof_selector: MOCK_SELECTOR,
             kind_tree_root: [0; 32],
             paused: false,
@@ -606,13 +579,10 @@ pub(crate) mod tests {
         assert_eq!(transaction.len(), 2);
         assert_eq!(transaction[0], preceding);
         let settle = &transaction[1];
-        assert_eq!(
-            settle.data[..8],
-            crate::discriminator::anchor_instruction_disc("settle")
-        );
+        assert_eq!(&settle.data[..8], args::Settle::DISCRIMINATOR);
         assert_eq!(settle.data[8..12], 5u32.to_le_bytes());
         assert_eq!(&settle.data[12..], b"input");
-        let router_program = Pubkey::new_from_array(state.verifier_router);
+        let router_program = state.verifier_router;
         let (router, entry) = derive_verifier_router_pdas(&router_program, MOCK_SELECTOR);
         for k in [router_program, router, entry, key(6)] {
             assert!(
@@ -659,18 +629,9 @@ pub(crate) mod tests {
             config: UPLOAD_TRANSACTION_CONFIG,
         };
         let (tx_data, _) = derive_tx_data_pda(&key(9), &key(8), 7);
-        let (pa_state, _) = derive_pa_state_pda(&key(9));
         assert_eq!(
             init,
-            upload_transaction(txdata_init_ix(
-                &key(9),
-                &pa_state,
-                &tx_data,
-                &key(8),
-                7,
-                input.len() as u32,
-                500
-            ))
+            upload_transaction(txdata_init_ix(&key(9), &key(8), 7, input.len() as u32, 500))
         );
         // Two full chunks, then the 5-byte rest.
         let c = TXDATA_CHUNK_SIZE;
@@ -679,7 +640,6 @@ pub(crate) mod tests {
             .map(|&(start, end)| {
                 upload_transaction(txdata_write_ix(
                     &key(9),
-                    &tx_data,
                     &key(8),
                     7,
                     start as u32,
@@ -693,17 +653,14 @@ pub(crate) mod tests {
         let settle = &plan.settle.instructions;
         assert_eq!(settle.len(), 2);
         assert_eq!(settle[0], preceding);
-        assert_eq!(
-            settle[1].data[..8],
-            crate::discriminator::anchor_instruction_disc("settle_from_txdata")
-        );
+        assert_eq!(&settle[1].data[..8], args::SettleFromTxdata::DISCRIMINATOR);
         assert_eq!(
             settle[1].accounts[1],
             AccountMeta::new_readonly(tx_data, false)
         );
         assert_eq!(
             close,
-            upload_transaction(txdata_close_ix(&key(9), &tx_data, &key(8), &key(8), 7))
+            upload_transaction(txdata_close_ix(&key(9), &key(8), &key(8), 7))
         );
     }
 
@@ -829,7 +786,7 @@ pub(crate) mod tests {
             assert_eq!(
                 simulate.data,
                 [
-                    &crate::discriminator::anchor_instruction_disc("simulate_execute")[..],
+                    args::SimulateExecute::DISCRIMINATOR,
                     &5u32.to_le_bytes(),
                     b"input",
                     &[u8::from(skip)],
@@ -858,7 +815,7 @@ pub(crate) mod tests {
     #[test]
     fn a_full_chunk_is_the_largest_whose_write_transaction_fits() {
         let size = |len: usize| {
-            let write = txdata_write_ix(&key(9), &key(7), &key(8), 7, 0, &vec![0u8; len]);
+            let write = txdata_write_ix(&key(9), &key(8), 7, 0, &vec![0u8; len]);
             let transaction = PlannedTransaction {
                 instructions: vec![write],
                 config: UPLOAD_TRANSACTION_CONFIG,

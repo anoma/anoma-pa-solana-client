@@ -1,8 +1,8 @@
 {
-  "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc",
+  "address": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx",
   "metadata": {
     "name": "protocol_adapter",
-    "version": "2.0.0-rc.6",
+    "version": "2.0.0-rc.8",
     "spec": "0.1.0",
     "description": "Solana Protocol Adapter for Anoma Resource Machine"
   },
@@ -14,7 +14,7 @@
         "resources (`consumed`) or to the one for created resources. Mirrors",
         "pa-evm's `denyLogicRefs`: owner-only, the zero ref and a ref already on",
         "its denylist are rejected, no entry is ever removed, and each addition",
-        "emits `LogicRefDeniedEvent`. A ref on the created side only is",
+        "emits `LogicRefDenied`. A ref on the created side only is",
         "deprecated: transactions still consume its resources. A ref on both is",
         "denied. The owner pays for the entries."
       ],
@@ -146,7 +146,7 @@
             "the authority to `upgrade_authority`."
           ],
           "writable": true,
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
+          "address": "EjAoZUfxd6rNcM2S2cV1CiPwVTKR7Eg8fPmSSH6RB3UU"
         },
         {
           "name": "upgrade_authority",
@@ -221,7 +221,7 @@
       "name": "pause",
       "docs": [
         "Pause settlement. Mirrors pa-evm's `pause()`: owner-only, refused",
-        "while already paused (`EnforcedPause`), announced with `PausedEvent`.",
+        "while already paused (`EnforcedPause`), announced with `Paused`.",
         "While paused, `settle`, `settle_from_txdata` and `simulate_execute`",
         "refuse every transaction; nothing else is gated.",
         "",
@@ -629,7 +629,7 @@
       ],
       "args": [
         {
-          "name": "_upload_id",
+          "name": "upload_id",
           "type": "u64"
         }
       ]
@@ -731,7 +731,7 @@
         "Move the ownership to `new_owner`. Mirrors OwnableUpgradeable's",
         "`transferOwnership`: owner only, effective at once, the zero key",
         "refused (`OwnableInvalidOwner`), announced with",
-        "`OwnershipTransferredEvent`."
+        "`OwnershipTransferred`."
       ],
       "discriminator": [
         65,
@@ -908,7 +908,7 @@
           "type": "u64"
         },
         {
-          "name": "_authority",
+          "name": "authority",
           "type": "pubkey"
         }
       ]
@@ -1145,7 +1145,7 @@
       ],
       "args": [
         {
-          "name": "_upload_id",
+          "name": "upload_id",
           "type": "u64"
         },
         {
@@ -1162,7 +1162,7 @@
       "name": "unpause",
       "docs": [
         "Resume settlement. Mirrors pa-evm's `unpause()`: owner-only, refused",
-        "while not paused (`ExpectedPause`), announced with `UnpausedEvent`."
+        "while not paused (`ExpectedPause`), announced with `Unpaused`."
       ],
       "discriminator": [
         169,
@@ -1267,7 +1267,7 @@
       "docs": [
         "Replace this program's code with the code in `buffer`. Mirrors the",
         "UUPS `upgradeToAndCall` pa-evm's owner calls: owner only",
-        "(`_authorizeUpgrade`), announced with `UpgradedEvent`, which names the",
+        "(`_authorizeUpgrade`), announced with `Upgraded`, which names the",
         "new code by its executable hash as ERC1967's `Upgraded` names the new",
         "implementation. The buffer's authority must be the owner, who wrote",
         "it; the program hands it to its upgrade authority PDA, which signs the",
@@ -1316,7 +1316,7 @@
             "address pins it."
           ],
           "writable": true,
-          "address": "G9k1mNUxzMcZaCc3yH4MY1nmYpaChE54YbbaArrJA3wa"
+          "address": "EjAoZUfxd6rNcM2S2cV1CiPwVTKR7Eg8fPmSSH6RB3UU"
         },
         {
           "name": "upgraded_program",
@@ -1324,7 +1324,7 @@
             "the address pins it."
           ],
           "writable": true,
-          "address": "5zeqkB3kc9fd1RvaXB2GeMB53Jgf98QJtaFK38e6tTsc"
+          "address": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx"
         },
         {
           "name": "buffer",
@@ -1443,198 +1443,198 @@
   ],
   "events": [
     {
-      "name": "ActionExecutedEvent",
+      "name": "ActionExecuted",
       "discriminator": [
-        26,
-        208,
-        150,
-        242,
-        244,
-        40,
-        227,
-        100
-      ]
-    },
-    {
-      "name": "ApplicationPayloadEvent",
-      "discriminator": [
-        116,
-        47,
-        207,
-        237,
-        40,
-        118,
-        57,
-        37
-      ]
-    },
-    {
-      "name": "CommitmentTreeRootAddedEvent",
-      "discriminator": [
-        131,
-        234,
-        152,
-        54,
-        108,
-        253,
-        223,
-        7
-      ]
-    },
-    {
-      "name": "DiscoveryPayloadEvent",
-      "discriminator": [
-        82,
-        177,
         217,
-        159,
-        20,
-        108,
-        254,
-        124
+        55,
+        233,
+        6,
+        76,
+        4,
+        191,
+        192
       ]
     },
     {
-      "name": "ExternalPayloadEvent",
+      "name": "ApplicationPayload",
       "discriminator": [
-        249,
-        232,
+        36,
+        225,
+        112,
+        223,
         109,
-        135,
-        42,
-        245,
-        173,
-        178
-      ]
-    },
-    {
-      "name": "ForwarderCallExecutedEvent",
-      "discriminator": [
-        40,
-        34,
-        13,
-        93,
-        115,
         181,
-        107,
-        8
+        72,
+        93
       ]
     },
     {
-      "name": "InitializedEvent",
+      "name": "CommitmentTreeRootAdded",
       "discriminator": [
-        136,
-        202,
-        63,
-        120,
-        152,
-        146,
-        41,
-        79
-      ]
-    },
-    {
-      "name": "KindTreeRootUpdatedEvent",
-      "discriminator": [
-        67,
-        45,
-        65,
-        175,
-        173,
-        208,
-        239,
-        0
-      ]
-    },
-    {
-      "name": "LogicRefDeniedEvent",
-      "discriminator": [
-        40,
-        142,
-        105,
-        173,
-        1,
-        144,
-        166,
-        227
-      ]
-    },
-    {
-      "name": "OwnershipTransferredEvent",
-      "discriminator": [
-        64,
-        151,
-        32,
-        57,
-        187,
-        155,
-        242,
-        84
-      ]
-    },
-    {
-      "name": "PausedEvent",
-      "discriminator": [
-        43,
+        207,
+        161,
+        199,
+        251,
+        215,
         14,
-        250,
-        236,
-        116,
-        42,
-        177,
-        89
+        25,
+        128
       ]
     },
     {
-      "name": "ResourcePayloadEvent",
+      "name": "DiscoveryPayload",
       "discriminator": [
-        216,
-        2,
-        17,
-        160,
+        86,
+        37,
+        168,
+        222,
+        174,
+        220,
+        60,
+        33
+      ]
+    },
+    {
+      "name": "ExternalPayload",
+      "discriminator": [
+        190,
+        90,
+        87,
+        21,
+        98,
+        45,
+        122,
+        128
+      ]
+    },
+    {
+      "name": "ForwarderCallExecuted",
+      "discriminator": [
+        41,
+        128,
+        217,
+        40,
+        140,
+        245,
         189,
-        83,
-        46,
-        102
+        87
       ]
     },
     {
-      "name": "TransactionExecutedEvent",
+      "name": "Initialized",
       "discriminator": [
-        138,
-        185,
-        121,
-        218,
-        65,
-        145,
-        254,
+        167,
+        111,
+        190,
+        136,
+        109,
+        29,
+        191,
+        90
+      ]
+    },
+    {
+      "name": "KindTreeRootUpdated",
+      "discriminator": [
+        56,
+        159,
+        241,
+        192,
+        199,
+        200,
+        4,
         24
       ]
     },
     {
-      "name": "UnpausedEvent",
+      "name": "LogicRefDenied",
       "discriminator": [
-        150,
-        198,
-        191,
+        4,
+        102,
+        223,
+        84,
+        183,
         67,
-        103,
-        86,
-        160,
-        55
+        59,
+        33
       ]
     },
     {
-      "name": "UpgradedEvent",
+      "name": "OwnershipTransferred",
       "discriminator": [
-        4,
-        77,
-        187,
-        151,
-        92,
-        63,
-        232,
-        46
+        71,
+        234,
+        56,
+        148,
+        14,
+        39,
+        34,
+        42
+      ]
+    },
+    {
+      "name": "Paused",
+      "discriminator": [
+        236,
+        91,
+        21,
+        43,
+        122,
+        27,
+        48,
+        141
+      ]
+    },
+    {
+      "name": "ResourcePayload",
+      "discriminator": [
+        206,
+        217,
+        57,
+        126,
+        0,
+        36,
+        179,
+        158
+      ]
+    },
+    {
+      "name": "TransactionExecuted",
+      "discriminator": [
+        154,
+        56,
+        61,
+        146,
+        251,
+        28,
+        118,
+        244
+      ]
+    },
+    {
+      "name": "Unpaused",
+      "discriminator": [
+        100,
+        182,
+        46,
+        131,
+        172,
+        136,
+        220,
+        74
+      ]
+    },
+    {
+      "name": "Upgraded",
+      "discriminator": [
+        136,
+        228,
+        110,
+        228,
+        183,
+        148,
+        97,
+        109
       ]
     }
   ],
@@ -1887,7 +1887,7 @@
   ],
   "types": [
     {
-      "name": "ActionExecutedEvent",
+      "name": "ActionExecuted",
       "docs": [
         "Mirrors pa-evm: `event ActionExecuted(bytes32 actionTreeRoot,",
         "bytes32[] nullifiers, bytes32[] consumedLogicRefs, bytes32[] commitments,",
@@ -1954,7 +1954,11 @@
       }
     },
     {
-      "name": "ApplicationPayloadEvent",
+      "name": "ApplicationPayload",
+      "docs": [
+        "Mirrors pa-evm: `event ApplicationPayload(bytes32 indexed tag, uint256",
+        "index, bytes blob);`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -1983,7 +1987,7 @@
       }
     },
     {
-      "name": "CommitmentTreeRootAddedEvent",
+      "name": "CommitmentTreeRootAdded",
       "docs": [
         "Mirrors pa-evm: `event CommitmentTreeRootAdded(bytes32 root);`: the",
         "empty tree's root at initialization, then the root each settlement that",
@@ -2031,67 +2035,76 @@
       }
     },
     {
-      "name": "DiscoveryPayloadEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "tag",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "index",
-            "type": {
-              "defined": {
-                "name": "U256"
-              }
-            }
-          },
-          {
-            "name": "blob",
-            "type": "bytes"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ExternalPayloadEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "tag",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "index",
-            "type": {
-              "defined": {
-                "name": "U256"
-              }
-            }
-          },
-          {
-            "name": "blob",
-            "type": "bytes"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ForwarderCallExecutedEvent",
+      "name": "DiscoveryPayload",
       "docs": [
-        "Matches EVM PA's ForwarderCallExecuted event."
+        "Mirrors pa-evm: `event DiscoveryPayload(bytes32 indexed tag, uint256",
+        "index, bytes blob);`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": {
+              "defined": {
+                "name": "U256"
+              }
+            }
+          },
+          {
+            "name": "blob",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExternalPayload",
+      "docs": [
+        "Mirrors pa-evm: `event ExternalPayload(bytes32 indexed tag, uint256 index,",
+        "bytes blob);`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "index",
+            "type": {
+              "defined": {
+                "name": "U256"
+              }
+            }
+          },
+          {
+            "name": "blob",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ForwarderCallExecuted",
+      "docs": [
+        "Mirrors pa-evm: `event ForwarderCallExecuted(address indexed",
+        "untrustedForwarder, bytes input, bytes output);`."
       ],
       "type": {
         "kind": "struct",
@@ -2112,7 +2125,7 @@
       }
     },
     {
-      "name": "InitializedEvent",
+      "name": "Initialized",
       "docs": [
         "Mirrors OpenZeppelin Initializable: `event Initialized(uint64 version);`.",
         "`initialize` announces the state's schema version."
@@ -2128,9 +2141,9 @@
       }
     },
     {
-      "name": "KindTreeRootUpdatedEvent",
+      "name": "KindTreeRootUpdated",
       "docs": [
-        "Mirrors pa-evm: `event KindTreeRootUpdated(bytes32 indexed kindTreeRoot);`"
+        "Mirrors pa-evm: `event KindTreeRootUpdated(bytes32 indexed kindTreeRoot);`."
       ],
       "type": {
         "kind": "struct",
@@ -2148,10 +2161,10 @@
       }
     },
     {
-      "name": "LogicRefDeniedEvent",
+      "name": "LogicRefDenied",
       "docs": [
         "Mirrors pa-evm: `event LogicRefDenied(bytes32 indexed logicRef, bool",
-        "consumed);`"
+        "consumed);`."
       ],
       "type": {
         "kind": "struct",
@@ -2173,7 +2186,7 @@
       }
     },
     {
-      "name": "OwnershipTransferredEvent",
+      "name": "OwnershipTransferred",
       "docs": [
         "Mirrors OpenZeppelin Ownable: `event OwnershipTransferred(address indexed",
         "previousOwner, address indexed newOwner);`. The zero key stands for no",
@@ -2359,9 +2372,9 @@
       }
     },
     {
-      "name": "PausedEvent",
+      "name": "Paused",
       "docs": [
-        "Mirrors OpenZeppelin Pausable: `event Paused(address account);`"
+        "Mirrors OpenZeppelin Pausable: `event Paused(address account);`."
       ],
       "type": {
         "kind": "struct",
@@ -2374,7 +2387,11 @@
       }
     },
     {
-      "name": "ResourcePayloadEvent",
+      "name": "ResourcePayload",
+      "docs": [
+        "Mirrors pa-evm: `event ResourcePayload(bytes32 indexed tag, uint256 index,",
+        "bytes blob);`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2403,7 +2420,7 @@
       }
     },
     {
-      "name": "TransactionExecutedEvent",
+      "name": "TransactionExecuted",
       "docs": [
         "Mirrors pa-evm: `event TransactionExecuted(bytes32 indexed transactionId);`,",
         "the Keccak-256 hash of the concatenated action tree roots: the message the",
@@ -2477,9 +2494,9 @@
       }
     },
     {
-      "name": "UnpausedEvent",
+      "name": "Unpaused",
       "docs": [
-        "Mirrors OpenZeppelin Pausable: `event Unpaused(address account);`"
+        "Mirrors OpenZeppelin Pausable: `event Unpaused(address account);`."
       ],
       "type": {
         "kind": "struct",
@@ -2492,7 +2509,7 @@
       }
     },
     {
-      "name": "UpgradedEvent",
+      "name": "Upgraded",
       "docs": [
         "Mirrors ERC1967: `event Upgraded(address indexed implementation);`. A",
         "Solana program keeps its address across upgrades, so the new code is",
@@ -2504,7 +2521,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "executable_hash",
+            "name": "implementation_hash",
             "type": {
               "array": [
                 "u8",
