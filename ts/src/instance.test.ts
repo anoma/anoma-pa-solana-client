@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { sha256 } from "@noble/hashes/sha2";
 import {
   AccountRole,
@@ -403,283 +406,38 @@ describe("ProtocolAdapter's builders", () => {
   });
 });
 
-/**
- * Each instruction the Rust crate's builders build for the inputs above, as
- * the Rust crate printed it: its program, its data's length and sha256, and
- * its accounts (address, signer, writable) in order. Captured from
- * `anoma-pa-solana-client`'s `instructions::*_ix` at this commit's IDL.
- */
-const EXPECTED = `\
-== initialize
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 76
-sha256 fddd37d671b11fa53a83c924ac410f02c9e04172fb17e42d056bd1cb91623bfe
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct Hibe1esmNpASGJBynhevaMybmY2gcGcPDrfz8zMZyw1J false true
-acct CFLMyAiswuYuTmzEmBT9b9C1T1V6xqvWEfy7DT1T8MEP false false
-acct BPFLoaderUpgradeab1e11111111111111111111111 false false
-acct AdJWkJknpP3onZQWvkzhfUfz6LxxwbDF1ohYmAV7NtK1 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== pause
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 8
-sha256 f18f7b90a2b7d04148a25e2a878db5c4df9a0a7f81226de6b1945d00f9ed89b7
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== unpause
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 8
-sha256 b56b20cd6ad1fdc7fc2b8c1caf08fcaad3aba3069f7dc94daa08c523275f50ca
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== deny_logic_refs
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 78
-sha256 633f9c638a475a1165430b1e0a3faf2f6a95c5398f642883fd04094aae8f62e1
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true true
-acct 11111111111111111111111111111111 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== deny_logic_refs_large
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 1332
-sha256 7275c806b58437ebee604f014bd562893f42317de611a3bfa8c7d93e088eee87
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true true
-acct 11111111111111111111111111111111 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== set_kind_tree_root
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 40
-sha256 af9fa72a8c3949b981f118a576598a89ae88be20cb1b02a43835972c825193c5
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== transfer_ownership
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 40
-sha256 24580020f7cb8bfa853f9c39dbaa4b9d0ad205ac678e1e2808bffe7f0e93528a
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== renounce_ownership
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 8
-sha256 576b3542618e9e95fddb3e160d224aad4fa3760a39fc206fc9a4e2b42122612f
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== update_expiry_config
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 24
-sha256 a860aea2272759e32c06dc8cb0563c9c7bc78d6e3822c593d13fa6187b23b32d
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-== upgrade
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 8
-sha256 a2c26be6f40769ab5368ba4fbb248e82c749e4ab4ed56c2730be9b774cd78b8f
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct Hibe1esmNpASGJBynhevaMybmY2gcGcPDrfz8zMZyw1J false true
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false true
-acct QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF false true
-acct US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx false true
-acct CFLMyAiswuYuTmzEmBT9b9C1T1V6xqvWEfy7DT1T8MEP false false
-acct SysvarRent111111111111111111111111111111111 false false
-acct SysvarC1ock11111111111111111111111111111111 false false
-acct BPFLoaderUpgradeab1e11111111111111111111111 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== risc_zero_verifier_paused
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 8
-sha256 5eb79ab7c555a933ca70d18e8faa34e6974980efcc0ef40bd14a77aa57bf3e92
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
-acct AdJWkJknpP3onZQWvkzhfUfz6LxxwbDF1ohYmAV7NtK1 false false
-== version
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 8
-sha256 4fe6a6d48fa7e8f893a2322a3ce1efe87f62277d0cd3a2ed7b32bd68ff2681bd
-== txdata_init
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 28
-sha256 3d744650a047db77a20f11109d1f00fa052d727610a838bb45b778ad479471c5
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-== txdata_write
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 29
-sha256 7f727b523380fce9315e4a4f744259b6f135dba46f6f08c84a0953d343c04dd1
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-== txdata_write_large
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 3880
-sha256 2710e3d55d48963d266841d5e32facbc2b33e2b93e2b183d150bad3d1cf3bb09
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-== txdata_extend
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 24
-sha256 4b69f709820c56e26a88144ef6733e04c8c3d6ae5a43783b64c25d486ce7ed8d
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-== txdata_close
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 16
-sha256 ccf638f497b81165d07b8c21a028676900368acdfe51243e60116294628ac24a
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
-== txdata_close_expired
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 48
-sha256 c6fe8f1356808dc1ed224771a509959c72078a1fa4c6f464da28c72df953605d
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8 true false
-acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
-== settle
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 17
-sha256 73c89628930b0e6950816c282d898ff96e680bd9dd56938cb61d57c1cf66c3dd
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== settle_no_marker
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 17
-sha256 73c89628930b0e6950816c282d898ff96e680bd9dd56938cb61d57c1cf66c3dd
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== settle_large
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 1512
-sha256 86b1cc03836b4f06b13533ad99aac4de0cd93a5f1bbf523b547e97c2664757c9
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== simulate_execute_false
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 18
-sha256 280be21d19598dde60e33389544cc5a8c462cae5228d4e7942a2f721ff603aa7
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== simulate_execute_true
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 18
-sha256 e5a37ed26ed87254a4b001ec8701644ff4d4a9add7ec060f91be863af40dfeea
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== simulate_execute_large
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 1513
-sha256 37bc1448dc3dc133e32cc10c20a0382efeb72b3098e49b92d43ccb59ce3f806a
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== settle_from_txdata
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-length 16
-sha256 6325719fea6023c28458c935a6d1e36489095460cba6f4cfdc78e9b430933946
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false false
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-`;
-
-/** `ix` in `EXPECTED`'s form. */
-function written(name: string, ix: Instruction): string {
-  const { accounts, data } = parts(ix);
-  let out = `== ${name}\nprogram ${ix.programAddress}\nlength ${data.length}\n`;
-  out += `sha256 ${Buffer.from(sha256(data)).toString("hex")}\n`;
-  for (const meta of accounts) out += `acct ${meta.address} ${isSignerRole(meta.role)} ${isWritableRole(meta.role)}\n`;
-  return out;
+/** The fixture entry: an instruction the Rust crate's builder built for the inputs above. */
+interface FixtureInstruction {
+  name: string;
+  program: string;
+  data_hex: string;
+  accounts: { address: string; signer: boolean; writable: boolean }[];
 }
 
-/** `EXPECTED`'s entry `name`. */
-function expected(name: string): string {
-  const start = EXPECTED.indexOf(`== ${name}\n`);
-  if (start < 0) throw new Error(`EXPECTED has no ${name}`);
-  const end = EXPECTED.indexOf("== ", start + 3);
-  return EXPECTED.slice(start, end < 0 ? undefined : end);
+/**
+ * `fixtures/instructions_fixture.json`, which the Rust crate's
+ * `tests/instructions_fixture.rs` builds and checks with the same inputs.
+ */
+const FIXTURE = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../fixtures/instructions_fixture.json", import.meta.url)), "utf8"),
+) as { instructions: FixtureInstruction[] };
+
+/** `ix` as a fixture entry named `name`. */
+function written(name: string, ix: Instruction): FixtureInstruction {
+  const { accounts, data } = parts(ix);
+  return {
+    name,
+    program: ix.programAddress,
+    data_hex: Buffer.from(data).toString("hex"),
+    accounts: accounts.map((m) => ({ address: m.address, signer: isSignerRole(m.role), writable: isWritableRole(m.role) })),
+  };
+}
+
+/** The fixture's entry `name`. */
+function expected(name: string): FixtureInstruction {
+  const entry = FIXTURE.instructions.find((e) => e.name === name);
+  if (entry === undefined) throw new Error(`the instructions fixture has no ${name}`);
+  return entry;
 }
 
 describe("ProtocolAdapter's builders, against the Rust crate's", () => {
@@ -715,12 +473,14 @@ describe("ProtocolAdapter's builders, against the Rust crate's", () => {
   ];
 
   it("builds every instruction the Rust crate does, byte for byte and account for account", async () => {
-    const names = built.map(([name]) => name);
-    expect(names, "an entry for each of EXPECTED's").toEqual([...EXPECTED.matchAll(/^== (\S+)$/gm)].map((m) => m[1]));
+    expect(
+      built.map(([name]) => name),
+      "an entry for each of the fixture's",
+    ).toEqual(FIXTURE.instructions.map((e) => e.name));
     for (const [name, build] of built) {
       const ix = written(name, await build());
       console.log(ix);
-      expect(ix, name).toBe(expected(name));
+      expect(ix, name).toEqual(expected(name));
     }
   });
 
@@ -731,7 +491,7 @@ describe("ProtocolAdapter's builders, against the Rust crate's", () => {
       const { data } = parts(ix);
       console.log(`${name}: ${data.length} data bytes`);
       expect(data.length, name).toBeGreaterThan(1000);
-      expect(written(name, ix), name).toBe(expected(name));
+      expect(written(name, ix), name).toEqual(expected(name));
     },
   );
 });

@@ -48,6 +48,8 @@ cargo run -p settle-fixture -- \
 
 Every step is a v1 transaction (SIMD-0385: up to 4,096 bytes, its compute budget in the message header). The tool prints each transaction's wire size and how many accounts it names.
 
+`fixtures/instructions_fixture.json`, the cross-package check of the instruction builders, holds every adapter instruction the Rust crate builds for fixed inputs (four of them larger than 1,000 bytes); `rust/tests/instructions_fixture.rs` and `ts/src/instance.test.ts` build the same instructions and check them against it. After a builder or IDL change, `cargo test -p anoma-pa-solana-client --test instructions_fixture -- --ignored regenerate` rewrites it.
+
 `fixtures/events_fixture.json`, the cross-package check of the event decoders, is regenerated from such a run by `node tools/capture-events-fixture.mjs <rpc url> <signature>...`: it records the adapter events of the listed transactions with the values @anchor-lang/core's BorshCoder decodes from them, and encodes one entry for each IDL event type the transactions did not emit. After an IDL change that keeps the events' layout, `node tools/capture-events-fixture.mjs --recorded` decodes the events the fixture already records anew. Without arguments it records no transaction, only the encoded entries, for a deployment that has emitted no event yet.
 
 ## Release coupling

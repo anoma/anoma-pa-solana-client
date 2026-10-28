@@ -62,6 +62,10 @@ name = "events_fixture"
 required-features = ["solana"]
 
 [[test]]
+name = "instructions_fixture"
+required-features = ["solana"]
+
+[[test]]
 name = "deployments"
 required-features = ["solana"]
 
