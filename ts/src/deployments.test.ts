@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import record from "./data/deployments.json" with { type: "json" };
@@ -19,7 +19,7 @@ describe("the deployment record", () => {
   it("holds program ids that parse", () => {
     for (const environment of ENVIRONMENTS) {
       for (const entry of raw[environment]) {
-        console.log(`${environment}: ${new PublicKey(entry.programId).toBase58()}`);
+        console.log(`${environment}: ${address(entry.programId)}`);
       }
     }
   });
@@ -54,7 +54,7 @@ describe("deployment", () => {
   it("is the environment's entry on the chain", () => {
     const found = deployment("production", "solana:b", record(7));
     console.log(found);
-    expect(found).toEqual({ chainId: "solana:b", programId: PublicKey.default, deploymentSlot: 9 });
+    expect(found).toEqual({ chainId: "solana:b", programId: "11111111111111111111111111111111", deploymentSlot: 9 });
     expect(deployment("staging", "solana:a", record(7))?.deploymentSlot).toBe(7);
     expect(deployment("staging", "solana:b", record(7))).toBeUndefined();
     expect(deployment("production", "solana:c", record(7))).toBeUndefined();

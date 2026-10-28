@@ -2,7 +2,7 @@
 
 This document specifies what the `anoma-pa-solana-client` package must provide. Implementation follows from this spec.
 
-The repository ships **two language packages from one source of truth**: a Rust crate (under `rust/`) and a TypeScript/npm package (under `ts/`). Both carry the wire-level core — discriminators, PDA helpers, account and event decoders, and constants — adapted to each language's idioms. The settlement builders (§3.3, §3.4) are in the Rust crate; the TypeScript package adds the frontend's confirmation helper. They are released together with matching versions.
+The repository ships **two language packages from one source of truth**: a Rust crate (under `rust/`) and a TypeScript/npm package (under `ts/`). Both carry the wire-level core — discriminators, PDA helpers, account and event decoders, and constants — adapted to each language's idioms. Both build every adapter instruction (§3.3); the settlement orchestration (§3.4) is in the Rust crate, and the TypeScript package adds the frontend's confirmation helper. They are released together with matching versions.
 
 ---
 
@@ -54,7 +54,7 @@ The package must expose, in both Rust and TypeScript, the items below. Names are
 - `simulate_execute` (pa-evm's `simulateExecute`: `settle`'s accounts and input, and whether to skip verifying the RISC Zero proof; it always fails, with `Simulated` when the settlement would execute)
 - `txdata_close`
 
-Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `TransactionInstruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address and deriving every account that address and the instruction's own arguments determine (the state, the upload and the event accounts); the settlement builders take the accounts every settlement names as `SettlementAccounts`.
+Each builder takes typed inputs and returns a fully-formed Solana `Instruction` value (Rust) or `@solana/kit` `Instruction` (TypeScript) with the correct accounts, discriminator, and serialized arguments. In Rust each is a thin function over the generated `client::accounts` and `client::args`, taking the adapter's address and deriving every account that address and the instruction's own arguments determine (the state, the upload and the event accounts); the settlement builders take the accounts every settlement names as `SettlementAccounts`.
 
 ### 3.4 Settle transaction orchestration
 
@@ -81,7 +81,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 ### 3.7 Event decoders
 
 - Every Anchor event emitted by the PA, as the IDL declares it:
-  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is `U256LeBytes`, its 32 little-endian bytes, in Rust and the coder's `BN` in TypeScript
+  - `ResourcePayload`, `DiscoveryPayload`, `ExternalPayload`, `ApplicationPayload` — `{ tag: [u8; 32], index: u256, blob: Vec<u8> }`; the index is `U256LeBytes`, its 32 little-endian bytes, in Rust and the coder's `bigint` in TypeScript
   - `ActionExecuted { action_tree_root, nullifiers, consumed_logic_refs, commitments, created_logic_refs }`
   - `TransactionExecuted { transaction_id: [u8; 32] }` — Keccak-256 of the concatenated action tree roots
   - `ForwarderCallExecuted { untrusted_forwarder, input, output }`
@@ -124,7 +124,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 ### 3.13 Deployments and the adapter instance
 
 - `rust/deployments.json` records, per environment (`staging` on devnet, `production` on mainnet-beta), the adapter program on each cluster under its CAIP-2 chain id (`solana:` and the first 32 characters of the genesis hash, CAIP-30), with the slot of its first deployment, `null` until it is deployed. `deployment(environment, chain_id)` reads it; `chain_id_of_genesis_hash(genesis_hash)` (TypeScript: `chainIdOfGenesisHash`) computes a cluster's chain id from its genesis hash, and in Rust `chain_id(cluster)` gives a `solana-cluster-type` cluster's, which the record's tests check every entry against.
-- `protocol_adapter(rpc, environment)` (TypeScript: `protocolAdapter(connection, environment)`) is pa-evm's `contract::protocol_adapter`: the adapter the environment records on the cluster behind the RPC, found by the chain id of its genesis hash, or `NoDeployment` with that chain id when the environment records no deployed adapter there. `ProtocolAdapter::at` (TypeScript: `ProtocolAdapter.at`) is the adapter at a given address. Its reads carry pa-evm's names (`paused`, `riscZeroVerifierPaused`, `RISC_ZERO_VERIFIER_ROUTER`, `RISC_ZERO_VERIFIER_SELECTOR`, `commitmentCount`, `commitmentTreeDepth`, `commitmentTreeCapacity`, `commitmentTreeLeftSiblings`, `commitmentTreeEmptySubtreeRoots`, `latestCommitmentTreeRoot`, `isCommitmentTreeRootHistorical`, `isNullifierContained`, `getKindTreeRoot`, `EMPTY_KIND_TREE_ROOT`, `isLogicRefDenied`, `owner`), in snake case in Rust and camel case in TypeScript, and fail with `InstanceError`. In TypeScript the u64 reads (`commitmentCount`, `commitmentTreeCapacity`) and the builders' u64 arguments are `bigint`, while the events `decodeCpiEvent` returns carry the coder's `BN` for their integers. In both languages it builds the adapter's instructions at its address (`initialize_ix` / `initializeIx` and so on): in TypeScript, each through `coder.instruction.encode` with its accounts in the IDL's order and with the IDL's flags.
+- `protocol_adapter(rpc, environment)` (TypeScript: `protocolAdapter(rpc, environment)`, over a `@solana/kit` `Rpc`) is pa-evm's `contract::protocol_adapter`: the adapter the environment records on the cluster behind the RPC, found by the chain id of its genesis hash, or `NoDeployment` with that chain id when the environment records no deployed adapter there. `ProtocolAdapter::at` (TypeScript: `ProtocolAdapter.at`) is the adapter at a given address. Its reads carry pa-evm's names (`paused`, `riscZeroVerifierPaused`, `RISC_ZERO_VERIFIER_ROUTER`, `RISC_ZERO_VERIFIER_SELECTOR`, `commitmentCount`, `commitmentTreeDepth`, `commitmentTreeCapacity`, `commitmentTreeLeftSiblings`, `commitmentTreeEmptySubtreeRoots`, `latestCommitmentTreeRoot`, `isCommitmentTreeRootHistorical`, `isNullifierContained`, `getKindTreeRoot`, `EMPTY_KIND_TREE_ROOT`, `isLogicRefDenied`, `owner`), in snake case in Rust and camel case in TypeScript, and fail with `InstanceError`. In TypeScript the u64 reads (`commitmentCount`, `commitmentTreeCapacity`), the builders' u64 arguments and the integers of the events `decodeCpiEvent` returns are `bigint`, and every address is a `@solana/kit` `Address`. In both languages it builds the adapter's instructions at its address (`initialize_ix` / `initializeIx` and so on): in TypeScript, each through `coder.instruction.encode` with its accounts in the IDL's order and with the IDL's flags, and a test checks each against the bytes and accounts the Rust crate's builder produces for the same inputs.
 
 ---
 

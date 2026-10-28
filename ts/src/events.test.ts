@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { IdlType } from "@anchor-lang/core";
+import { getAddressEncoder, getU256Encoder } from "@solana/kit";
 
 import { decodeCpiEvent, EVENT_IX_TAG, EventDecodeError } from "./events.js";
 import { idl } from "./idl.js";
@@ -34,8 +35,8 @@ function plain(value: any, type: IdlType): unknown {
   }
   if (type === "bool") return value;
   if (type === "u64") return value.toString();
-  if (type === "u256") return value.toArrayLike(Buffer, "le", 32).toString("hex");
-  if (type === "pubkey") return value.toBuffer().toString("hex");
+  if (type === "u256") return Buffer.from(getU256Encoder().encode(value)).toString("hex");
+  if (type === "pubkey") return Buffer.from(getAddressEncoder().encode(value)).toString("hex");
   if (type === "bytes" || (typeof type === "object" && "array" in type)) return Buffer.from(value).toString("hex");
   if (typeof type === "object" && "vec" in type) return value.map((v: unknown) => plain(v, type.vec));
   throw new Error(`no fixture form for the IDL type ${JSON.stringify(type)}`);
@@ -73,7 +74,7 @@ describe("decodeCpiEvent (cross-package fixture)", () => {
     expect([...seen].sort()).toEqual(idl.events!.map((e) => e.name).sort());
   });
 
-  it("decodes a body larger than the coder's 1000-byte encode buffer", () => {
+  it("decodes a body larger than 1000 bytes", () => {
     const data = entryData("ForwarderCallExecuted");
     const event = decodeCpiEvent(data);
     const blob = Buffer.alloc(3000, 0xab);

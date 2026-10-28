@@ -1,30 +1,44 @@
 // The program-derived addresses the IDL does not resolve: the markers a
 // settlement takes as remaining accounts, the event authority, and the
 // verifier router's accounts. Pure functions: same inputs always produce the
-// same PublicKey + bump.
+// same address + bump.
 
-import { PublicKey } from "@solana/web3.js";
+import {
+  address,
+  getAddressEncoder,
+  getProgramDerivedAddress,
+  type Address,
+  type ProgramDerivedAddress,
+} from "@solana/kit";
 
 import { idlSeed } from "./idl.js";
+
+const addressBytes = (a: Address) => getAddressEncoder().encode(a);
 
 // ---- PA program PDAs --------------------------------------------------------
 
 /** Derive a nullifier marker PDA, from the IDL's `NULLIFIER_SEED`. */
 export function deriveNullifierPda(
-  paProgram: PublicKey,
-  paState: PublicKey,
+  paProgram: Address,
+  paState: Address,
   nullifier: Uint8Array,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([idlSeed("NULLIFIER_SEED"), paState.toBuffer(), nullifier], paProgram);
+): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: paProgram,
+    seeds: [idlSeed("NULLIFIER_SEED"), addressBytes(paState), nullifier],
+  });
 }
 
 /** Derive a root marker PDA, from the IDL's `ROOT_SEED`. */
 export function deriveRootMarkerPda(
-  paProgram: PublicKey,
-  paState: PublicKey,
+  paProgram: Address,
+  paState: Address,
   root: Uint8Array,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([idlSeed("ROOT_SEED"), paState.toBuffer(), root], paProgram);
+): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: paProgram,
+    seeds: [idlSeed("ROOT_SEED"), addressBytes(paState), root],
+  });
 }
 
 /**
@@ -36,11 +50,8 @@ export function deriveRootMarkerPda(
  * Any program that emits events this way derives its event authority with the
  * same seed.
  */
-export function deriveEventAuthorityPda(program: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("__event_authority")],
-    program,
-  );
+export function deriveEventAuthorityPda(program: Address): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({ programAddress: program, seeds: ["__event_authority"] });
 }
 
 // ---- Verifier router PDAs --------------------------------------------------
@@ -49,25 +60,22 @@ export function deriveEventAuthorityPda(program: PublicKey): [PublicKey, number]
  * Derive the verifier-router state PDA and the router's verifier-entry PDA for
  * `selector`, the proof selector the adapter was initialized with.
  */
-export function deriveVerifierRouterPdas(
-  verifierRouterProgram: PublicKey,
+export async function deriveVerifierRouterPdas(
+  verifierRouterProgram: Address,
   selector: Uint8Array,
-): { router: PublicKey; entry: PublicKey } {
-  const [router] = PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("router")],
-    verifierRouterProgram,
-  );
-  const [entry] = PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("verifier"), selector],
-    verifierRouterProgram,
-  );
+): Promise<{ router: Address; entry: Address }> {
+  const [router] = await getProgramDerivedAddress({ programAddress: verifierRouterProgram, seeds: ["router"] });
+  const [entry] = await getProgramDerivedAddress({
+    programAddress: verifierRouterProgram,
+    seeds: ["verifier", selector],
+  });
   return { router, entry };
 }
 
 /** The upgradeable BPF loader, which owns every upgradeable program's ProgramData account. */
-const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+const BPF_LOADER_UPGRADEABLE = address("BPFLoaderUpgradeab1e11111111111111111111111");
 
 /** Derive the upgradeable loader's ProgramData account of `program`, which `initialize` and `upgrade` take. */
-export function deriveProgramDataAddress(program: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([program.toBuffer()], BPF_LOADER_UPGRADEABLE)[0];
+export async function deriveProgramDataAddress(program: Address): Promise<Address> {
+  return (await getProgramDerivedAddress({ programAddress: BPF_LOADER_UPGRADEABLE, seeds: [addressBytes(program)] }))[0];
 }

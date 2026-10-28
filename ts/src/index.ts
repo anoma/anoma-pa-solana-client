@@ -14,6 +14,7 @@ export {
   protocolAdapter,
   ProtocolAdapter,
   recordedDeployment,
+  type DeniedLogicRef,
   type InstanceErrorDetail,
   type SettlementAccounts,
 } from "./instance.js";

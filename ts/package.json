@@ -35,14 +35,12 @@
     "test:deployed": "vitest run --project deployed"
   },
   "dependencies": {
-    "@anchor-lang/core": "^1.2.1",
+    "@anchor-lang/core": "^2.0.0-rc.2",
     "@noble/hashes": "^1.8.0",
-    "@solana/web3.js": "^1.98.0",
-    "bn.js": "^5.2.5",
+    "@solana/kit": "^8.5.0",
     "bs58": "^6.0.0"
   },
   "devDependencies": {
-    "@types/bn.js": "^5.2.0",
     "typescript": "~5.9.3",
     "vitest": "^4.0.0"
   }
