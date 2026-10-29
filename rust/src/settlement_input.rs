@@ -384,7 +384,7 @@ pub(crate) mod tests {
     /// `count` resources each.
     pub(crate) async fn proven_trivial_transaction(count: u8) -> Transaction {
         let consumed = (0..count).map(Trivial::Consumed);
-        let created = (0..count).map(|_| Trivial::Created);
+        let created = std::iter::repeat_n(Trivial::Created, count.into());
         proven(&[trivial_action(&consumed.chain(created).collect::<Vec<_>>())]).await
     }
 
