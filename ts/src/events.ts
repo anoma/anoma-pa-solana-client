@@ -46,8 +46,7 @@ const FIXED_LENGTHS: Record<string, number> = {
 /**
  * The length of the Borsh encoding of `value`, as the coder decoded it for the
  * IDL type `type`: the bytes the coder read. The coder neither reports it nor
- * refuses bytes after a body, and reads a short integer or key at the end of
- * the data without refusing it.
+ * refuses bytes after a body.
  */
 function borshLength(value: any, type: IdlType): number {
   if (typeof type === "string") {

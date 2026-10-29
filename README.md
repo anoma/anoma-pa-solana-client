@@ -13,7 +13,7 @@ Client bindings for the Solana Protocol Adapter. One source of truth for instruc
 | `REQUIREMENTS.md` | Authoritative spec for what this package must provide. Implementation follows from it. |
 | `rust/` | Rust crate (`Cargo.toml`, `src/`). Cargo target. |
 | `tools/settle-fixture/` | Pairing check: settles one adapter fixture on a cluster through the crate's builders, then verifies the replayed root and decodes the settlement's events. |
-| `ts/` | TypeScript / npm package (`package.json`, `src/`). npm target. `npm test` runs its unit tests; `npm run test:deployed` reads the recorded staging adapter over `HELIUS_DEVNET_URL`. |
+| `ts/` | TypeScript / npm package (`package.json`, `src/`). npm target. Built on `@anchor-lang/core` 2 and its `@solana/kit` types: addresses are `Address`, instructions kit's `Instruction`, the RPC kit's `Rpc`, integers `bigint`; PDA derivations and the instruction builders are async, as kit's `getProgramDerivedAddress` is; an instance derives the addresses that depend only on its program id once. `npm test` runs its unit tests; `npm run test:deployed` reads the recorded staging adapter over `HELIUS_DEVNET_URL`. |
 | `rust/idls/` | Anchor IDL files of the adapter repo's programs, the adapter's as committed at the paired tag. `declare_program!` generates the Rust bindings from it. |
 | `PA_TAG.txt` | The `solana-protocol-adapter` tag this release pairs with. Updated per release. |
 
@@ -47,6 +47,8 @@ cargo run -p settle-fixture -- \
 `--call-accounts` is the account segment of one external call (repeat it per call, in call order); the adapter's committed fixtures call the block-time forwarder with the forwarder and the clock sysvar. The fixture must have been proven for the deployed build: a fixture's proof binds the circuit image ids the deployment was built with.
 
 Every step is a v1 transaction (SIMD-0385: up to 4,096 bytes, its compute budget in the message header). The tool prints each transaction's wire size and how many accounts it names.
+
+`fixtures/instructions_fixture.json`, the cross-package check of the instruction builders, holds every adapter instruction the Rust crate builds for fixed inputs (four of them larger than 1,000 bytes); `rust/tests/instructions_fixture.rs` and `ts/src/instance.test.ts` build the same instructions and check them against it. After a builder or IDL change, `cargo test -p anoma-pa-solana-client --test instructions_fixture -- --ignored regenerate` rewrites it.
 
 `fixtures/events_fixture.json`, the cross-package check of the event decoders, is regenerated from such a run by `node tools/capture-events-fixture.mjs <rpc url> <signature>...`: it records the adapter events of the listed transactions with the values @anchor-lang/core's BorshCoder decodes from them, and encodes one entry for each IDL event type the transactions did not emit. After an IDL change that keeps the events' layout, `node tools/capture-events-fixture.mjs --recorded` decodes the events the fixture already records anew. Without arguments it records no transaction, only the encoded entries, for a deployment that has emitted no event yet.
 

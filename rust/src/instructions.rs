@@ -488,185 +488,12 @@ pub fn settle_from_txdata_ix(
 mod tests {
     use super::*;
 
-    /// Each instruction the tests below build, for their inputs (the program
-    /// `key(9)`, other accounts `key(n)`): its program id, its data in hex, and
-    /// its accounts (address, signer, writable), in order.
-    const EXPECTED: &str = "\
-== initialize
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data afaf6d1f0d989bed02020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303ffffffff
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct Hibe1esmNpASGJBynhevaMybmY2gcGcPDrfz8zMZyw1J false true
-acct CFLMyAiswuYuTmzEmBT9b9C1T1V6xqvWEfy7DT1T8MEP false false
-acct BPFLoaderUpgradeab1e11111111111111111111111 false false
-acct AdJWkJknpP3onZQWvkzhfUfz6LxxwbDF1ohYmAV7NtK1 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== pause
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data d316ddfb4a79c12f
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== unpause
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data a99004260a8dbcff
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== deny_logic_refs
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 97c9411f1f8d54ca02000000070707070707070707070707070707070707070707070707070707070707070700080808080808080808080808080808080808080808080808080808080808080801
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true true
-acct 11111111111111111111111111111111 false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== set_kind_tree_root
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 61a25429e81390600707070707070707070707070707070707070707070707070707070707070707
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq true false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== settle
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data af2ab957908366d405000000696e707574
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== settle_no_marker
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data af2ab957908366d405000000696e707574
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== simulate_execute_false
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 11ba5ad41f0d004705000000696e70757400
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== simulate_execute_true
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 11ba5ad41f0d004705000000696e70757401
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-== settle_from_txdata
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 8d611d6cf0fb0cbc0700000000000000
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false true
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false false
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-acct gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5 false true
-acct k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn false false
-acct p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV false false
-acct swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC false false
-acct ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu false false
-acct BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N false false
-acct cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN false false
-acct 2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9 false true
-acct 2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr false false
-== txdata_init
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data 94ddddfb41d96ac7070000000000000084030000f401000000000000
-acct Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR false false
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true true
-acct 11111111111111111111111111111111 false false
-== txdata_write
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data b0bef7915392e7c60700000000000000100f0000050000000102030405
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-== txdata_close
-program cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN
-data a518a5860e0a6bac0700000000000000
-acct DxJbRZapfMrinq8ofVVdfJZ3nmSG277N6wVwnbHdCzMK false true
-acct 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi true false
-acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
-";
-
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
     }
 
-    fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
-
-    /// `ix` in `EXPECTED`'s form.
-    fn written(name: &str, ix: &Instruction) -> String {
-        let mut out = format!(
-            "== {name}\nprogram {}\ndata {}\n",
-            ix.program_id,
-            hex(&ix.data)
-        );
-        for meta in &ix.accounts {
-            out += &format!(
-                "acct {} {} {}\n",
-                meta.pubkey, meta.is_signer, meta.is_writable
-            );
-        }
-        out
-    }
-
-    /// `EXPECTED`'s entry `name`.
-    fn expected(name: &str) -> String {
-        let start = EXPECTED
-            .find(&format!("== {name}\n"))
-            .unwrap_or_else(|| panic!("EXPECTED has no {name}"));
-        let rest = &EXPECTED[start + 3..];
-        let end = rest.find("== ").map_or(EXPECTED.len(), |i| start + 3 + i);
-        EXPECTED[start..end].to_string()
-    }
-
-    /// `ix` is `EXPECTED`'s entry `name`.
-    fn assert_is_expected(name: &str, ix: &Instruction) {
-        let built = written(name, ix);
-        println!("{built}");
-        assert_eq!(built, expected(name), "{name}");
-    }
-
-    /// The settlement accounts of `EXPECTED`'s settlements of `key(9)`.
+    /// The verifier accounts `key(11)` to `key(14)`, and with `remaining` two
+    /// remaining accounts.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
         SettlementAccounts {
             new_root_marker,
@@ -762,11 +589,6 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
 
     #[test]
     fn initialize_matches_the_adapters_idl() {
-        assert_is_expected(
-            "initialize",
-            &initialize_ix(&key(9), &key(1), &key(2), &key(3), crate::MOCK_SELECTOR),
-        );
-
         let (payer, owner, router) = (key(1), key(2), key(3));
         let selector = crate::MOCK_SELECTOR;
         let ix = initialize_ix(&ID, &payer, &owner, &router, selector);
@@ -786,31 +608,6 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
 
     #[test]
     fn the_inline_settlement_instructions_match_the_adapters_idl() {
-        let pa = key(9);
-        assert_is_expected(
-            "settle",
-            &settle_ix(&pa, &key(1), b"input", settlement(Some(key(10)), true)),
-        );
-        // An absent new-root marker is the program's own address.
-        assert_is_expected(
-            "settle_no_marker",
-            &settle_ix(&pa, &key(1), b"input", settlement(None, false)),
-        );
-        assert_is_expected(
-            "simulate_execute_false",
-            &simulate_execute_ix(
-                &pa,
-                &key(1),
-                b"input",
-                false,
-                settlement(Some(key(10)), true),
-            ),
-        );
-        assert_is_expected(
-            "simulate_execute_true",
-            &simulate_execute_ix(&pa, &key(1), b"input", true, settlement(None, false)),
-        );
-
         let accounts = settlement(Some(key(10)), false);
         let input = b"input";
         let encoded_input = [&5u32.to_le_bytes()[..], input].concat();
@@ -831,19 +628,7 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
 
     #[test]
     fn the_upload_instructions_match_the_adapters_idl() {
-        let pa = key(9);
         let tx_data = |pa: &Pubkey| derive_tx_data_pda(pa, &key(1), 7).0;
-        assert_is_expected(
-            "settle_from_txdata",
-            &settle_from_txdata_ix(&pa, &key(1), 7, settlement(Some(key(10)), true)),
-        );
-        assert_is_expected("txdata_init", &txdata_init_ix(&pa, &key(1), 7, 900, 500));
-        assert_is_expected(
-            "txdata_write",
-            &txdata_write_ix(&pa, &key(1), 7, 3856, &[1, 2, 3, 4, 5]),
-        );
-        assert_is_expected("txdata_close", &txdata_close_ix(&pa, &key(1), &key(2), 7));
-
         let accounts = settlement(None, false);
         let ix = settle_from_txdata_ix(&ID, &key(1), 7, accounts);
         let by_name =
@@ -876,7 +661,6 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
 
     #[test]
     fn the_owner_instructions_match_the_adapters_idl() {
-        let pa = key(9);
         let entries = [
             DeniedLogicRef {
                 logic_ref: [7; 32],
@@ -887,26 +671,15 @@ acct 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR false true
                 consumed: true,
             },
         ];
-        assert_is_expected("pause", &pause_ix(&pa, &key(4)));
-        assert_is_expected("unpause", &unpause_ix(&pa, &key(4)));
-        assert_is_expected(
-            "deny_logic_refs",
-            &deny_logic_refs_ix(&pa, &key(4), &entries),
-        );
-        assert_is_expected(
-            "set_kind_tree_root",
-            &set_kind_tree_root_ix(&pa, &key(4), [7; 32]),
-        );
-
         let authority = key(4);
         let bytes = [7; 32];
         for (ix, name, args) in [
             (pause_ix(&ID, &authority), "pause", &[][..]),
             (unpause_ix(&ID, &authority), "unpause", &[][..]),
             (
-                deny_logic_refs_ix(&ID, &authority, &entries[..1]),
+                deny_logic_refs_ix(&ID, &authority, &entries),
                 "deny_logic_refs",
-                &[&[1, 0, 0, 0][..], &bytes, &[0]].concat()[..],
+                &[&[2, 0, 0, 0][..], &bytes, &[0], &[8; 32], &[1]].concat()[..],
             ),
             (
                 set_kind_tree_root_ix(&ID, &authority, bytes),

@@ -1,31 +1,33 @@
 // Blockhash-expiry-aware transaction confirmation.
 //
-// `connection.confirmTransaction(sig, commitment)` is deprecated and does not
-// surface blockhash expiry. This helper polls `getSignatureStatuses` and aborts
-// when `getBlockHeight() > lastValidBlockHeight`.
+// Polls `getSignatureStatuses` and aborts when `getBlockHeight() >
+// lastValidBlockHeight`, so a transaction whose blockhash expired fails
+// instead of being waited on forever.
 
-import type { BlockhashWithExpiryBlockHeight, Commitment, Connection } from "@solana/web3.js";
+import type { BlockhashLifetimeConstraint, Commitment, Rpc, Signature, SolanaRpcApiMainnet } from "@solana/kit";
+
+import { toJson } from "./json.js";
 
 /**
  * Wait for a transaction signature to reach `commitment`, or fail if the
  * underlying blockhash expires first.
  */
 export async function confirmTransactionWithBlockhash(
-  connection: Connection,
-  blockhash: BlockhashWithExpiryBlockHeight,
-  signature: string,
+  rpc: Rpc<SolanaRpcApiMainnet>,
+  blockhash: BlockhashLifetimeConstraint,
+  signature: Signature,
   commitment: Commitment = "confirmed",
   pollIntervalMs = 500,
 ): Promise<void> {
   while (true) {
     const [{ value: statuses }, height] = await Promise.all([
-      connection.getSignatureStatuses([signature]),
-      connection.getBlockHeight(),
+      rpc.getSignatureStatuses([signature]).send(),
+      rpc.getBlockHeight().send(),
     ]);
     const status = statuses[0];
     if (status?.err) {
       throw new Error(
-        `Transaction ${signature} failed: ${JSON.stringify(status.err)}`,
+        `Transaction ${signature} failed: ${toJson(status.err)}`,
       );
     }
     if (status?.confirmationStatus === commitment || status?.confirmationStatus === "finalized") {

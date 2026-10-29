@@ -1,6 +1,6 @@
 {
   "name": "@anomaorg/pa-solana-client",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Client bindings for the Solana Anoma Protocol Adapter",
   "license": "MIT",
   "repository": {
@@ -28,21 +28,20 @@
     "prebuild": "npm run copy-data",
     "build": "tsc",
     "pretsc": "npm run copy-data",
-    "tsc": "tsc --noEmit",
+    "tsc": "tsc -p tsconfig.test.json",
     "pretest": "npm run copy-data",
     "test": "vitest run --project unit",
     "pretest:deployed": "npm run copy-data",
     "test:deployed": "vitest run --project deployed"
   },
   "dependencies": {
-    "@anchor-lang/core": "^1.2.1",
+    "@anchor-lang/core": "^2.0.0-rc.2",
     "@noble/hashes": "^1.8.0",
-    "@solana/web3.js": "^1.98.0",
-    "bn.js": "^5.2.5",
+    "@solana/kit": "^8.5.0",
     "bs58": "^6.0.0"
   },
   "devDependencies": {
-    "@types/bn.js": "^5.2.0",
+    "@types/node": "^24.19.2",
     "typescript": "~5.9.3",
     "vitest": "^4.0.0"
   }

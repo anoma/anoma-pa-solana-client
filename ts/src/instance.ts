@@ -2,23 +2,37 @@
 // (`contract::protocol_adapter`): its reads under their EVM names, from its
 // state and marker accounts, as the Rust crate's `instance` reads them.
 
+import type { IdlInstructionAccount, IdlSeed, IdlSeedConst } from "@anchor-lang/core";
 import { sha256 } from "@noble/hashes/sha2";
-import BN from "bn.js";
 import {
-  Connection,
-  PublicKey,
-  TransactionInstruction,
-  TransactionMessage,
-  VersionedTransaction,
+  AccountRole,
+  address,
+  appendTransactionMessageInstruction,
+  blockhash,
+  compileTransaction,
+  containsBytes,
+  createTransactionMessage,
+  fetchEncodedAccount,
+  getAddressEncoder,
+  getBase64EncodedWireTransaction,
+  getBase64Encoder,
+  getProgramDerivedAddress,
+  pipe,
+  setTransactionMessageFeePayer,
+  setTransactionMessageLifetimeUsingBlockhash,
   type AccountMeta,
+  type Address,
+  type Instruction,
+  type Rpc,
+  type SolanaRpcApiMainnet,
   type TransactionError,
-  type TransactionReturnData,
-} from "@solana/web3.js";
+} from "@solana/kit";
 
 import { coder } from "./coder.js";
 import { PADDING_LEAF } from "./constants.js";
 import { chainIdOfGenesisHash, deployment, type Deployment, type DeploymentRecord, type Environment } from "./deployments.js";
 import { idl, idlConstant, idlSeed } from "./idl.js";
+import { toJson } from "./json.js";
 import {
   deriveEventAuthorityPda,
   deriveNullifierPda,
@@ -32,26 +46,26 @@ export type InstanceErrorDetail =
   /** The environment records no deployed adapter on the cluster. */
   | { kind: "NoDeployment"; chainId: string }
   /** An account the answer is read from does not exist. */
-  | { kind: "AccountMissing"; address: PublicKey }
+  | { kind: "AccountMissing"; address: Address }
   /** An RPC request failed: retrying may succeed. */
   | { kind: "Rpc"; what: string; error: string }
   /** What the chain holds does not decode. */
   | { kind: "Decode"; what: string; error: string }
   /** A simulated instruction failed. */
-  | { kind: "Simulation"; error: TransactionError; logs: string[] };
+  | { kind: "Simulation"; error: TransactionError; logs: readonly string[] };
 
 function describe(detail: InstanceErrorDetail): string {
   switch (detail.kind) {
     case "NoDeployment":
       return `no deployed adapter is recorded on ${detail.chainId}`;
     case "AccountMissing":
-      return `the account ${detail.address.toBase58()} does not exist`;
+      return `the account ${detail.address} does not exist`;
     case "Rpc":
       return `failed to fetch ${detail.what}: ${detail.error}`;
     case "Decode":
       return `${detail.what} does not decode: ${detail.error}`;
     case "Simulation":
-      return `the simulation failed: ${JSON.stringify(detail.error)}; logs: ${JSON.stringify(detail.logs)}`;
+      return `the simulation failed: ${toJson(detail.error)}; logs: ${toJson(detail.logs)}`;
   }
 }
 
@@ -65,9 +79,10 @@ export class InstanceError extends Error {
   }
 }
 
-async function rpc<T>(what: string, request: Promise<T>): Promise<T> {
+/** The RPC's answer `response`, a failed request thrown as `Rpc`. */
+async function answered<T>(what: string, response: Promise<T>): Promise<T> {
   try {
-    return await request;
+    return await response;
   } catch (error) {
     throw new InstanceError({ kind: "Rpc", what, error: String(error) }, { cause: error });
   }
@@ -89,12 +104,12 @@ export function recordedDeployment(
 }
 
 /**
- * The adapter `environment` records on the cluster behind `connection`, as
+ * The adapter `environment` records on the cluster behind `rpc`, as
  * pa-evm's `contract::protocol_adapter(provider, environment)`.
  */
-export async function protocolAdapter(connection: Connection, environment: Environment): Promise<ProtocolAdapter> {
-  const genesisHash = await rpc("the genesis hash", connection.getGenesisHash());
-  return ProtocolAdapter.at(connection, recordedDeployment(environment, genesisHash).programId);
+export async function protocolAdapter(rpc: Rpc<SolanaRpcApiMainnet>, environment: Environment): Promise<ProtocolAdapter> {
+  const genesisHash = await answered("the genesis hash", rpc.getGenesisHash().send());
+  return ProtocolAdapter.at(rpc, recordedDeployment(environment, genesisHash).programId);
 }
 
 /**
@@ -104,46 +119,107 @@ export async function protocolAdapter(connection: Connection, environment: Envir
  */
 export interface SettlementAccounts {
   /** The marker PDA of the root a settlement that creates commitments produces; `null` for one that creates nothing. */
-  newRootMarker: PublicKey | null;
-  verifierRouterProgram: PublicKey;
-  router: PublicKey;
-  verifierEntry: PublicKey;
-  verifierProgram: PublicKey;
+  newRootMarker: Address | null;
+  verifierRouterProgram: Address;
+  router: Address;
+  verifierEntry: Address;
+  verifierProgram: Address;
   /** The nullifier PDAs, each external call's CPI segment, and the historical root markers. */
   remainingAccounts: AccountMeta[];
 }
 
-/** A u64 argument in the form the coder encodes. */
-const u64 = (value: bigint): BN => new BN(value.toString());
+/**
+ * A logic ref `deny_logic_refs` adds to a denylist, as pa-evm's
+ * `DeniedLogicRef`: `consumed` names the denylist for consumed resources,
+ * else the one for created resources.
+ */
+export interface DeniedLogicRef {
+  logicRef: Uint8Array;
+  consumed: boolean;
+}
 
-/** The adapter at an address, read over a connection at its commitment. */
+/** The settlement accounts by their IDL names, which every settlement instruction takes. */
+function settlementNamed(settlement: SettlementAccounts): Record<string, Address | null> {
+  return {
+    new_root_marker: settlement.newRootMarker,
+    verifier_router_program: settlement.verifierRouterProgram,
+    router: settlement.router,
+    verifier_entry: settlement.verifierEntry,
+    verifier_program: settlement.verifierProgram,
+  };
+}
+
+const isConst = (seed: IdlSeed): seed is IdlSeedConst => seed.kind === "const";
+
+/** The role of an account with the IDL's `signer` and `writable` flags. */
+function role(signer: boolean, writable: boolean): AccountRole {
+  if (signer) return writable ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER;
+  return writable ? AccountRole.WRITABLE : AccountRole.READONLY;
+}
+
+/** The adapter at an address, read over an RPC at its commitment. */
 export class ProtocolAdapter {
   private constructor(
-    private readonly connection: Connection,
+    private readonly rpc: Rpc<SolanaRpcApiMainnet>,
     /** The address the adapter is deployed at. */
-    readonly programId: PublicKey,
+    readonly programId: Address,
   ) {}
 
   /** The adapter at `programId`, as alloy's `IProtocolAdapter::new(address, provider)`. */
-  static at(connection: Connection, programId: PublicKey): ProtocolAdapter {
-    return new ProtocolAdapter(connection, programId);
+  static at(rpc: Rpc<SolanaRpcApiMainnet>, programId: Address): ProtocolAdapter {
+    return new ProtocolAdapter(rpc, programId);
   }
 
-  private paState(): PublicKey {
-    return PublicKey.findProgramAddressSync([idlSeed("PA_STATE_SEED")], this.programId)[0];
+  /** The addresses that depend only on the adapter's address, each derived on first use. */
+  private readonly derived = new Map<string, Promise<Address>>();
+
+  private once(key: string, derive: () => Promise<Address>): Promise<Address> {
+    let found = this.derived.get(key);
+    if (found === undefined) {
+      found = derive();
+      this.derived.set(key, found);
+    }
+    return found;
+  }
+
+  private async pda(...seeds: Uint8Array[]): Promise<Address> {
+    return (await getProgramDerivedAddress({ programAddress: this.programId, seeds }))[0];
+  }
+
+  /** The adapter's PDA of the constant `seeds`. */
+  private constPda(seeds: Uint8Array[]): Promise<Address> {
+    return this.once(`pda ${seeds.map((seed) => seed.join(",")).join(" ")}`, () => this.pda(...seeds));
+  }
+
+  private paState(): Promise<Address> {
+    return this.constPda([idlSeed("PA_STATE_SEED")]);
+  }
+
+  private eventAuthority(): Promise<Address> {
+    return this.once("event_authority", async () => (await deriveEventAuthorityPda(this.programId))[0]);
+  }
+
+  private programData(): Promise<Address> {
+    return this.once("program_data", () => deriveProgramDataAddress(this.programId));
+  }
+
+  /** The data and owner of the account at `address` (`what`), or `null` when it does not exist. */
+  private async account(address: Address, what: string): Promise<{ data: Uint8Array; owner: Address } | null> {
+    const account = await answered(what, fetchEncodedAccount(this.rpc, address));
+    return account.exists ? { data: account.data, owner: account.programAddress } : null;
   }
 
   /** The adapter's state, as the coder decodes `PAStateAccount`: its IDL field names and the coder's values. */
   private async state(): Promise<any> {
-    const address = this.paState();
-    const what = `the adapter's state ${address.toBase58()}`;
-    const account = await rpc(what, this.connection.getAccountInfo(address));
+    const address = await this.paState();
+    const what = `the adapter's state ${address}`;
+    const account = await this.account(address, what);
     if (account === null) throw new InstanceError({ kind: "AccountMissing", address });
     // The layout number sits right after the discriminator in every layout.
     const discriminator = coder.accounts.accountDiscriminator("PAStateAccount");
     const schemaVersion = idlConstant("SCHEMA_VERSION");
     const found = account.data[discriminator.length];
-    if (account.data.subarray(0, discriminator.length).equals(discriminator) && found !== schemaVersion) {
+    if (containsBytes(account.data, discriminator, 0) && found !== schemaVersion) {
       throw new InstanceError({
         kind: "Decode",
         what,
@@ -158,9 +234,9 @@ export class ProtocolAdapter {
   }
 
   /** Whether the account at `address` exists and the adapter owns it: a marker the adapter created. */
-  private async isMarker(address: PublicKey, what: string): Promise<boolean> {
-    const account = await rpc(`${what} ${address.toBase58()}`, this.connection.getAccountInfo(address));
-    return account !== null && account.owner.equals(this.programId);
+  private async isMarker(address: Address, what: string): Promise<boolean> {
+    const account = await this.account(address, `${what} ${address}`);
+    return account !== null && account.owner === this.programId;
   }
 
   /** `paused()`. */
@@ -173,30 +249,40 @@ export class ProtocolAdapter {
    * simulated, with `feePayer`, any funded system account, paying the
    * simulation's fee (nothing is signed or sent).
    */
-  async riscZeroVerifierPaused(feePayer: PublicKey): Promise<boolean> {
+  async riscZeroVerifierPaused(feePayer: Address): Promise<boolean> {
     const state = await this.state();
-    const ix = this.riscZeroVerifierPausedIx(state.verifier_router, Uint8Array.from(state.proof_selector));
-    const message = new TransactionMessage({
-      payerKey: feePayer,
-      // The RPC replaces it with its latest.
-      recentBlockhash: PublicKey.default.toBase58(),
-      instructions: [ix],
-    }).compileToLegacyMessage();
-    const { value } = await rpc(
+    const ix = await this.riscZeroVerifierPausedIx(state.verifier_router, Uint8Array.from(state.proof_selector));
+    const transaction = compileTransaction(
+      pipe(
+        createTransactionMessage({ version: "legacy" }),
+        (m) => setTransactionMessageFeePayer(feePayer, m),
+        // The RPC replaces it with its latest.
+        (m) =>
+          setTransactionMessageLifetimeUsingBlockhash(
+            { blockhash: blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n },
+            m,
+          ),
+        (m) => appendTransactionMessageInstruction(ix, m),
+      ),
+    );
+    const { value } = await answered(
       "the simulation of risc_zero_verifier_paused",
-      this.connection.simulateTransaction(new VersionedTransaction(message), {
-        sigVerify: false,
-        replaceRecentBlockhash: true,
-      }),
+      this.rpc
+        .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
+          encoding: "base64",
+          sigVerify: false,
+          replaceRecentBlockhash: true,
+        })
+        .send(),
     );
     if (value.err !== null) {
       throw new InstanceError({ kind: "Simulation", error: value.err, logs: value.logs ?? [] });
     }
-    return returnedBool(this.programId, value.returnData ?? null);
+    return returnedBool(this.programId, value.returnData);
   }
 
   /** `RISC_ZERO_VERIFIER_ROUTER()`. */
-  async riscZeroVerifierRouter(): Promise<PublicKey> {
+  async riscZeroVerifierRouter(): Promise<Address> {
     return (await this.state()).verifier_router;
   }
 
@@ -207,7 +293,7 @@ export class ProtocolAdapter {
 
   /** `commitmentCount()`. */
   async commitmentCount(): Promise<bigint> {
-    return BigInt((await this.state()).next_index.toString());
+    return (await this.state()).next_index;
   }
 
   /** `commitmentTreeDepth()`. */
@@ -237,12 +323,14 @@ export class ProtocolAdapter {
 
   /** `isCommitmentTreeRootHistorical(root)`: the adapter holds `root`'s marker. */
   async isCommitmentTreeRootHistorical(root: Uint8Array): Promise<boolean> {
-    return this.isMarker(deriveRootMarkerPda(this.programId, this.paState(), root)[0], "the root marker");
+    const [marker] = await deriveRootMarkerPda(this.programId, await this.paState(), root);
+    return this.isMarker(marker, "the root marker");
   }
 
   /** `isNullifierContained(nullifier)`: the adapter holds `nullifier`'s marker. */
   async isNullifierContained(nullifier: Uint8Array): Promise<boolean> {
-    return this.isMarker(deriveNullifierPda(this.programId, this.paState(), nullifier)[0], "the nullifier marker");
+    const [marker] = await deriveNullifierPda(this.programId, await this.paState(), nullifier);
+    return this.isMarker(marker, "the nullifier marker");
   }
 
   /** `getKindTreeRoot()`. */
@@ -261,217 +349,231 @@ export class ProtocolAdapter {
   }
 
   /** `owner()`: the zero key once the ownership is renounced. */
-  async owner(): Promise<PublicKey> {
+  async owner(): Promise<Address> {
     return (await this.state()).owner;
   }
 
   /**
    * The instruction `name` at the adapter's address: `accounts` by their IDL
-   * names in the IDL's order and with its flags (an account the IDL gives a
-   * fixed address may be left out; `null` is an absent optional account),
-   * then `remaining`, and `args` encoded by the coder.
+   * names in the IDL's order and with its flags, then `remaining`, and `args`
+   * encoded by the coder. `null` is an absent optional account. The accounts
+   * no caller decides are filled in: the IDL's fixed addresses and PDAs of
+   * constant seeds, and the event authority and program Anchor's
+   * `#[event_cpi]` adds to an instruction that emits events.
    */
-  private instruction(
+  private async instruction(
     name: string,
-    accounts: Record<string, PublicKey | null>,
+    accounts: Record<string, Address | null>,
     args: object,
     remaining: AccountMeta[] = [],
-  ): TransactionInstruction {
+  ): Promise<Instruction> {
     const ix = idl.instructions.find((i) => i.name === name);
     if (ix === undefined) throw new Error(`the adapter's IDL declares no instruction ${name}`);
     const names = ix.accounts.map((a) => a.name);
     const unknown = Object.keys(accounts).filter((n) => !names.includes(n));
     if (unknown.length > 0) throw new Error(`${name} takes no account ${unknown.join(", ")}`);
-    const keys = ix.accounts.map((a) => {
-      if ("accounts" in a) throw new Error(`${name}: the account group ${a.name} is not supported`);
-      const given = accounts[a.name];
-      if (given === null) {
-        if (!a.optional) throw new Error(`${name}: ${a.name} is not optional`);
-        // Anchor reads an optional account as absent when it is the address of the program it runs.
-        return { pubkey: this.programId, isSigner: false, isWritable: false };
-      }
-      const pubkey = given ?? (a.address === undefined ? undefined : new PublicKey(a.address));
-      if (pubkey === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
-      return { pubkey, isSigner: a.signer ?? false, isWritable: a.writable ?? false };
-    });
-    return new TransactionInstruction({
-      programId: this.programId,
-      keys: [...keys, ...remaining],
+    const emitsEvents = names.includes("event_authority") && names.includes("program");
+    const metas = await Promise.all(
+      ix.accounts.map(async (a): Promise<AccountMeta> => {
+        if ("accounts" in a) throw new Error(`${name}: the account group ${a.name} is not supported`);
+        const given = accounts[a.name];
+        if (given === null) {
+          if (!a.optional) throw new Error(`${name}: ${a.name} is not optional`);
+          // Anchor reads an optional account as absent when it is the address of the program it runs.
+          return { address: this.programId, role: AccountRole.READONLY };
+        }
+        const account = given ?? (await this.filled(a, emitsEvents));
+        if (account === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
+        return { address: account, role: role(a.signer ?? false, a.writable ?? false) };
+      }),
+    );
+    return {
+      programAddress: this.programId,
+      accounts: [...metas, ...remaining],
       data: coder.instruction.encode(name, args),
-    });
+    };
   }
 
-  /** The accounts Anchor's `#[event_cpi]` adds to an instruction that emits events. */
-  private events(): Record<string, PublicKey> {
-    return { event_authority: deriveEventAuthorityPda(this.programId)[0], program: this.programId };
+  /** The address of the IDL account `a` no caller decides, or `undefined` when a caller does. */
+  private async filled(a: IdlInstructionAccount, emitsEvents: boolean): Promise<Address | undefined> {
+    if (a.address !== undefined) return address(a.address);
+    const seeds = a.pda?.seeds;
+    if (a.pda?.program === undefined && seeds?.every(isConst)) {
+      return this.constPda(seeds.map((seed) => Uint8Array.from(seed.value)));
+    }
+    if (emitsEvents && a.name === "event_authority") return this.eventAuthority();
+    if (emitsEvents && a.name === "program") return this.programId;
+    return undefined;
   }
 
-  private upgradeAuthority(): PublicKey {
-    return PublicKey.findProgramAddressSync([idlSeed("UPGRADE_AUTHORITY_SEED")], this.programId)[0];
-  }
-
-  private txData(authority: PublicKey, uploadId: bigint): PublicKey {
+  private txData(authority: Address, uploadId: bigint): Promise<Address> {
     const id = new Uint8Array(8);
     new DataView(id.buffer).setBigUint64(0, uploadId, true);
-    return PublicKey.findProgramAddressSync([idlSeed("TX_DATA_SEED"), authority.toBuffer(), id], this.programId)[0];
+    return this.pda(idlSeed("TX_DATA_SEED"), Uint8Array.from(getAddressEncoder().encode(authority)), id);
   }
 
   /** `initialize`, with `payer` the program's upgrade authority. */
-  initializeIx(
-    payer: PublicKey,
-    initialOwner: PublicKey,
-    verifierRouter: PublicKey,
+  async initializeIx(
+    payer: Address,
+    initialOwner: Address,
+    verifierRouter: Address,
     proofSelector: Uint8Array,
-  ): TransactionInstruction {
+  ): Promise<Instruction> {
+    const [programData, { entry }] = await Promise.all([
+      this.programData(),
+      deriveVerifierRouterPdas(verifierRouter, proofSelector),
+    ]);
     return this.instruction(
       "initialize",
-      {
-        pa_state: this.paState(),
-        payer,
-        program_data: deriveProgramDataAddress(this.programId),
-        upgrade_authority: this.upgradeAuthority(),
-        verifier_entry: deriveVerifierRouterPdas(verifierRouter, proofSelector).entry,
-        ...this.events(),
-      },
+      { payer, program_data: programData, verifier_entry: entry },
       { initial_owner: initialOwner, verifier_router: verifierRouter, proof_selector: Array.from(proofSelector) },
     );
   }
 
   /** `pause`, by the owner `authority`. */
-  pauseIx(authority: PublicKey): TransactionInstruction {
-    return this.instruction("pause", { pa_state: this.paState(), authority, ...this.events() }, {});
+  pauseIx(authority: Address): Promise<Instruction> {
+    return this.instruction("pause", { authority }, {});
   }
 
   /** `unpause`, by the owner `authority`. */
-  unpauseIx(authority: PublicKey): TransactionInstruction {
-    return this.instruction("unpause", { pa_state: this.paState(), authority, ...this.events() }, {});
+  unpauseIx(authority: Address): Promise<Instruction> {
+    return this.instruction("unpause", { authority }, {});
+  }
+
+  /** `deny_logic_refs`, by the owner `authority`, who pays for the entries. */
+  denyLogicRefsIx(authority: Address, logicRefs: readonly DeniedLogicRef[]): Promise<Instruction> {
+    return this.instruction(
+      "deny_logic_refs",
+      { authority },
+      { logic_refs: logicRefs.map((r) => ({ logic_ref: Array.from(r.logicRef), consumed: r.consumed })) },
+    );
   }
 
   /** `set_kind_tree_root`, by the owner `authority`. */
-  setKindTreeRootIx(authority: PublicKey, newKindTreeRoot: Uint8Array): TransactionInstruction {
-    return this.instruction(
-      "set_kind_tree_root",
-      { pa_state: this.paState(), authority, ...this.events() },
-      { new_kind_tree_root: Array.from(newKindTreeRoot) },
-    );
+  setKindTreeRootIx(authority: Address, newKindTreeRoot: Uint8Array): Promise<Instruction> {
+    return this.instruction("set_kind_tree_root", { authority }, { new_kind_tree_root: Array.from(newKindTreeRoot) });
   }
 
   /** `transfer_ownership`, by the owner `authority`. */
-  transferOwnershipIx(authority: PublicKey, newOwner: PublicKey): TransactionInstruction {
-    return this.instruction(
-      "transfer_ownership",
-      { pa_state: this.paState(), authority, ...this.events() },
-      { new_owner: newOwner },
-    );
+  transferOwnershipIx(authority: Address, newOwner: Address): Promise<Instruction> {
+    return this.instruction("transfer_ownership", { authority }, { new_owner: newOwner });
   }
 
   /** `renounce_ownership`, by the owner `authority`. */
-  renounceOwnershipIx(authority: PublicKey): TransactionInstruction {
-    return this.instruction("renounce_ownership", { pa_state: this.paState(), authority, ...this.events() }, {});
+  renounceOwnershipIx(authority: Address): Promise<Instruction> {
+    return this.instruction("renounce_ownership", { authority }, {});
   }
 
   /** `update_expiry_config`, by the owner `authority`. */
-  updateExpiryConfigIx(
-    authority: PublicKey,
-    newMinExpirySlots: bigint,
-    newMaxExpirySlots: bigint,
-  ): TransactionInstruction {
+  updateExpiryConfigIx(authority: Address, newMinExpirySlots: bigint, newMaxExpirySlots: bigint): Promise<Instruction> {
     return this.instruction(
       "update_expiry_config",
-      { pa_state: this.paState(), authority },
-      { new_min_expiry_slots: u64(newMinExpirySlots), new_max_expiry_slots: u64(newMaxExpirySlots) },
+      { authority },
+      { new_min_expiry_slots: newMinExpirySlots, new_max_expiry_slots: newMaxExpirySlots },
     );
   }
 
   /** `upgrade` to `buffer`'s code, by the owner `authority`. */
-  upgradeIx(authority: PublicKey, buffer: PublicKey, spill: PublicKey): TransactionInstruction {
+  async upgradeIx(authority: Address, buffer: Address, spill: Address): Promise<Instruction> {
     return this.instruction(
       "upgrade",
-      {
-        pa_state: this.paState(),
-        authority,
-        program_data: deriveProgramDataAddress(this.programId),
-        upgraded_program: this.programId,
-        buffer,
-        spill,
-        upgrade_authority: this.upgradeAuthority(),
-        ...this.events(),
-      },
+      { authority, program_data: await this.programData(), upgraded_program: this.programId, buffer, spill },
       {},
     );
   }
 
   /** `risc_zero_verifier_paused`, for the deployment's `verifierRouter` and `proofSelector`. */
-  riscZeroVerifierPausedIx(verifierRouter: PublicKey, proofSelector: Uint8Array): TransactionInstruction {
-    return this.instruction(
-      "risc_zero_verifier_paused",
-      { pa_state: this.paState(), verifier_entry: deriveVerifierRouterPdas(verifierRouter, proofSelector).entry },
-      {},
-    );
+  async riscZeroVerifierPausedIx(verifierRouter: Address, proofSelector: Uint8Array): Promise<Instruction> {
+    const { entry } = await deriveVerifierRouterPdas(verifierRouter, proofSelector);
+    return this.instruction("risc_zero_verifier_paused", { verifier_entry: entry }, {});
   }
 
   /** `version`. */
-  versionIx(): TransactionInstruction {
+  versionIx(): Promise<Instruction> {
     return this.instruction("version", {}, {});
   }
 
   /** `txdata_init` of `authority`'s upload `uploadId`. */
-  txdataInitIx(authority: PublicKey, uploadId: bigint, capacity: number, expiresSlot: bigint): TransactionInstruction {
+  async txdataInitIx(authority: Address, uploadId: bigint, capacity: number, expiresSlot: bigint): Promise<Instruction> {
     return this.instruction(
       "txdata_init",
-      { pa_state: this.paState(), tx_data: this.txData(authority, uploadId), authority },
-      { upload_id: u64(uploadId), capacity, expires_slot: u64(expiresSlot) },
+      { tx_data: await this.txData(authority, uploadId), authority },
+      { upload_id: uploadId, capacity, expires_slot: expiresSlot },
+    );
+  }
+
+  /** `txdata_write` of `chunk` at `offset` into `authority`'s upload `uploadId`. */
+  async txdataWriteIx(authority: Address, uploadId: bigint, offset: number, chunk: Uint8Array): Promise<Instruction> {
+    return this.instruction(
+      "txdata_write",
+      { tx_data: await this.txData(authority, uploadId), authority },
+      { upload_id: uploadId, offset, data: chunk },
     );
   }
 
   /** `txdata_extend` of `authority`'s upload `uploadId`. */
-  txdataExtendIx(authority: PublicKey, uploadId: bigint, newExpiresSlot: bigint): TransactionInstruction {
+  async txdataExtendIx(authority: Address, uploadId: bigint, newExpiresSlot: bigint): Promise<Instruction> {
     return this.instruction(
       "txdata_extend",
-      { pa_state: this.paState(), tx_data: this.txData(authority, uploadId), authority },
-      { upload_id: u64(uploadId), new_expires_slot: u64(newExpiresSlot) },
+      { tx_data: await this.txData(authority, uploadId), authority },
+      { upload_id: uploadId, new_expires_slot: newExpiresSlot },
     );
   }
 
   /** `txdata_close` of `authority`'s upload `uploadId`, its rent going to `refund`. */
-  txdataCloseIx(authority: PublicKey, refund: PublicKey, uploadId: bigint): TransactionInstruction {
+  async txdataCloseIx(authority: Address, refund: Address, uploadId: bigint): Promise<Instruction> {
     return this.instruction(
       "txdata_close",
-      { tx_data: this.txData(authority, uploadId), authority, refund },
-      { upload_id: u64(uploadId) },
+      { tx_data: await this.txData(authority, uploadId), authority, refund },
+      { upload_id: uploadId },
     );
   }
 
   /** `txdata_close_expired` of `authority`'s upload `uploadId`, by `payer`, its rent going to `refund`. */
-  txdataCloseExpiredIx(
-    payer: PublicKey,
-    refund: PublicKey,
-    authority: PublicKey,
+  async txdataCloseExpiredIx(
+    payer: Address,
+    refund: Address,
+    authority: Address,
     uploadId: bigint,
-  ): TransactionInstruction {
+  ): Promise<Instruction> {
     return this.instruction(
       "txdata_close_expired",
-      { tx_data: this.txData(authority, uploadId), payer, refund },
-      { upload_id: u64(uploadId), authority },
+      { tx_data: await this.txData(authority, uploadId), payer, refund },
+      { upload_id: uploadId, authority },
+    );
+  }
+
+  /** `settle` of `input`, paid for by `payer`. */
+  settleIx(payer: Address, input: Uint8Array, settlement: SettlementAccounts): Promise<Instruction> {
+    return this.instruction(
+      "settle",
+      { payer, ...settlementNamed(settlement) },
+      { transaction_data: input },
+      settlement.remainingAccounts,
+    );
+  }
+
+  /** `simulate_execute` of `input` (pa-evm's `simulateExecute`). */
+  simulateExecuteIx(
+    payer: Address,
+    input: Uint8Array,
+    skipRiscZeroProofVerification: boolean,
+    settlement: SettlementAccounts,
+  ): Promise<Instruction> {
+    return this.instruction(
+      "simulate_execute",
+      { payer, ...settlementNamed(settlement) },
+      { transaction_data: input, skip_risc_zero_proof_verification: skipRiscZeroProofVerification },
+      settlement.remainingAccounts,
     );
   }
 
   /** `settle_from_txdata` of `authority`'s upload `uploadId`. */
-  settleFromTxdataIx(authority: PublicKey, uploadId: bigint, settlement: SettlementAccounts): TransactionInstruction {
+  async settleFromTxdataIx(authority: Address, uploadId: bigint, settlement: SettlementAccounts): Promise<Instruction> {
     return this.instruction(
       "settle_from_txdata",
-      {
-        pa_state: this.paState(),
-        tx_data: this.txData(authority, uploadId),
-        authority,
-        new_root_marker: settlement.newRootMarker,
-        verifier_router_program: settlement.verifierRouterProgram,
-        router: settlement.router,
-        verifier_entry: settlement.verifierEntry,
-        verifier_program: settlement.verifierProgram,
-        ...this.events(),
-      },
-      { upload_id: u64(uploadId) },
+      { tx_data: await this.txData(authority, uploadId), authority, ...settlementNamed(settlement) },
+      { upload_id: uploadId },
       settlement.remainingAccounts,
     );
   }
@@ -506,12 +608,15 @@ export function isLogicRefDenied(
 }
 
 /** The bool `program` returned, as a simulation reports it. */
-export function returnedBool(program: PublicKey, returnData: TransactionReturnData | null): boolean {
-  const what = `the return data of ${program.toBase58()}`;
+export function returnedBool(
+  program: Address,
+  returnData: Readonly<{ data: readonly [string, "base64"]; programId: Address }> | null,
+): boolean {
+  const what = `the return data of ${program}`;
   const fail = (error: string) => new InstanceError({ kind: "Decode", what, error });
   if (returnData === null) throw fail("the simulation returned nothing");
-  if (returnData.programId !== program.toBase58()) throw fail(`${returnData.programId} returned it`);
-  const bytes = Uint8Array.from(atob(returnData.data[0]), (c) => c.charCodeAt(0));
+  if (returnData.programId !== program) throw fail(`${returnData.programId} returned it`);
+  const bytes = getBase64Encoder().encode(returnData.data[0]);
   if (bytes.length !== 1 || bytes[0]! > 1) throw fail(`${bytes.length} byte(s), not one bool: ${Array.from(bytes)}`);
   return bytes[0] === 1;
 }

@@ -24,9 +24,11 @@ import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { plain, resolve } from "../ts/fixture-form.mjs";
+
 const require = createRequire(new URL("../ts/package.json", import.meta.url));
-const { BN, BorshCoder } = require("@anchor-lang/core");
-const { PublicKey } = require("@solana/web3.js");
+const { BorshCoder } = require("@anchor-lang/core");
+const { getAddressDecoder } = require("@solana/kit");
 const bs58 = require("bs58").default;
 
 const repo = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
@@ -38,28 +40,6 @@ const [mode, ...signatures] = process.argv.slice(2);
 const CODER_SOURCE = "anchor BorshCoder.types.encode";
 const types = new Map(idl.types.map((t) => [t.name, t.type]));
 
-// An IDL type with its aliases resolved to the type each stands for.
-function resolve(type) {
-  if (!type.defined) return type;
-  const def = types.get(type.defined.name);
-  if (def?.kind !== "type") throw new Error(`no IDL type alias ${type.defined.name}`);
-  return resolve(def.alias);
-}
-
-// A decoded value of an IDL type in the fixture's form: keys and byte arrays
-// as hex, u256s as their 32 little-endian bytes in hex, u64s as decimal
-// strings, bools as themselves, vectors element by element.
-function plain(value, type) {
-  const t = resolve(type);
-  if (t === "bool") return value;
-  if (t === "u64") return value.toString();
-  if (t === "u256") return value.toArrayLike(Buffer, "le", 32).toString("hex");
-  if (t === "pubkey") return value.toBuffer().toString("hex");
-  if (t === "bytes" || t.array) return Buffer.from(value).toString("hex");
-  if (t.vec) return value.map((v) => plain(v, t.vec));
-  throw new Error(`no fixture form for the IDL type ${JSON.stringify(type)}`);
-}
-
 function entry(source, data) {
   const decoded = coder.events.decode(data.subarray(EVENT_IX_TAG.length).toString("base64"));
   if (!decoded) throw new Error(`${source}: no IDL event has this discriminator`);
@@ -67,7 +47,7 @@ function entry(source, data) {
     types.get(decoded.name).fields.map((f) => {
       const v = decoded.data[f.name];
       if (v === undefined) throw new Error(`${source}: ${decoded.name} has no field ${f.name}`);
-      return [f.name, plain(v, f.type)];
+      return [f.name, plain(idl, v, f.type)];
     }),
   );
   return { source, name: decoded.name, data_b64: data.toString("base64"), expected };
@@ -113,11 +93,11 @@ if (mode === "--recorded") {
 
 // Fixed values for the event types no transaction emitted.
 function sample(type) {
-  const t = resolve(type);
+  const t = resolve(idl, type);
   // Sets the top byte, so a decoder that drops any of the 32 bytes fails.
-  if (t === "u256") return new BN(1).shln(255).addn(7);
-  if (t === "u64") return new BN(1).shln(63).addn(7);
-  if (t === "pubkey") return new PublicKey(Buffer.alloc(32, 0x11));
+  if (t === "u256") return (1n << 255n) + 7n;
+  if (t === "u64") return (1n << 63n) + 7n;
+  if (t === "pubkey") return getAddressDecoder().decode(Buffer.alloc(32, 0x11));
   if (t === "bytes") return Buffer.from([1, 2, 3]);
   if (t === "bool") return true;
   if (t.array) return Array(32).fill(0x22);
@@ -128,7 +108,7 @@ for (const event of idl.events) {
   if (events.some((e) => e.name === event.name)) continue;
   const value = Object.fromEntries(types.get(event.name).fields.map((f) => [f.name, sample(f.type)]));
   const body = coder.types.encode(event.name, value);
-  events.push(entry(CODER_SOURCE, Buffer.concat([EVENT_IX_TAG, Buffer.from(event.discriminator), body])));
+  events.push(entry(CODER_SOURCE, Buffer.concat([EVENT_IX_TAG, Buffer.from(event.discriminator), Buffer.from(body)])));
 }
 
 writeFileSync(

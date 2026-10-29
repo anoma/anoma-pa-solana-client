@@ -37,7 +37,7 @@ solana-cluster-type = { version = "3", optional = true }
 
 # The settlement input (`arm` feature): a proven ARM transaction in the form
 # the adapter settles. Without the prover: no `prove` feature.
-anoma-rm-risc0 = { version = "2.0.0-rc.7", default-features = false, features = ["transaction"], optional = true }
+anoma-rm-risc0 = { version = "2.0.0-rc.8.1", default-features = false, features = ["transaction"], optional = true }
 risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
 
 # Submission (`rpc` feature): the adapter's state and the forwarders' accounts
@@ -62,6 +62,10 @@ name = "events_fixture"
 required-features = ["solana"]
 
 [[test]]
+name = "instructions_fixture"
+required-features = ["solana"]
+
+[[test]]
 name = "deployments"
 required-features = ["solana"]
 
@@ -74,7 +78,7 @@ required-features = ["rpc"]
 serde_json = "1.0"
 base64 = "0.22"
 # Proves trivial actions for the settlement-input tests.
-anoma-pa-testkit = { version = "=1.0.0-rc.2", features = ["local", "fixtures"] }
+anoma-pa-testkit = { version = "=1.0.0-rc.6", features = ["local", "fixtures"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 # Serializes a v1 message to check `transaction_size` against it.
 solana-message = { version = "4", features = ["wincode"] }

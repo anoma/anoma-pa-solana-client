@@ -1,7 +1,7 @@
 // The staging adapter on devnet, read over a Helius endpoint: run with
 // `npm run test:deployed` at each deployment and upgrade.
 
-import { Connection, PublicKey } from "@solana/web3.js";
+import { createSolanaRpc } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { PADDING_LEAF } from "./constants.js";
@@ -21,7 +21,7 @@ function devnetUrl(): string {
 
 describe("the staging adapter on devnet", () => {
   it("answers every read", async () => {
-    const adapter = await protocolAdapter(new Connection(devnetUrl(), "confirmed"), "staging");
+    const adapter = await protocolAdapter(createSolanaRpc(devnetUrl()), "staging");
     const owner = await adapter.owner();
     const depth = await adapter.commitmentTreeDepth();
     const count = await adapter.commitmentCount();
@@ -29,10 +29,10 @@ describe("the staging adapter on devnet", () => {
     const root = await adapter.latestCommitmentTreeRoot();
     const kindTreeRoot = await adapter.getKindTreeRoot();
     console.log({
-      programId: adapter.programId.toBase58(),
-      owner: owner.toBase58(),
+      programId: adapter.programId,
+      owner,
       paused: await adapter.paused(),
-      verifierRouter: (await adapter.riscZeroVerifierRouter()).toBase58(),
+      verifierRouter: await adapter.riscZeroVerifierRouter(),
       selector: await adapter.riscZeroVerifierSelector(),
       depth,
       count,
@@ -58,6 +58,6 @@ describe("the staging adapter on devnet", () => {
     expect(await adapter.isNullifierContained(zero)).toBe(false);
     expect(await adapter.isLogicRefDenied(zero, true)).toBe(false);
     expect(await adapter.isLogicRefDenied(zero, false)).toBe(false);
-    expect(owner.equals(PublicKey.default)).toBe(false);
+    expect(owner).not.toBe("11111111111111111111111111111111");
   });
 });
