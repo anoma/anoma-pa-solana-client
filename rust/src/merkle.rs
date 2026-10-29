@@ -9,9 +9,10 @@ use sha2::{Digest as _, Sha256};
 use crate::constants::{MAX_LEAF_COUNT, MAX_TREE_DEPTH};
 
 /// The canonical padding leaf used for empty positions in the commitment
-/// tree: the ARM empty-hash constant (the PA's `EMPTY_HASH_WORDS`, from
-/// `arm_core::constants`), which is also the empty tree's root.
-/// Note this is NOT `sha256("")` (`e3b0c442…`).
+/// tree: `sha256("EMPTY")`, the SHA-256 of the five-byte ASCII string
+/// `EMPTY`. It is arm-risc0's `PADDING_LEAF` and the EVM protocol adapter's
+/// `SHA256.EMPTY_HASH`, and it is also the empty tree's root. It is not
+/// `sha256("")` (`e3b0c442…`).
 pub const PADDING_LEAF: [u8; 32] = [
     0xcc, 0x1d, 0x2f, 0x83, 0x84, 0x45, 0xdb, 0x7a, 0xec, 0x43, 0x1d, 0xf9, 0xee, 0x8a, 0x87, 0x1f,
     0x40, 0xe7, 0xaa, 0x5e, 0x06, 0x4f, 0xc0, 0x56, 0x63, 0x3e, 0xf8, 0xc6, 0x0f, 0xab, 0x7b, 0x06,
@@ -232,18 +233,11 @@ mod tests {
     }
 
     #[test]
-    fn padding_leaf_matches_arm_risc0_empty_hash() {
-        // PADDING_LEAF must equal arm_core::constants::EMPTY_HASH_BYTES — the
-        // RISC0-flavored "empty input hash" the PA uses for empty tree slots.
-        // It is NOT standard SHA-256("") (which is e3b0c4…); arm-risc0 uses a
-        // RISC0 SHA-256 variant whose empty-input hash is cc1d2f…
+    fn padding_leaf_is_sha256_of_empty() {
+        let expected: [u8; 32] = Sha256::digest(b"EMPTY").into();
         assert_eq!(
-            PADDING_LEAF,
-            [
-                0xcc, 0x1d, 0x2f, 0x83, 0x84, 0x45, 0xdb, 0x7a, 0xec, 0x43, 0x1d, 0xf9, 0xee, 0x8a,
-                0x87, 0x1f, 0x40, 0xe7, 0xaa, 0x5e, 0x06, 0x4f, 0xc0, 0x56, 0x63, 0x3e, 0xf8, 0xc6,
-                0x0f, 0xab, 0x7b, 0x06,
-            ]
+            PADDING_LEAF, expected,
+            "PADDING_LEAF must be sha256(\"EMPTY\"), cc1d2f83…"
         );
     }
 

@@ -214,11 +214,11 @@ pub(crate) mod tests {
     use risc0_zkvm::sha::Sha256;
     use risc0_zkvm::{FakeReceipt, Groth16Receipt, MaybePruned, ReceiptClaim};
 
-    /// A resource of a trivial action: consumed or created, with its seed.
+    /// A resource of a trivial action: consumed, with its seed, or created.
     #[derive(Clone, Copy)]
     enum Trivial {
         Consumed(u8),
-        Created(u8),
+        Created,
     }
 
     /// The witnesses of one action of trivial resources, in `resources`'
@@ -226,7 +226,7 @@ pub(crate) mod tests {
     fn trivial_action(resources: &[Trivial]) -> ActionWitnesses {
         action::build(resources.iter().map(|resource| match *resource {
             Trivial::Consumed(seed) => trivial::consumed(seed, trivial::Overrides::default()),
-            Trivial::Created(seed) => trivial::created(seed),
+            Trivial::Created => trivial::created(),
         }))
         .expect("trivial action")
     }
@@ -243,8 +243,8 @@ pub(crate) mod tests {
     async fn the_settled_resources_are_each_actions_nullifiers_and_commitments_in_list_order() {
         use Trivial::{Consumed, Created};
         let actions = [
-            trivial_action(&[Consumed(1), Created(2)]),
-            trivial_action(&[Created(3), Consumed(4), Created(5), Consumed(6)]),
+            trivial_action(&[Consumed(1), Created]),
+            trivial_action(&[Created, Consumed(4), Created, Consumed(6)]),
         ];
         let witnesses = || {
             actions
@@ -306,7 +306,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_tampered_local_proof_keeps_its_digest_for_the_verifier_to_refuse() {
-        let built = trivial_action(&[Trivial::Consumed(1), Trivial::Created(2)]);
+        let built = trivial_action(&[Trivial::Consumed(1), Trivial::Created]);
         let mut proven = LocalProver.prove(&[&built]).await.expect("local proof");
         let mut tampered = claim_of(proven.as_arm()).as_bytes().to_vec();
         tampered[0] ^= 0xff;
@@ -343,8 +343,8 @@ pub(crate) mod tests {
             deletion_criterion: 0,
         };
         let mut tx = proven(&[
-            trivial_action(&[Created(1), Consumed(2), Created(3)]),
-            trivial_action(&[Consumed(4), Created(5)]),
+            trivial_action(&[Created, Consumed(2), Created]),
+            trivial_action(&[Consumed(4), Created]),
         ])
         .await;
         let instance = &mut tx.aggregation.as_mut().unwrap().instance;
@@ -384,7 +384,7 @@ pub(crate) mod tests {
     /// `count` resources each.
     pub(crate) async fn proven_trivial_transaction(count: u8) -> Transaction {
         let consumed = (0..count).map(Trivial::Consumed);
-        let created = (count..2 * count).map(Trivial::Created);
+        let created = (0..count).map(|_| Trivial::Created);
         proven(&[trivial_action(&consumed.chain(created).collect::<Vec<_>>())]).await
     }
 
