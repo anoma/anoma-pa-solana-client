@@ -2,6 +2,8 @@
 //! the integrator can predict the post-settle root and derive the corresponding
 //! root-marker PDA without waiting for confirmation.
 
+use std::sync::LazyLock;
+
 use sha2::{Digest as _, Sha256};
 
 use crate::constants::{MAX_LEAF_COUNT, MAX_TREE_DEPTH};
@@ -23,23 +25,27 @@ pub fn hash_two(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Precomputed zero hashes at each level of the deepest commitment tree.
+/// The zero hashes at each level of the deepest commitment tree, `H_0` to
+/// `H_32`, computed once on first use.
 ///
 /// `zero_hashes()[0] = PADDING_LEAF`, then each subsequent level hashes the
 /// previous level's pair: `H[i] = hash_two(H[i-1], H[i-1])`.
-pub fn zero_hashes() -> [[u8; 32]; MAX_TREE_DEPTH] {
-    let mut zeros = [[0u8; 32]; MAX_TREE_DEPTH];
-    zeros[0] = PADDING_LEAF;
-    for level in 1..MAX_TREE_DEPTH {
-        zeros[level] = hash_two(&zeros[level - 1], &zeros[level - 1]);
-    }
-    zeros
+pub fn zero_hashes() -> &'static [[u8; 32]; MAX_TREE_DEPTH] {
+    static ZERO_HASHES: LazyLock<[[u8; 32]; MAX_TREE_DEPTH]> = LazyLock::new(|| {
+        let mut zeros = [[0u8; 32]; MAX_TREE_DEPTH];
+        zeros[0] = PADDING_LEAF;
+        for level in 1..MAX_TREE_DEPTH {
+            zeros[level] = hash_two(&zeros[level - 1], &zeros[level - 1]);
+        }
+        zeros
+    });
+    &ZERO_HASHES
 }
 
 /// Replayable commitment-tree state. Mirrors the PA's `frontier` representation
 /// (filled-subtree hashes at each level) so the integrator can predict the next
 /// root for the next settlement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitmentTreeState {
     pub root: [u8; 32],
     pub next_index: u64,
@@ -308,20 +314,7 @@ mod tests {
             matches!(refused, Err(MerkleError::MaxDepthReached)),
             "{refused:?}"
         );
-        assert_eq!(
-            (
-                tree.root,
-                tree.next_index,
-                tree.current_depth,
-                &tree.frontier
-            ),
-            (
-                before.root,
-                before.next_index,
-                before.current_depth,
-                &before.frontier
-            )
-        );
+        assert_eq!(tree, before);
     }
 
     #[test]

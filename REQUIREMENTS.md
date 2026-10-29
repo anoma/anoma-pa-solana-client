@@ -103,7 +103,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 ### 3.10 Commitment tree primitives
 
 - `hash_two(left: [u8; 32], right: [u8; 32]) -> [u8; 32]` — SHA-256 over the concatenation, matching the PA's `hash_two`.
-- `padding_leaf() -> [u8; 32]` and the zero-hash sequence `[H_0, H_1, ..., H_31]` precomputed.
+- `PADDING_LEAF: [u8; 32]` and `zero_hashes()`, the zero-hash sequence `[H_0, H_1, ..., H_32]`, one per level of the deepest tree (`MAX_TREE_DEPTH`, 33), computed once.
 - `CommitmentTreeState` type wrapping `{ root, next_index, current_depth, frontier }` with an `append(commitment)` method that updates the state and returns the new root. Used by backend to derive the new root-marker PDA for a settlement.
 
 ### 3.11 Constants
@@ -169,7 +169,7 @@ The following are **not** in this package, regardless of how convenient they mig
 - **Sending and confirming transactions.** Signing, blockhash-expiry-aware confirmation polling and retry logic are the integrator's. The `rpc` feature only reads accounts and simulates, through `solana-rpc-client`; an integrator with another RPC client uses the planners without it.
 - **Wallet integration.** `@solana/wallet-adapter` use, Phantom-specific behavior, wallet UI — frontend concern.
 - **Indexer sync mechanics.** Cursor management, rate-limit handling, hosted-indexer choice — indexer's concern. This package only supplies the IDL.
-- **Merkle tree replay.** The backend replays the PA's commitment tree to derive the next root-marker PDA; this package supplies `hash_two`, `padding_leaf`, and `CommitmentTreeState` as primitives, but the *use* of those primitives (when to replay, how to coordinate concurrent submissions) belongs to the backend.
+- **Merkle tree replay.** The backend replays the PA's commitment tree to derive the next root-marker PDA; this package supplies `hash_two`, `PADDING_LEAF`, and `CommitmentTreeState` as primitives, but the *use* of those primitives (when to replay, how to coordinate concurrent submissions) belongs to the backend.
 
 ---
 
