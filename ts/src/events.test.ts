@@ -2,9 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import type { IdlType } from "@anchor-lang/core";
-import { getAddressEncoder, getU256Encoder } from "@solana/kit";
-
+import { plain } from "../fixture-form.mjs";
 import { decodeCpiEvent, EVENT_IX_TAG, EventDecodeError } from "./events.js";
 import { idl } from "./idl.js";
 
@@ -22,25 +20,6 @@ const typeDef = (name: string) => {
   if (def === undefined) throw new Error(`the IDL declares no type ${name}`);
   return def.type;
 };
-
-// A decoded value of the IDL type `type` in the fixture's form: byte arrays,
-// bytes and keys as lowercase hex, u256s as their 32 little-endian bytes in
-// hex, u64s as decimal strings, bools as themselves, vectors element by
-// element.
-function plain(value: any, type: IdlType): unknown {
-  if (typeof type === "object" && "defined" in type) {
-    const def = typeDef(type.defined.name);
-    if (def.kind !== "type") throw new Error(`${type.defined.name} is no alias`);
-    return plain(value, def.alias);
-  }
-  if (type === "bool") return value;
-  if (type === "u64") return value.toString();
-  if (type === "u256") return Buffer.from(getU256Encoder().encode(value)).toString("hex");
-  if (type === "pubkey") return Buffer.from(getAddressEncoder().encode(value)).toString("hex");
-  if (type === "bytes" || (typeof type === "object" && "array" in type)) return Buffer.from(value).toString("hex");
-  if (typeof type === "object" && "vec" in type) return value.map((v: unknown) => plain(v, type.vec));
-  throw new Error(`no fixture form for the IDL type ${JSON.stringify(type)}`);
-}
 
 const entryData = (name: string): Uint8Array => {
   const entry = fixture.events.find((e) => e.name === name);
@@ -65,7 +44,7 @@ describe("decodeCpiEvent (cross-package fixture)", () => {
       const decoded = Object.fromEntries(
         def.fields.map((f) => {
           if (typeof f !== "object" || !("name" in f)) throw new Error(`${entry}: tuple field`);
-          return [f.name, plain((event.data as Record<string, unknown>)[f.name], f.type)];
+          return [f.name, plain(idl, (event.data as Record<string, unknown>)[f.name], f.type)];
         }),
       );
       expect(decoded, entry).toEqual(e.expected);
