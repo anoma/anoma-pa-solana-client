@@ -4,7 +4,7 @@
 
 use sha2::{Digest as _, Sha256};
 
-use crate::constants::MAX_TREE_DEPTH;
+use crate::constants::{MAX_LEAF_COUNT, MAX_TREE_DEPTH};
 
 /// The canonical padding leaf used for empty positions in the commitment
 /// tree: the ARM empty-hash constant (the PA's `EMPTY_HASH_WORDS`, from
@@ -23,15 +23,14 @@ pub fn hash_two(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Precomputed zero hashes at each level of the commitment tree, up to the
-/// deepest tree's, `MAX_TREE_DEPTH + 1` levels.
+/// Precomputed zero hashes at each level of the deepest commitment tree.
 ///
 /// `zero_hashes()[0] = PADDING_LEAF`, then each subsequent level hashes the
 /// previous level's pair: `H[i] = hash_two(H[i-1], H[i-1])`.
-pub fn zero_hashes() -> [[u8; 32]; MAX_TREE_DEPTH + 1] {
-    let mut zeros = [[0u8; 32]; MAX_TREE_DEPTH + 1];
+pub fn zero_hashes() -> [[u8; 32]; MAX_TREE_DEPTH] {
+    let mut zeros = [[0u8; 32]; MAX_TREE_DEPTH];
     zeros[0] = PADDING_LEAF;
-    for level in 1..=MAX_TREE_DEPTH {
+    for level in 1..MAX_TREE_DEPTH {
         zeros[level] = hash_two(&zeros[level - 1], &zeros[level - 1]);
     }
     zeros
@@ -51,14 +50,14 @@ pub struct CommitmentTreeState {
 /// Errors produced by the Merkle replay.
 #[derive(Debug)]
 pub enum MerkleError {
-    /// The tree holds 2^`MAX_TREE_DEPTH` leaves, the most the adapter takes.
+    /// The tree holds `MAX_LEAF_COUNT` leaves, the most the adapter takes.
     MaxDepthReached,
 }
 
 impl core::fmt::Display for MerkleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            MerkleError::MaxDepthReached => write!(f, "commitment tree max depth reached"),
+            MerkleError::MaxDepthReached => write!(f, "Commitment tree is full (2^32 leaves)"),
         }
     }
 }
@@ -69,9 +68,9 @@ impl CommitmentTreeState {
     /// Append a new commitment to the tree, updating `root`, `next_index`,
     /// `frontier`, and (if the tree fills at the current depth) `current_depth`,
     /// as the adapter's `merkle::push`: refused once the tree holds
-    /// 2^`MAX_TREE_DEPTH` leaves, before any change.
+    /// `MAX_LEAF_COUNT` leaves, before any change.
     pub fn append(&mut self, leaf: [u8; 32]) -> Result<(), MerkleError> {
-        if self.next_index >= 1 << MAX_TREE_DEPTH {
+        if self.next_index >= MAX_LEAF_COUNT {
             return Err(MerkleError::MaxDepthReached);
         }
         let depth = self.current_depth as usize;
@@ -245,19 +244,19 @@ mod tests {
     #[test]
     fn zero_hashes_chain_correctly() {
         let zeros = zero_hashes();
-        for level in 1..=MAX_TREE_DEPTH {
+        for level in 1..MAX_TREE_DEPTH {
             assert_eq!(zeros[level], hash_two(&zeros[level - 1], &zeros[level - 1]));
         }
     }
 
-    /// The tree one leaf short of 2^`MAX_TREE_DEPTH` leaves, at depth
+    /// The tree one leaf short of `MAX_LEAF_COUNT` leaves, one level short of
     /// `MAX_TREE_DEPTH`, with distinct left siblings.
     fn tree_one_leaf_short_of_full() -> CommitmentTreeState {
         CommitmentTreeState {
             root: [0; 32],
-            next_index: (1u64 << MAX_TREE_DEPTH) - 1,
-            current_depth: MAX_TREE_DEPTH as u8,
-            frontier: (0..MAX_TREE_DEPTH)
+            next_index: MAX_LEAF_COUNT - 1,
+            current_depth: MAX_TREE_DEPTH as u8 - 1,
+            frontier: (0..MAX_TREE_DEPTH - 1)
                 .map(|level| [level as u8 + 1; 32])
                 .collect(),
         }
@@ -278,7 +277,7 @@ mod tests {
         let mut frontier = tree.frontier.clone();
         frontier.push(full);
         let zeros = zero_hashes();
-        let empty = hash_two(&zeros[MAX_TREE_DEPTH - 1], &zeros[MAX_TREE_DEPTH - 1]);
+        let empty = zeros[MAX_TREE_DEPTH - 1];
 
         let appended = tree.append(leaf);
 
@@ -287,8 +286,8 @@ mod tests {
             tree.next_index, tree.current_depth
         );
         appended.expect("the 2^32nd leaf is accepted");
-        assert_eq!(tree.next_index, 1u64 << MAX_TREE_DEPTH);
-        assert_eq!(tree.current_depth as usize, MAX_TREE_DEPTH + 1);
+        assert_eq!(tree.next_index, MAX_LEAF_COUNT);
+        assert_eq!(tree.current_depth as usize, MAX_TREE_DEPTH);
         assert_eq!(tree.frontier, frontier);
         assert_eq!(tree.root, hash_two(&full, &empty));
     }

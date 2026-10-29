@@ -30,11 +30,10 @@ export const TXDATA_CHUNK_SIZE = 3856;
 export const TXDATA_EXPIRY_SLOTS_DEFAULT = 300n;
 
 /**
- * The commitment tree holds at most 2^`MAX_TREE_DEPTH` leaves, as the
- * adapter's; the leaf that fills it grows the tree to depth
- * `MAX_TREE_DEPTH + 1`.
+ * The depth of the deepest commitment tree, as the adapter's: the one holding
+ * 2^32 leaves, since the leaf that fills the depth-32 tree grows it.
  */
-export const MAX_TREE_DEPTH = 32;
+export const MAX_TREE_DEPTH = 33;
 
 /**
  * The selector a mock seal carries, risc0's convention for a receipt that

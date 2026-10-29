@@ -689,15 +689,15 @@ mod tests {
             assert_eq!(roots, zeros[..roots.len()]);
         }
         let deepest = PAStateAccount {
-            current_depth: MAX_TREE_DEPTH as u8 + 1,
+            current_depth: MAX_TREE_DEPTH as u8,
             ..state(&[])
         };
         let roots = empty_subtree_roots(&deepest);
-        assert_eq!(roots.len(), MAX_TREE_DEPTH + 2);
-        assert_eq!(roots[..MAX_TREE_DEPTH + 1], zeros[..]);
+        assert_eq!(roots.len(), MAX_TREE_DEPTH + 1);
+        assert_eq!(roots[..MAX_TREE_DEPTH], zeros[..]);
         assert_eq!(
-            roots[MAX_TREE_DEPTH + 1],
-            hash_two(&zeros[MAX_TREE_DEPTH], &zeros[MAX_TREE_DEPTH])
+            roots[MAX_TREE_DEPTH],
+            hash_two(&zeros[MAX_TREE_DEPTH - 1], &zeros[MAX_TREE_DEPTH - 1])
         );
     }
 

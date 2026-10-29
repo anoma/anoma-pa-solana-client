@@ -31,10 +31,13 @@ pub const TXDATA_CHUNK_SIZE: usize = 3856;
 /// at current Solana slot times.
 pub const TXDATA_EXPIRY_SLOTS_DEFAULT: u64 = 300;
 
-/// The commitment tree holds at most 2^`MAX_TREE_DEPTH` leaves, as the
-/// adapter's; the leaf that fills it grows the tree to depth
-/// `MAX_TREE_DEPTH + 1`.
-pub const MAX_TREE_DEPTH: usize = 32;
+/// The depth of the deepest commitment tree, as the adapter's: the one
+/// holding `MAX_LEAF_COUNT` leaves, since the leaf that fills the depth-32
+/// tree grows it.
+pub const MAX_TREE_DEPTH: usize = 33;
+
+/// The most leaves the adapter's commitment tree holds, 2^32.
+pub const MAX_LEAF_COUNT: u64 = 1 << (MAX_TREE_DEPTH - 1);
 
 /// The selector a mock seal carries, risc0's convention for a receipt that
 /// holds a claim digest instead of a proof. The local validator registers the
