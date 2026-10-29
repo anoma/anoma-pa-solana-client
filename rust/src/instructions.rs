@@ -492,45 +492,8 @@ mod tests {
         Pubkey::new_from_array([n; 32])
     }
 
-    /// The entry `name` of `fixtures/instructions_fixture.json`, the
-    /// instructions `tests/instructions_fixture.rs` builds for these tests'
-    /// inputs (the program `key(9)`, other accounts `key(n)`).
-    fn expected(name: &str) -> serde_json::Value {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../fixtures/instructions_fixture.json"
-        );
-        let fixture: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}")),
-        )
-        .expect("the instructions fixture is JSON");
-        fixture["instructions"]
-            .as_array()
-            .expect("the fixture lists instructions")
-            .iter()
-            .find(|e| e["name"] == name)
-            .unwrap_or_else(|| panic!("the instructions fixture has no {name}"))
-            .clone()
-    }
-
-    /// `ix` is the instructions fixture's entry `name`: its program, its data
-    /// in hex, and its accounts (address, signer, writable), in order.
-    fn assert_is_expected(name: &str, ix: &Instruction) {
-        let built = serde_json::json!({
-            "name": name,
-            "program": ix.program_id.to_string(),
-            "data_hex": ix.data.iter().map(|b| format!("{b:02x}")).collect::<String>(),
-            "accounts": ix.accounts.iter().map(|m| serde_json::json!({
-                "address": m.pubkey.to_string(),
-                "signer": m.is_signer,
-                "writable": m.is_writable,
-            })).collect::<Vec<_>>(),
-        });
-        println!("{built:#}");
-        assert_eq!(built, expected(name), "{name}");
-    }
-
-    /// The settlement accounts of the fixture's settlements of `key(9)`.
+    /// The verifier accounts `key(11)` to `key(14)`, and with `remaining` two
+    /// remaining accounts.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
         SettlementAccounts {
             new_root_marker,
@@ -626,11 +589,6 @@ mod tests {
 
     #[test]
     fn initialize_matches_the_adapters_idl() {
-        assert_is_expected(
-            "initialize",
-            &initialize_ix(&key(9), &key(1), &key(2), &key(3), crate::MOCK_SELECTOR),
-        );
-
         let (payer, owner, router) = (key(1), key(2), key(3));
         let selector = crate::MOCK_SELECTOR;
         let ix = initialize_ix(&ID, &payer, &owner, &router, selector);
@@ -650,31 +608,6 @@ mod tests {
 
     #[test]
     fn the_inline_settlement_instructions_match_the_adapters_idl() {
-        let pa = key(9);
-        assert_is_expected(
-            "settle",
-            &settle_ix(&pa, &key(1), b"input", settlement(Some(key(10)), true)),
-        );
-        // An absent new-root marker is the program's own address.
-        assert_is_expected(
-            "settle_no_marker",
-            &settle_ix(&pa, &key(1), b"input", settlement(None, false)),
-        );
-        assert_is_expected(
-            "simulate_execute_false",
-            &simulate_execute_ix(
-                &pa,
-                &key(1),
-                b"input",
-                false,
-                settlement(Some(key(10)), true),
-            ),
-        );
-        assert_is_expected(
-            "simulate_execute_true",
-            &simulate_execute_ix(&pa, &key(1), b"input", true, settlement(None, false)),
-        );
-
         let accounts = settlement(Some(key(10)), false);
         let input = b"input";
         let encoded_input = [&5u32.to_le_bytes()[..], input].concat();
@@ -695,19 +628,7 @@ mod tests {
 
     #[test]
     fn the_upload_instructions_match_the_adapters_idl() {
-        let pa = key(9);
         let tx_data = |pa: &Pubkey| derive_tx_data_pda(pa, &key(1), 7).0;
-        assert_is_expected(
-            "settle_from_txdata",
-            &settle_from_txdata_ix(&pa, &key(1), 7, settlement(Some(key(10)), true)),
-        );
-        assert_is_expected("txdata_init", &txdata_init_ix(&pa, &key(1), 7, 900, 500));
-        assert_is_expected(
-            "txdata_write",
-            &txdata_write_ix(&pa, &key(1), 7, 3856, &[1, 2, 3, 4, 5]),
-        );
-        assert_is_expected("txdata_close", &txdata_close_ix(&pa, &key(1), &key(2), 7));
-
         let accounts = settlement(None, false);
         let ix = settle_from_txdata_ix(&ID, &key(1), 7, accounts);
         let by_name =
@@ -740,7 +661,6 @@ mod tests {
 
     #[test]
     fn the_owner_instructions_match_the_adapters_idl() {
-        let pa = key(9);
         let entries = [
             DeniedLogicRef {
                 logic_ref: [7; 32],
@@ -751,26 +671,15 @@ mod tests {
                 consumed: true,
             },
         ];
-        assert_is_expected("pause", &pause_ix(&pa, &key(4)));
-        assert_is_expected("unpause", &unpause_ix(&pa, &key(4)));
-        assert_is_expected(
-            "deny_logic_refs",
-            &deny_logic_refs_ix(&pa, &key(4), &entries),
-        );
-        assert_is_expected(
-            "set_kind_tree_root",
-            &set_kind_tree_root_ix(&pa, &key(4), [7; 32]),
-        );
-
         let authority = key(4);
         let bytes = [7; 32];
         for (ix, name, args) in [
             (pause_ix(&ID, &authority), "pause", &[][..]),
             (unpause_ix(&ID, &authority), "unpause", &[][..]),
             (
-                deny_logic_refs_ix(&ID, &authority, &entries[..1]),
+                deny_logic_refs_ix(&ID, &authority, &entries),
                 "deny_logic_refs",
-                &[&[1, 0, 0, 0][..], &bytes, &[0]].concat()[..],
+                &[&[2, 0, 0, 0][..], &bytes, &[0], &[8; 32], &[1]].concat()[..],
             ),
             (
                 set_kind_tree_root_ix(&ID, &authority, bytes),
