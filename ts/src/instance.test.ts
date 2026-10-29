@@ -36,7 +36,8 @@ const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 const ZERO_ADDRESS = address("11111111111111111111111111111111");
 
 /** The address of 32 bytes `n`, as the Rust crate's tests' `key(n)`. */
-const key = (n: number): Address => getAddressDecoder().decode(new Uint8Array(32).fill(n));
+const key = (n: number): Address =>
+  getAddressDecoder().decode(new Uint8Array(32).fill(n));
 
 /** What `f` throws, or a failure when it returns. */
 function thrown(f: () => unknown): InstanceError {
@@ -53,13 +54,19 @@ describe("recordedDeployment", () => {
   it("finds the recorded staging devnet adapter not deployed yet", () => {
     const e = thrown(() => recordedDeployment("staging", DEVNET_GENESIS));
     console.log(e.message);
-    expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" });
+    expect(e.detail).toEqual({
+      kind: "NoDeployment",
+      chainId: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+    });
   });
 
   it("finds production recording nothing on mainnet-beta", () => {
     const e = thrown(() => recordedDeployment("production", MAINNET_GENESIS));
     console.log(e.message);
-    expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" });
+    expect(e.detail).toEqual({
+      kind: "NoDeployment",
+      chainId: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    });
   });
 
   // A cluster no environment records, such as a local validator, is no
@@ -68,7 +75,10 @@ describe("recordedDeployment", () => {
     for (const environment of ["staging", "production"] as const) {
       const e = thrown(() => recordedDeployment(environment, ZERO_ADDRESS));
       console.log(`${environment}: ${e.message}`);
-      expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:11111111111111111111111111111111" });
+      expect(e.detail).toEqual({
+        kind: "NoDeployment",
+        chainId: "solana:11111111111111111111111111111111",
+      });
     }
   });
 
@@ -90,7 +100,10 @@ describe("recordedDeployment", () => {
       programId: address(idl.address),
       deploymentSlot: 4242,
     });
-    expect(thrown(() => recordedDeployment("production", DEVNET_GENESIS, record)).detail.kind).toBe("NoDeployment");
+    expect(
+      thrown(() => recordedDeployment("production", DEVNET_GENESIS, record))
+        .detail.kind,
+    ).toBe("NoDeployment");
   });
 });
 
@@ -102,7 +115,7 @@ describe("the reads computed from the state", () => {
     }
   });
 
-  it("has the padding leaf sha256(\"EMPTY\"), as arm-risc0 and pa-evm do", () => {
+  it('has the padding leaf sha256("EMPTY"), as arm-risc0 and pa-evm do', () => {
     expect(PADDING_LEAF).toEqual(sha256(new TextEncoder().encode("EMPTY")));
   });
 
@@ -115,7 +128,11 @@ describe("the reads computed from the state", () => {
       expect(roots.length).toBe(depth + 1);
       expect(roots[0]).toEqual(Array.from(PADDING_LEAF));
       for (let h = 1; h <= depth; h++) {
-        expect(roots[h], `height ${h}`).toEqual(Array.from(sha256(Uint8Array.from([...roots[h - 1]!, ...roots[h - 1]!]))));
+        expect(roots[h], `height ${h}`).toEqual(
+          Array.from(
+            sha256(Uint8Array.from([...roots[h - 1]!, ...roots[h - 1]!])),
+          ),
+        );
       }
     }
   });
@@ -123,7 +140,10 @@ describe("the reads computed from the state", () => {
   it("denies a logic ref on the side whose list holds it", () => {
     const state = {
       denied_consumed_logic_refs: [new Array(32).fill(0xdd)],
-      denied_created_logic_refs: [new Array(32).fill(0xee), new Array(32).fill(0xdd)],
+      denied_created_logic_refs: [
+        new Array(32).fill(0xee),
+        new Array(32).fill(0xdd),
+      ],
     };
     for (const [byte, consumed, denied] of [
       [0xdd, true, true],
@@ -133,9 +153,10 @@ describe("the reads computed from the state", () => {
       [0x01, true, false],
       [0x01, false, false],
     ] as const) {
-      expect(isLogicRefDenied(state, new Uint8Array(32).fill(byte), consumed), `${byte} consumed ${consumed}`).toBe(
-        denied,
-      );
+      expect(
+        isLogicRefDenied(state, new Uint8Array(32).fill(byte), consumed),
+        `${byte} consumed ${consumed}`,
+      ).toBe(denied);
     }
   });
 
@@ -164,22 +185,37 @@ describe("the reads computed from the state", () => {
 describe("ProtocolAdapter's reads", () => {
   // Nothing listens on port 1, so every request fails.
   it("fail with Rpc when the RPC cannot answer, naming the account", async () => {
-    const unreachable = ProtocolAdapter.at(createSolanaRpc("http://127.0.0.1:1"), key(9));
+    const unreachable = ProtocolAdapter.at(
+      createSolanaRpc("http://127.0.0.1:1"),
+      key(9),
+    );
     for (const [what, read] of [
       ["the adapter's state", () => unreachable.paused()],
-      ["the nullifier marker", () => unreachable.isNullifierContained(new Uint8Array(32))],
+      [
+        "the nullifier marker",
+        () => unreachable.isNullifierContained(new Uint8Array(32)),
+      ],
     ] as const) {
       const e = await read().catch((error: unknown) => error);
       console.log(`${what}: ${String(e)}`);
       expect(e, what).toBeInstanceOf(InstanceError);
-      expect(e, what).toMatchObject({ detail: { kind: "Rpc", what: expect.stringMatching(new RegExp(`^${what} `)) } });
+      expect(e, what).toMatchObject({
+        detail: {
+          kind: "Rpc",
+          what: expect.stringMatching(new RegExp(`^${what} `)),
+        },
+      });
     }
   });
 });
 
 /** The accounts and data of `ix`, which every builder sets. */
-function parts(ix: Instruction): { accounts: readonly AccountMeta[]; data: Uint8Array } {
-  if (ix.accounts === undefined || ix.data === undefined) throw new Error("the instruction has no accounts or data");
+function parts(ix: Instruction): {
+  accounts: readonly AccountMeta[];
+  data: Uint8Array;
+} {
+  if (ix.accounts === undefined || ix.data === undefined)
+    throw new Error("the instruction has no accounts or data");
   return { accounts: ix.accounts, data: Uint8Array.from(ix.data) };
 }
 
@@ -198,7 +234,10 @@ const manyEntries: DeniedLogicRef[] = Array.from({ length: 40 }, (_, i) => ({
   logicRef: new Uint8Array(32).fill(i),
   consumed: i % 2 === 1,
 }));
-const settlement = (newRootMarker: Address | null, remaining: boolean): SettlementAccounts => ({
+const settlement = (
+  newRootMarker: Address | null,
+  remaining: boolean,
+): SettlementAccounts => ({
   newRootMarker,
   verifierRouterProgram: key(11),
   router: key(12),
@@ -226,7 +265,12 @@ interface FixtureInstruction {
  * `tests/instructions_fixture.rs` builds and checks with the same inputs.
  */
 const FIXTURE = JSON.parse(
-  readFileSync(fileURLToPath(new URL("../../fixtures/instructions_fixture.json", import.meta.url)), "utf8"),
+  readFileSync(
+    fileURLToPath(
+      new URL("../../fixtures/instructions_fixture.json", import.meta.url),
+    ),
+    "utf8",
+  ),
 ) as { instructions: FixtureInstruction[] };
 
 /** `ix` as a fixture entry named `name`. */
@@ -236,40 +280,111 @@ function written(name: string, ix: Instruction): FixtureInstruction {
     name,
     program: ix.programAddress,
     data_hex: Buffer.from(data).toString("hex"),
-    accounts: accounts.map((m) => ({ address: m.address, signer: isSignerRole(m.role), writable: isWritableRole(m.role) })),
+    accounts: accounts.map((m) => ({
+      address: m.address,
+      signer: isSignerRole(m.role),
+      writable: isWritableRole(m.role),
+    })),
   };
 }
 
 describe("ProtocolAdapter's builders, against the Rust crate's", () => {
   const built: [string, () => Promise<Instruction>][] = [
-    ["initialize", () => adapter.initializeIx(key(1), key(2), key(3), MOCK_SELECTOR)],
+    [
+      "initialize",
+      () => adapter.initializeIx(key(1), key(2), key(3), MOCK_SELECTOR),
+    ],
     ["pause", () => adapter.pauseIx(key(4))],
     ["unpause", () => adapter.unpauseIx(key(4))],
     ["deny_logic_refs", () => adapter.denyLogicRefsIx(key(4), entries)],
-    ["deny_logic_refs_large", () => adapter.denyLogicRefsIx(key(4), manyEntries)],
-    ["set_kind_tree_root", () => adapter.setKindTreeRootIx(key(4), new Uint8Array(32).fill(7))],
+    [
+      "deny_logic_refs_large",
+      () => adapter.denyLogicRefsIx(key(4), manyEntries),
+    ],
+    [
+      "set_kind_tree_root",
+      () => adapter.setKindTreeRootIx(key(4), new Uint8Array(32).fill(7)),
+    ],
     ["transfer_ownership", () => adapter.transferOwnershipIx(key(4), key(5))],
     ["renounce_ownership", () => adapter.renounceOwnershipIx(key(4))],
-    ["update_expiry_config", () => adapter.updateExpiryConfigIx(key(4), 100n, U64_MAX)],
+    [
+      "update_expiry_config",
+      () => adapter.updateExpiryConfigIx(key(4), 100n, U64_MAX),
+    ],
     ["upgrade", () => adapter.upgradeIx(key(4), key(6), key(7))],
-    ["risc_zero_verifier_paused", () => adapter.riscZeroVerifierPausedIx(key(3), MOCK_SELECTOR)],
+    [
+      "risc_zero_verifier_paused",
+      () => adapter.riscZeroVerifierPausedIx(key(3), MOCK_SELECTOR),
+    ],
     ["version", () => adapter.versionIx()],
     ["txdata_init", () => adapter.txdataInitIx(key(1), 7n, 900, 500n)],
-    ["txdata_write", () => adapter.txdataWriteIx(key(1), 7n, 3856, Uint8Array.from([1, 2, 3, 4, 5]))],
-    ["txdata_write_large", () => adapter.txdataWriteIx(key(1), 7n, 0, large(TXDATA_CHUNK_SIZE))],
+    [
+      "txdata_write",
+      () =>
+        adapter.txdataWriteIx(
+          key(1),
+          7n,
+          3856,
+          Uint8Array.from([1, 2, 3, 4, 5]),
+        ),
+    ],
+    [
+      "txdata_write_large",
+      () => adapter.txdataWriteIx(key(1), 7n, 0, large(TXDATA_CHUNK_SIZE)),
+    ],
     ["txdata_extend", () => adapter.txdataExtendIx(key(1), 7n, 900n)],
     ["txdata_close", () => adapter.txdataCloseIx(key(1), key(2), 7n)],
-    ["txdata_close_expired", () => adapter.txdataCloseExpiredIx(key(3), key(2), key(1), 7n)],
-    ["settle", () => adapter.settleIx(key(1), encode("input"), settlement(key(10), true))],
-    ["settle_no_marker", () => adapter.settleIx(key(1), encode("input"), settlement(null, false))],
-    ["settle_large", () => adapter.settleIx(key(1), large(1500), settlement(key(10), true))],
+    [
+      "txdata_close_expired",
+      () => adapter.txdataCloseExpiredIx(key(3), key(2), key(1), 7n),
+    ],
+    [
+      "settle",
+      () =>
+        adapter.settleIx(key(1), encode("input"), settlement(key(10), true)),
+    ],
+    [
+      "settle_no_marker",
+      () => adapter.settleIx(key(1), encode("input"), settlement(null, false)),
+    ],
+    [
+      "settle_large",
+      () => adapter.settleIx(key(1), large(1500), settlement(key(10), true)),
+    ],
     [
       "simulate_execute_false",
-      () => adapter.simulateExecuteIx(key(1), encode("input"), false, settlement(key(10), true)),
+      () =>
+        adapter.simulateExecuteIx(
+          key(1),
+          encode("input"),
+          false,
+          settlement(key(10), true),
+        ),
     ],
-    ["simulate_execute_true", () => adapter.simulateExecuteIx(key(1), encode("input"), true, settlement(null, false))],
-    ["simulate_execute_large", () => adapter.simulateExecuteIx(key(1), large(1500), true, settlement(key(10), true))],
-    ["settle_from_txdata", () => adapter.settleFromTxdataIx(key(1), 7n, settlement(key(10), true))],
+    [
+      "simulate_execute_true",
+      () =>
+        adapter.simulateExecuteIx(
+          key(1),
+          encode("input"),
+          true,
+          settlement(null, false),
+        ),
+    ],
+    [
+      "simulate_execute_large",
+      () =>
+        adapter.simulateExecuteIx(
+          key(1),
+          large(1500),
+          true,
+          settlement(key(10), true),
+        ),
+    ],
+    [
+      "settle_from_txdata",
+      () => adapter.settleFromTxdataIx(key(1), 7n, settlement(key(10), true)),
+    ],
   ];
 
   it("builds every instruction the Rust crate does, byte for byte and account for account", async () => {
@@ -284,11 +399,13 @@ describe("ProtocolAdapter's builders, against the Rust crate's", () => {
       console.log(entry);
       expect(entry, name).toEqual(FIXTURE.instructions[i]);
       const decoded = coder.instruction.decode(parts(ix).data);
-      if (decoded === null) throw new Error(`${name}: the coder decodes no instruction`);
+      if (decoded === null)
+        throw new Error(`${name}: the coder decodes no instruction`);
       covered.add(decoded.name);
     }
-    expect([...covered].sort(), "an entry for every instruction the IDL declares").toEqual(
-      idl.instructions.map((i) => i.name).sort(),
-    );
+    expect(
+      [...covered].sort(),
+      "an entry for every instruction the IDL declares",
+    ).toEqual(idl.instructions.map((i) => i.name).sort());
   });
 });
