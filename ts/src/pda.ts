@@ -64,11 +64,10 @@ export async function deriveVerifierRouterPdas(
   verifierRouterProgram: Address,
   selector: Uint8Array,
 ): Promise<{ router: Address; entry: Address }> {
-  const [router] = await getProgramDerivedAddress({ programAddress: verifierRouterProgram, seeds: ["router"] });
-  const [entry] = await getProgramDerivedAddress({
-    programAddress: verifierRouterProgram,
-    seeds: ["verifier", selector],
-  });
+  const [[router], [entry]] = await Promise.all([
+    getProgramDerivedAddress({ programAddress: verifierRouterProgram, seeds: ["router"] }),
+    getProgramDerivedAddress({ programAddress: verifierRouterProgram, seeds: ["verifier", selector] }),
+  ]);
   return { router, entry };
 }
 

@@ -2,6 +2,7 @@
 // (`contract::protocol_adapter`): its reads under their EVM names, from its
 // state and marker accounts, as the Rust crate's `instance` reads them.
 
+import type { IdlInstructionAccount, IdlSeed, IdlSeedConst } from "@anchor-lang/core";
 import { sha256 } from "@noble/hashes/sha2";
 import {
   AccountRole,
@@ -11,6 +12,7 @@ import {
   compileTransaction,
   containsBytes,
   createTransactionMessage,
+  fetchEncodedAccount,
   getAddressEncoder,
   getBase64EncodedWireTransaction,
   getBase64Encoder,
@@ -21,7 +23,6 @@ import {
   type AccountMeta,
   type Address,
   type Instruction,
-  type PendingRpcRequest,
   type Rpc,
   type SolanaRpcApiMainnet,
   type TransactionError,
@@ -78,10 +79,10 @@ export class InstanceError extends Error {
   }
 }
 
-/** `request` sent, an RPC failure thrown as `Rpc`. */
-async function send<T>(what: string, request: PendingRpcRequest<T>): Promise<T> {
+/** The RPC's answer `response`, a failed request thrown as `Rpc`. */
+async function answered<T>(what: string, response: Promise<T>): Promise<T> {
   try {
-    return await request.send();
+    return await response;
   } catch (error) {
     throw new InstanceError({ kind: "Rpc", what, error: String(error) }, { cause: error });
   }
@@ -107,7 +108,7 @@ export function recordedDeployment(
  * pa-evm's `contract::protocol_adapter(provider, environment)`.
  */
 export async function protocolAdapter(rpc: Rpc<SolanaRpcApiMainnet>, environment: Environment): Promise<ProtocolAdapter> {
-  const genesisHash = await send("the genesis hash", rpc.getGenesisHash());
+  const genesisHash = await answered("the genesis hash", rpc.getGenesisHash().send());
   return ProtocolAdapter.at(rpc, recordedDeployment(environment, genesisHash).programId);
 }
 
@@ -137,6 +138,19 @@ export interface DeniedLogicRef {
   consumed: boolean;
 }
 
+/** The settlement accounts by their IDL names, which every settlement instruction takes. */
+function settlementNamed(settlement: SettlementAccounts): Record<string, Address | null> {
+  return {
+    new_root_marker: settlement.newRootMarker,
+    verifier_router_program: settlement.verifierRouterProgram,
+    router: settlement.router,
+    verifier_entry: settlement.verifierEntry,
+    verifier_program: settlement.verifierProgram,
+  };
+}
+
+const isConst = (seed: IdlSeed): seed is IdlSeedConst => seed.kind === "const";
+
 /** The role of an account with the IDL's `signer` and `writable` flags. */
 function role(signer: boolean, writable: boolean): AccountRole {
   if (signer) return writable ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER;
@@ -156,25 +170,49 @@ export class ProtocolAdapter {
     return new ProtocolAdapter(rpc, programId);
   }
 
+  /** The addresses that depend only on the adapter's address, each derived on first use. */
+  private readonly derived = new Map<string, Promise<Address>>();
+
+  private once(key: string, derive: () => Promise<Address>): Promise<Address> {
+    let found = this.derived.get(key);
+    if (found === undefined) {
+      found = derive();
+      this.derived.set(key, found);
+    }
+    return found;
+  }
+
   private async pda(...seeds: Uint8Array[]): Promise<Address> {
     return (await getProgramDerivedAddress({ programAddress: this.programId, seeds }))[0];
   }
 
-  private paState(): Promise<Address> {
-    return this.pda(idlSeed("PA_STATE_SEED"));
+  /** The adapter's PDA of the constant `seeds`. */
+  private constPda(seeds: Uint8Array[]): Promise<Address> {
+    return this.once(`pda ${seeds.map((seed) => seed.join(",")).join(" ")}`, () => this.pda(...seeds));
   }
 
-  /** The base64 data and owner of the account at `address`, or `null` when it does not exist. */
+  private paState(): Promise<Address> {
+    return this.constPda([idlSeed("PA_STATE_SEED")]);
+  }
+
+  private eventAuthority(): Promise<Address> {
+    return this.once("event_authority", async () => (await deriveEventAuthorityPda(this.programId))[0]);
+  }
+
+  private programData(): Promise<Address> {
+    return this.once("program_data", () => deriveProgramDataAddress(this.programId));
+  }
+
+  /** The data and owner of the account at `address` (`what`), or `null` when it does not exist. */
   private async account(address: Address, what: string): Promise<{ data: Uint8Array; owner: Address } | null> {
-    const { value } = await send(`${what} ${address}`, this.rpc.getAccountInfo(address, { encoding: "base64" }));
-    if (value === null) return null;
-    return { data: Uint8Array.from(getBase64Encoder().encode(value.data[0])), owner: value.owner };
+    const account = await answered(what, fetchEncodedAccount(this.rpc, address));
+    return account.exists ? { data: account.data, owner: account.programAddress } : null;
   }
 
   /** The adapter's state, as the coder decodes `PAStateAccount`: its IDL field names and the coder's values. */
   private async state(): Promise<any> {
     const address = await this.paState();
-    const what = "the adapter's state";
+    const what = `the adapter's state ${address}`;
     const account = await this.account(address, what);
     if (account === null) throw new InstanceError({ kind: "AccountMissing", address });
     // The layout number sits right after the discriminator in every layout.
@@ -184,20 +222,20 @@ export class ProtocolAdapter {
     if (containsBytes(account.data, discriminator, 0) && found !== schemaVersion) {
       throw new InstanceError({
         kind: "Decode",
-        what: `${what} ${address}`,
+        what,
         error: `its schema version is ${found}; this client reads ${schemaVersion}`,
       });
     }
     try {
       return coder.accounts.decode("PAStateAccount", account.data);
     } catch (error) {
-      throw new InstanceError({ kind: "Decode", what: `${what} ${address}`, error: String(error) }, { cause: error });
+      throw new InstanceError({ kind: "Decode", what, error: String(error) }, { cause: error });
     }
   }
 
   /** Whether the account at `address` exists and the adapter owns it: a marker the adapter created. */
   private async isMarker(address: Address, what: string): Promise<boolean> {
-    const account = await this.account(address, what);
+    const account = await this.account(address, `${what} ${address}`);
     return account !== null && account.owner === this.programId;
   }
 
@@ -227,13 +265,15 @@ export class ProtocolAdapter {
         (m) => appendTransactionMessageInstruction(ix, m),
       ),
     );
-    const { value } = await send(
+    const { value } = await answered(
       "the simulation of risc_zero_verifier_paused",
-      this.rpc.simulateTransaction(getBase64EncodedWireTransaction(transaction), {
-        encoding: "base64",
-        sigVerify: false,
-        replaceRecentBlockhash: true,
-      }),
+      this.rpc
+        .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
+          encoding: "base64",
+          sigVerify: false,
+          replaceRecentBlockhash: true,
+        })
+        .send(),
     );
     if (value.err !== null) {
       throw new InstanceError({ kind: "Simulation", error: value.err, logs: value.logs ?? [] });
@@ -315,33 +355,38 @@ export class ProtocolAdapter {
 
   /**
    * The instruction `name` at the adapter's address: `accounts` by their IDL
-   * names in the IDL's order and with its flags (an account the IDL gives a
-   * fixed address may be left out; `null` is an absent optional account),
-   * then `remaining`, and `args` encoded by the coder.
+   * names in the IDL's order and with its flags, then `remaining`, and `args`
+   * encoded by the coder. `null` is an absent optional account. The accounts
+   * no caller decides are filled in: the IDL's fixed addresses and PDAs of
+   * constant seeds, and the event authority and program Anchor's
+   * `#[event_cpi]` adds to an instruction that emits events.
    */
-  private instruction(
+  private async instruction(
     name: string,
     accounts: Record<string, Address | null>,
     args: object,
     remaining: AccountMeta[] = [],
-  ): Instruction {
+  ): Promise<Instruction> {
     const ix = idl.instructions.find((i) => i.name === name);
     if (ix === undefined) throw new Error(`the adapter's IDL declares no instruction ${name}`);
     const names = ix.accounts.map((a) => a.name);
     const unknown = Object.keys(accounts).filter((n) => !names.includes(n));
     if (unknown.length > 0) throw new Error(`${name} takes no account ${unknown.join(", ")}`);
-    const metas = ix.accounts.map((a): AccountMeta => {
-      if ("accounts" in a) throw new Error(`${name}: the account group ${a.name} is not supported`);
-      const given = accounts[a.name];
-      if (given === null) {
-        if (!a.optional) throw new Error(`${name}: ${a.name} is not optional`);
-        // Anchor reads an optional account as absent when it is the address of the program it runs.
-        return { address: this.programId, role: AccountRole.READONLY };
-      }
-      const account = given ?? (a.address === undefined ? undefined : address(a.address));
-      if (account === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
-      return { address: account, role: role(a.signer ?? false, a.writable ?? false) };
-    });
+    const emitsEvents = names.includes("event_authority") && names.includes("program");
+    const metas = await Promise.all(
+      ix.accounts.map(async (a): Promise<AccountMeta> => {
+        if ("accounts" in a) throw new Error(`${name}: the account group ${a.name} is not supported`);
+        const given = accounts[a.name];
+        if (given === null) {
+          if (!a.optional) throw new Error(`${name}: ${a.name} is not optional`);
+          // Anchor reads an optional account as absent when it is the address of the program it runs.
+          return { address: this.programId, role: AccountRole.READONLY };
+        }
+        const account = given ?? (await this.filled(a, emitsEvents));
+        if (account === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
+        return { address: account, role: role(a.signer ?? false, a.writable ?? false) };
+      }),
+    );
     return {
       programAddress: this.programId,
       accounts: [...metas, ...remaining],
@@ -349,13 +394,16 @@ export class ProtocolAdapter {
     };
   }
 
-  /** The accounts Anchor's `#[event_cpi]` adds to an instruction that emits events. */
-  private async events(): Promise<Record<string, Address>> {
-    return { event_authority: (await deriveEventAuthorityPda(this.programId))[0], program: this.programId };
-  }
-
-  private upgradeAuthority(): Promise<Address> {
-    return this.pda(idlSeed("UPGRADE_AUTHORITY_SEED"));
+  /** The address of the IDL account `a` no caller decides, or `undefined` when a caller does. */
+  private async filled(a: IdlInstructionAccount, emitsEvents: boolean): Promise<Address | undefined> {
+    if (a.address !== undefined) return address(a.address);
+    const seeds = a.pda?.seeds;
+    if (a.pda?.program === undefined && seeds?.every(isConst)) {
+      return this.constPda(seeds.map((seed) => Uint8Array.from(seed.value)));
+    }
+    if (emitsEvents && a.name === "event_authority") return this.eventAuthority();
+    if (emitsEvents && a.name === "program") return this.programId;
+    return undefined;
   }
 
   private txData(authority: Address, uploadId: bigint): Promise<Address> {
@@ -371,75 +419,56 @@ export class ProtocolAdapter {
     verifierRouter: Address,
     proofSelector: Uint8Array,
   ): Promise<Instruction> {
+    const [programData, { entry }] = await Promise.all([
+      this.programData(),
+      deriveVerifierRouterPdas(verifierRouter, proofSelector),
+    ]);
     return this.instruction(
       "initialize",
-      {
-        pa_state: await this.paState(),
-        payer,
-        program_data: await deriveProgramDataAddress(this.programId),
-        upgrade_authority: await this.upgradeAuthority(),
-        verifier_entry: (await deriveVerifierRouterPdas(verifierRouter, proofSelector)).entry,
-        ...(await this.events()),
-      },
+      { payer, program_data: programData, verifier_entry: entry },
       { initial_owner: initialOwner, verifier_router: verifierRouter, proof_selector: Array.from(proofSelector) },
     );
   }
 
   /** `pause`, by the owner `authority`. */
-  async pauseIx(authority: Address): Promise<Instruction> {
-    return this.instruction("pause", { pa_state: await this.paState(), authority, ...(await this.events()) }, {});
+  pauseIx(authority: Address): Promise<Instruction> {
+    return this.instruction("pause", { authority }, {});
   }
 
   /** `unpause`, by the owner `authority`. */
-  async unpauseIx(authority: Address): Promise<Instruction> {
-    return this.instruction("unpause", { pa_state: await this.paState(), authority, ...(await this.events()) }, {});
+  unpauseIx(authority: Address): Promise<Instruction> {
+    return this.instruction("unpause", { authority }, {});
   }
 
   /** `deny_logic_refs`, by the owner `authority`, who pays for the entries. */
-  async denyLogicRefsIx(authority: Address, logicRefs: readonly DeniedLogicRef[]): Promise<Instruction> {
+  denyLogicRefsIx(authority: Address, logicRefs: readonly DeniedLogicRef[]): Promise<Instruction> {
     return this.instruction(
       "deny_logic_refs",
-      { pa_state: await this.paState(), authority, ...(await this.events()) },
+      { authority },
       { logic_refs: logicRefs.map((r) => ({ logic_ref: Array.from(r.logicRef), consumed: r.consumed })) },
     );
   }
 
   /** `set_kind_tree_root`, by the owner `authority`. */
-  async setKindTreeRootIx(authority: Address, newKindTreeRoot: Uint8Array): Promise<Instruction> {
-    return this.instruction(
-      "set_kind_tree_root",
-      { pa_state: await this.paState(), authority, ...(await this.events()) },
-      { new_kind_tree_root: Array.from(newKindTreeRoot) },
-    );
+  setKindTreeRootIx(authority: Address, newKindTreeRoot: Uint8Array): Promise<Instruction> {
+    return this.instruction("set_kind_tree_root", { authority }, { new_kind_tree_root: Array.from(newKindTreeRoot) });
   }
 
   /** `transfer_ownership`, by the owner `authority`. */
-  async transferOwnershipIx(authority: Address, newOwner: Address): Promise<Instruction> {
-    return this.instruction(
-      "transfer_ownership",
-      { pa_state: await this.paState(), authority, ...(await this.events()) },
-      { new_owner: newOwner },
-    );
+  transferOwnershipIx(authority: Address, newOwner: Address): Promise<Instruction> {
+    return this.instruction("transfer_ownership", { authority }, { new_owner: newOwner });
   }
 
   /** `renounce_ownership`, by the owner `authority`. */
-  async renounceOwnershipIx(authority: Address): Promise<Instruction> {
-    return this.instruction(
-      "renounce_ownership",
-      { pa_state: await this.paState(), authority, ...(await this.events()) },
-      {},
-    );
+  renounceOwnershipIx(authority: Address): Promise<Instruction> {
+    return this.instruction("renounce_ownership", { authority }, {});
   }
 
   /** `update_expiry_config`, by the owner `authority`. */
-  async updateExpiryConfigIx(
-    authority: Address,
-    newMinExpirySlots: bigint,
-    newMaxExpirySlots: bigint,
-  ): Promise<Instruction> {
+  updateExpiryConfigIx(authority: Address, newMinExpirySlots: bigint, newMaxExpirySlots: bigint): Promise<Instruction> {
     return this.instruction(
       "update_expiry_config",
-      { pa_state: await this.paState(), authority },
+      { authority },
       { new_min_expiry_slots: newMinExpirySlots, new_max_expiry_slots: newMaxExpirySlots },
     );
   }
@@ -448,34 +477,19 @@ export class ProtocolAdapter {
   async upgradeIx(authority: Address, buffer: Address, spill: Address): Promise<Instruction> {
     return this.instruction(
       "upgrade",
-      {
-        pa_state: await this.paState(),
-        authority,
-        program_data: await deriveProgramDataAddress(this.programId),
-        upgraded_program: this.programId,
-        buffer,
-        spill,
-        upgrade_authority: await this.upgradeAuthority(),
-        ...(await this.events()),
-      },
+      { authority, program_data: await this.programData(), upgraded_program: this.programId, buffer, spill },
       {},
     );
   }
 
   /** `risc_zero_verifier_paused`, for the deployment's `verifierRouter` and `proofSelector`. */
   async riscZeroVerifierPausedIx(verifierRouter: Address, proofSelector: Uint8Array): Promise<Instruction> {
-    return this.instruction(
-      "risc_zero_verifier_paused",
-      {
-        pa_state: await this.paState(),
-        verifier_entry: (await deriveVerifierRouterPdas(verifierRouter, proofSelector)).entry,
-      },
-      {},
-    );
+    const { entry } = await deriveVerifierRouterPdas(verifierRouter, proofSelector);
+    return this.instruction("risc_zero_verifier_paused", { verifier_entry: entry }, {});
   }
 
   /** `version`. */
-  versionIx(): Instruction {
+  versionIx(): Promise<Instruction> {
     return this.instruction("version", {}, {});
   }
 
@@ -483,7 +497,7 @@ export class ProtocolAdapter {
   async txdataInitIx(authority: Address, uploadId: bigint, capacity: number, expiresSlot: bigint): Promise<Instruction> {
     return this.instruction(
       "txdata_init",
-      { pa_state: await this.paState(), tx_data: await this.txData(authority, uploadId), authority },
+      { tx_data: await this.txData(authority, uploadId), authority },
       { upload_id: uploadId, capacity, expires_slot: expiresSlot },
     );
   }
@@ -501,7 +515,7 @@ export class ProtocolAdapter {
   async txdataExtendIx(authority: Address, uploadId: bigint, newExpiresSlot: bigint): Promise<Instruction> {
     return this.instruction(
       "txdata_extend",
-      { pa_state: await this.paState(), tx_data: await this.txData(authority, uploadId), authority },
+      { tx_data: await this.txData(authority, uploadId), authority },
       { upload_id: uploadId, new_expires_slot: newExpiresSlot },
     );
   }
@@ -529,32 +543,18 @@ export class ProtocolAdapter {
     );
   }
 
-  /** The named accounts of the inline settlements `settle` and `simulate_execute`, paid for by `payer`. */
-  private async inlineSettlement(payer: Address, settlement: SettlementAccounts): Promise<Record<string, Address | null>> {
-    return {
-      pa_state: await this.paState(),
-      payer,
-      new_root_marker: settlement.newRootMarker,
-      verifier_router_program: settlement.verifierRouterProgram,
-      router: settlement.router,
-      verifier_entry: settlement.verifierEntry,
-      verifier_program: settlement.verifierProgram,
-      ...(await this.events()),
-    };
-  }
-
   /** `settle` of `input`, paid for by `payer`. */
-  async settleIx(payer: Address, input: Uint8Array, settlement: SettlementAccounts): Promise<Instruction> {
+  settleIx(payer: Address, input: Uint8Array, settlement: SettlementAccounts): Promise<Instruction> {
     return this.instruction(
       "settle",
-      await this.inlineSettlement(payer, settlement),
+      { payer, ...settlementNamed(settlement) },
       { transaction_data: input },
       settlement.remainingAccounts,
     );
   }
 
   /** `simulate_execute` of `input` (pa-evm's `simulateExecute`). */
-  async simulateExecuteIx(
+  simulateExecuteIx(
     payer: Address,
     input: Uint8Array,
     skipRiscZeroProofVerification: boolean,
@@ -562,7 +562,7 @@ export class ProtocolAdapter {
   ): Promise<Instruction> {
     return this.instruction(
       "simulate_execute",
-      await this.inlineSettlement(payer, settlement),
+      { payer, ...settlementNamed(settlement) },
       { transaction_data: input, skip_risc_zero_proof_verification: skipRiscZeroProofVerification },
       settlement.remainingAccounts,
     );
@@ -572,17 +572,7 @@ export class ProtocolAdapter {
   async settleFromTxdataIx(authority: Address, uploadId: bigint, settlement: SettlementAccounts): Promise<Instruction> {
     return this.instruction(
       "settle_from_txdata",
-      {
-        pa_state: await this.paState(),
-        tx_data: await this.txData(authority, uploadId),
-        authority,
-        new_root_marker: settlement.newRootMarker,
-        verifier_router_program: settlement.verifierRouterProgram,
-        router: settlement.router,
-        verifier_entry: settlement.verifierEntry,
-        verifier_program: settlement.verifierProgram,
-        ...(await this.events()),
-      },
+      { tx_data: await this.txData(authority, uploadId), authority, ...settlementNamed(settlement) },
       { upload_id: uploadId },
       settlement.remainingAccounts,
     );
