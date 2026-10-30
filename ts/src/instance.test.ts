@@ -102,6 +102,10 @@ describe("the reads computed from the state", () => {
     }
   });
 
+  it("has the padding leaf sha256(\"EMPTY\"), as arm-risc0 and pa-evm do", () => {
+    expect(PADDING_LEAF).toEqual(sha256(new TextEncoder().encode("EMPTY")));
+  });
+
   // Each height's empty subtree root, up to the depth: the padding leaf, then
   // each the hash of the one below with itself.
   it("gives the empty subtree roots of every height up to the depth", () => {

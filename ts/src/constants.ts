@@ -43,9 +43,9 @@ export const MAX_TREE_DEPTH = 33;
 export const MOCK_SELECTOR = new Uint8Array([0xff, 0xff, 0xff, 0xff]);
 
 /**
- * The commitment tree's padding leaf, the leaf of every empty position: the
- * ARM empty-hash constant (the PA's `EMPTY_HASH_WORDS`), as the Rust crate's
- * `PADDING_LEAF`. Not `sha256("")` (`e3b0c442…`).
+ * The commitment tree's padding leaf, the leaf of every empty position:
+ * `sha256("EMPTY")`, the SHA-256 of the five-byte ASCII string `EMPTY`, as the
+ * Rust crate's `PADDING_LEAF`. Not `sha256("")` (`e3b0c442…`).
  */
 export const PADDING_LEAF = new Uint8Array([
   0xcc, 0x1d, 0x2f, 0x83, 0x84, 0x45, 0xdb, 0x7a, 0xec, 0x43, 0x1d, 0xf9, 0xee, 0x8a, 0x87, 0x1f,
