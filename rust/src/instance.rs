@@ -247,12 +247,16 @@ impl<'a> ProtocolAdapter<'a> {
         Ok(self.state().await?.root)
     }
 
-    /// `isCommitmentTreeRootHistorical(root)`: the adapter holds `root`'s
-    /// marker.
+    /// `isCommitmentTreeRootHistorical(root)`: `root` is the tree's initial
+    /// root, the padding leaf, which has no marker, or the adapter holds
+    /// `root`'s marker.
     pub async fn is_commitment_tree_root_historical(
         &self,
         root: &[u8; 32],
     ) -> Result<bool, InstanceError> {
+        if *root == PADDING_LEAF {
+            return Ok(true);
+        }
         let marker = derive_root_marker_pda(&self.program_id, &self.pa_state(), root).0;
         self.is_marker(marker, "the root marker").await
     }
@@ -907,6 +911,32 @@ mod tests {
         assert_eq!(
             built_names, idl_names,
             "the instance's builders and the IDL's instructions differ"
+        );
+    }
+
+    /// The tree's initial root, the padding leaf, is historical from
+    /// `initialize` on (pa-evm's initializer adds it to the root set; the
+    /// adapter accepts it with no marker), so answering needs no account.
+    /// Nothing listens on port 1: any other root's read fails with Rpc.
+    #[tokio::test]
+    async fn the_initial_root_is_historical_without_a_marker() {
+        let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
+        let adapter = ProtocolAdapter::at(&rpc, key(9));
+        let initial = adapter
+            .is_commitment_tree_root_historical(&PADDING_LEAF)
+            .await;
+        println!("initial root: {initial:?}");
+        assert!(
+            matches!(initial, Ok(true)),
+            "the padding leaf must be historical without reading its marker, got {initial:?}"
+        );
+        let other = adapter
+            .is_commitment_tree_root_historical(&[0x99; 32])
+            .await;
+        println!("another root: {other:?}");
+        assert!(
+            matches!(other, Err(InstanceError::Rpc { .. })),
+            "any other root is read from its marker, got {other:?}"
         );
     }
 }
