@@ -321,8 +321,12 @@ export class ProtocolAdapter {
     return (await this.state()).root;
   }
 
-  /** `isCommitmentTreeRootHistorical(root)`: the adapter holds `root`'s marker. */
+  /**
+   * `isCommitmentTreeRootHistorical(root)`: `root` is the tree's initial root,
+   * the padding leaf, which has no marker, or the adapter holds `root`'s marker.
+   */
   async isCommitmentTreeRootHistorical(root: Uint8Array): Promise<boolean> {
+    if (root.length === PADDING_LEAF.length && root.every((byte, i) => byte === PADDING_LEAF[i])) return true;
     const [marker] = await deriveRootMarkerPda(this.programId, await this.paState(), root);
     return this.isMarker(marker, "the root marker");
   }

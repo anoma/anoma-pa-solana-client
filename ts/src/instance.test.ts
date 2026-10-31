@@ -175,6 +175,18 @@ describe("ProtocolAdapter's reads", () => {
       expect(e, what).toMatchObject({ detail: { kind: "Rpc", what: expect.stringMatching(new RegExp(`^${what} `)) } });
     }
   });
+
+  // The tree's initial root, the padding leaf, is historical from `initialize`
+  // on (pa-evm's initializer adds it to the root set; the adapter accepts it
+  // with no marker), so answering needs no account; any other root is read
+  // from its marker, which fails here.
+  it("answer the initial root historical without a marker", async () => {
+    const unreachable = ProtocolAdapter.at(createSolanaRpc("http://127.0.0.1:1"), key(9));
+    expect(await unreachable.isCommitmentTreeRootHistorical(PADDING_LEAF)).toBe(true);
+    const e = await unreachable.isCommitmentTreeRootHistorical(new Uint8Array(32).fill(0x99)).catch((error: unknown) => error);
+    console.log(`another root: ${String(e)}`);
+    expect(e).toMatchObject({ detail: { kind: "Rpc", what: expect.stringMatching(/^the root marker /) } });
+  });
 });
 
 /** The accounts and data of `ix`, which every builder sets. */
