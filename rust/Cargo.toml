@@ -49,6 +49,8 @@ solana-transaction = { version = "4", optional = true }
 solana-transaction-error = { version = "3", optional = true }
 # Decodes the return data of a simulated read.
 base64 = { version = "0.22", optional = true }
+# The instance's errors (`error`), derived as pa-evm's bindings derive theirs.
+thiserror = { version = "2", optional = true }
 
 [build-dependencies]
 # Reads the adapter IDL's errors for `build.rs`.
@@ -63,10 +65,6 @@ required-features = ["solana"]
 
 [[test]]
 name = "instructions_fixture"
-required-features = ["solana"]
-
-[[test]]
-name = "deployments"
 required-features = ["solana"]
 
 [[test]]
@@ -111,6 +109,7 @@ rpc = [
   "dep:solana-transaction",
   "dep:solana-transaction-error",
   "dep:base64",
+  "dep:thiserror",
 ]
 
 # The cfgs `declare_program!`'s output tests: the Solana target, and the
