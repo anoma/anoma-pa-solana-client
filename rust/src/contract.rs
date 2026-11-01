@@ -2,8 +2,6 @@
 //! (`contract::protocol_adapter`): its reads under their EVM names, from its
 //! state and marker accounts, and its instructions, built for its address.
 
-use std::fmt;
-
 use anchor::AnchorDeserialize;
 use base64::Engine;
 use solana_instruction::Instruction;
@@ -14,10 +12,10 @@ use solana_rpc_client_api::config::RpcSimulateTransactionConfig;
 use solana_rpc_client_api::response::{UiReturnDataEncoding, UiTransactionReturnData};
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_error::TransactionError;
 
 use crate::accounts::decode_pa_state;
-use crate::deployments::{chain_id_of_genesis_hash, Deployment, Environment, Record, RECORD};
+use crate::addresses::{clusters, protocol_adapter_address, Environment};
+use crate::error::{rpc_transport_error, BindingsError, BindingsResult};
 use crate::generated::protocol_adapter::accounts::PAStateAccount;
 use crate::generated::protocol_adapter::constants::EMPTY_KIND_TREE_ROOT;
 use crate::generated::protocol_adapter::types::DeniedLogicRef;
@@ -27,122 +25,66 @@ use crate::pda::{
     derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_verifier_entry_pda,
 };
 
-/// Why an instance could not be made or could not answer.
-#[derive(Debug)]
-pub enum InstanceError {
-    /// The environment records no deployed adapter on the cluster.
-    NoDeployment { chain_id: String },
-    /// An account the answer is read from does not exist.
-    AccountMissing { address: Pubkey },
-    /// An RPC request failed: retrying may succeed.
-    Rpc { what: String, error: String },
-    /// What the chain holds does not decode.
-    Decode { what: String, error: String },
-    /// A simulated instruction failed.
-    Simulation {
-        error: TransactionError,
-        logs: Vec<String>,
-    },
-}
-
-impl fmt::Display for InstanceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NoDeployment { chain_id } => {
-                write!(f, "no deployed adapter is recorded on {chain_id}")
-            }
-            Self::AccountMissing { address } => write!(f, "the account {address} does not exist"),
-            Self::Rpc { what, error } => write!(f, "failed to fetch {what}: {error}"),
-            Self::Decode { what, error } => write!(f, "{what} does not decode: {error}"),
-            Self::Simulation { error, logs } => {
-                write!(f, "the simulation failed: {error}; logs: {logs:?}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for InstanceError {}
-
-fn rpc_error(
-    what: &str,
-) -> impl FnOnce(solana_rpc_client_api::client_error::Error) -> InstanceError + '_ {
-    move |error| InstanceError::Rpc {
-        what: what.to_owned(),
-        error: error.to_string(),
-    }
+/// Returns a protocol adapter instance of the environment for the given RPC
+/// client.
+pub async fn protocol_adapter(
+    rpc: &RpcClient,
+    environment: Environment,
+) -> BindingsResult<ProtocolAdapterInstance<'_>> {
+    let genesis_hash = rpc
+        .get_genesis_hash()
+        .await
+        .map_err(rpc_transport_error("the genesis hash"))?;
+    let address = recorded_address(environment, &genesis_hash)?;
+    Ok(ProtocolAdapterInstance::new(address, rpc))
 }
 
 /// The adapter `environment` records on the cluster whose genesis hash is
 /// `genesis_hash`.
-pub fn recorded_deployment(
-    environment: Environment,
-    genesis_hash: &Hash,
-) -> Result<Deployment, InstanceError> {
-    deployment_in(&RECORD, environment, genesis_hash)
-}
-
-fn deployment_in(
-    record: &Record,
-    environment: Environment,
-    genesis_hash: &Hash,
-) -> Result<Deployment, InstanceError> {
-    let chain_id = chain_id_of_genesis_hash(genesis_hash);
-    record
-        .deployment(environment, &chain_id)
-        .ok_or(InstanceError::NoDeployment { chain_id })
-}
-
-/// The adapter `environment` records on the cluster behind `rpc`, as pa-evm's
-/// `contract::protocol_adapter(provider, environment)`.
-pub async fn protocol_adapter(
-    rpc: &RpcClient,
-    environment: Environment,
-) -> Result<ProtocolAdapter<'_>, InstanceError> {
-    let genesis_hash = rpc
-        .get_genesis_hash()
-        .await
-        .map_err(rpc_error("the genesis hash"))?;
-    let deployment = recorded_deployment(environment, &genesis_hash)?;
-    Ok(ProtocolAdapter::at(rpc, deployment.program_id))
+fn recorded_address(environment: Environment, genesis_hash: &Hash) -> BindingsResult<Pubkey> {
+    let cluster = clusters()
+        .find(|cluster| cluster.get_genesis_hash().as_ref() == Some(genesis_hash))
+        .ok_or(BindingsError::ChainIdUnknown)?;
+    protocol_adapter_address(environment, &cluster).ok_or(BindingsError::UnsupportedChain(cluster))
 }
 
 /// The adapter at an address, read over an RPC at its commitment.
 ///
 /// Its reads are exercised against a deployed adapter by the integration
 /// tests of the adapter repository's harness, which deploys, initializes and
-/// settles the adapter and reads it through `ProtocolAdapter::at`.
-pub struct ProtocolAdapter<'a> {
+/// settles the adapter and reads it through `ProtocolAdapterInstance::new`.
+pub struct ProtocolAdapterInstance<'a> {
+    address: Pubkey,
     rpc: &'a RpcClient,
-    program_id: Pubkey,
 }
 
-impl<'a> ProtocolAdapter<'a> {
-    /// The adapter at `program_id`, as alloy's `IProtocolAdapter::new(address,
+impl<'a> ProtocolAdapterInstance<'a> {
+    /// The adapter at `address`, as alloy's `ProtocolAdapterInstance::new(address,
     /// provider)`.
-    pub fn at(rpc: &'a RpcClient, program_id: Pubkey) -> Self {
-        Self { rpc, program_id }
+    pub fn new(address: Pubkey, rpc: &'a RpcClient) -> Self {
+        Self { address, rpc }
     }
 
     /// The address the adapter is deployed at.
-    pub fn program_id(&self) -> Pubkey {
-        self.program_id
+    pub fn address(&self) -> Pubkey {
+        self.address
     }
 
     fn pa_state(&self) -> Pubkey {
-        derive_pa_state_pda(&self.program_id).0
+        derive_pa_state_pda(&self.address).0
     }
 
-    async fn state(&self) -> Result<PAStateAccount, InstanceError> {
+    async fn state(&self) -> BindingsResult<PAStateAccount> {
         let address = self.pa_state();
         let what = format!("the adapter's state {address}");
         let account = self
             .rpc
             .get_account_with_commitment(&address, self.rpc.commitment())
             .await
-            .map_err(rpc_error(&what))?
+            .map_err(rpc_transport_error(&what))?
             .value
-            .ok_or(InstanceError::AccountMissing { address })?;
-        decode_pa_state(&account.data).map_err(|e| InstanceError::Decode {
+            .ok_or(BindingsError::AccountMissing { address })?;
+        decode_pa_state(&account.data).map_err(|e| BindingsError::Decode {
             what,
             error: e.to_string(),
         })
@@ -150,28 +92,25 @@ impl<'a> ProtocolAdapter<'a> {
 
     /// Whether the account at `address` exists and the adapter owns it: a
     /// marker the adapter created.
-    async fn is_marker(&self, address: Pubkey, what: &str) -> Result<bool, InstanceError> {
+    async fn is_marker(&self, address: Pubkey, what: &str) -> BindingsResult<bool> {
         let account = self
             .rpc
             .get_account_with_commitment(&address, self.rpc.commitment())
             .await
-            .map_err(rpc_error(&format!("{what} {address}")))?
+            .map_err(rpc_transport_error(&format!("{what} {address}")))?
             .value;
-        Ok(account.is_some_and(|account| account.owner == self.program_id))
+        Ok(account.is_some_and(|account| account.owner == self.address))
     }
 
     /// `paused()`.
-    pub async fn paused(&self) -> Result<bool, InstanceError> {
+    pub async fn paused(&self) -> BindingsResult<bool> {
         Ok(self.state().await?.paused)
     }
 
     /// `riscZeroVerifierPaused()`: the adapter's `risc_zero_verifier_paused`
     /// simulated, with `fee_payer`, any funded system account, paying the
     /// simulation's fee (nothing is signed or sent).
-    pub async fn risc_zero_verifier_paused(
-        &self,
-        fee_payer: &Pubkey,
-    ) -> Result<bool, InstanceError> {
+    pub async fn risc_zero_verifier_paused(&self, fee_payer: &Pubkey) -> BindingsResult<bool> {
         let state = self.state().await?;
         let ix = self.risc_zero_verifier_paused_ix(&state.verifier_router, state.proof_selector);
         let message = Message::new(&[ix], Some(fee_payer));
@@ -194,56 +133,56 @@ impl<'a> ProtocolAdapter<'a> {
                 },
             )
             .await
-            .map_err(rpc_error("the simulation of risc_zero_verifier_paused"))?
+            .map_err(rpc_transport_error(
+                "the simulation of risc_zero_verifier_paused",
+            ))?
             .value;
         if let Some(error) = simulated.err {
-            return Err(InstanceError::Simulation {
+            return Err(BindingsError::Simulation {
                 error: error.into(),
                 logs: simulated.logs.unwrap_or_default(),
             });
         }
-        returned::<bool>(&self.program_id, simulated.return_data)
+        returned::<bool>(&self.address, simulated.return_data)
     }
 
     /// `RISC_ZERO_VERIFIER_ROUTER()`.
-    pub async fn risc_zero_verifier_router(&self) -> Result<Pubkey, InstanceError> {
+    pub async fn risc_zero_verifier_router(&self) -> BindingsResult<Pubkey> {
         Ok(self.state().await?.verifier_router)
     }
 
     /// `RISC_ZERO_VERIFIER_SELECTOR()`.
-    pub async fn risc_zero_verifier_selector(&self) -> Result<[u8; 4], InstanceError> {
+    pub async fn risc_zero_verifier_selector(&self) -> BindingsResult<[u8; 4]> {
         Ok(self.state().await?.proof_selector)
     }
 
     /// `commitmentCount()`.
-    pub async fn commitment_count(&self) -> Result<u64, InstanceError> {
+    pub async fn commitment_count(&self) -> BindingsResult<u64> {
         Ok(self.state().await?.next_index)
     }
 
     /// `commitmentTreeDepth()`.
-    pub async fn commitment_tree_depth(&self) -> Result<u8, InstanceError> {
+    pub async fn commitment_tree_depth(&self) -> BindingsResult<u8> {
         Ok(self.state().await?.current_depth)
     }
 
     /// `commitmentTreeCapacity()`.
-    pub async fn commitment_tree_capacity(&self) -> Result<u64, InstanceError> {
+    pub async fn commitment_tree_capacity(&self) -> BindingsResult<u64> {
         Ok(capacity(&self.state().await?))
     }
 
     /// `commitmentTreeLeftSiblings()`, from the leaf level up.
-    pub async fn commitment_tree_left_siblings(&self) -> Result<Vec<[u8; 32]>, InstanceError> {
+    pub async fn commitment_tree_left_siblings(&self) -> BindingsResult<Vec<[u8; 32]>> {
         Ok(self.state().await?.frontier)
     }
 
     /// `commitmentTreeEmptySubtreeRoots()`, from the leaf level up.
-    pub async fn commitment_tree_empty_subtree_roots(
-        &self,
-    ) -> Result<Vec<[u8; 32]>, InstanceError> {
+    pub async fn commitment_tree_empty_subtree_roots(&self) -> BindingsResult<Vec<[u8; 32]>> {
         Ok(empty_subtree_roots(&self.state().await?))
     }
 
     /// `latestCommitmentTreeRoot()`.
-    pub async fn latest_commitment_tree_root(&self) -> Result<[u8; 32], InstanceError> {
+    pub async fn latest_commitment_tree_root(&self) -> BindingsResult<[u8; 32]> {
         Ok(self.state().await?.root)
     }
 
@@ -253,26 +192,23 @@ impl<'a> ProtocolAdapter<'a> {
     pub async fn is_commitment_tree_root_historical(
         &self,
         root: &[u8; 32],
-    ) -> Result<bool, InstanceError> {
+    ) -> BindingsResult<bool> {
         if *root == PADDING_LEAF {
             return Ok(true);
         }
-        let marker = derive_root_marker_pda(&self.program_id, &self.pa_state(), root).0;
+        let marker = derive_root_marker_pda(&self.address, &self.pa_state(), root).0;
         self.is_marker(marker, "the root marker").await
     }
 
     /// `isNullifierContained(nullifier)`: the adapter holds `nullifier`'s
     /// marker.
-    pub async fn is_nullifier_contained(
-        &self,
-        nullifier: &[u8; 32],
-    ) -> Result<bool, InstanceError> {
-        let marker = derive_nullifier_pda(&self.program_id, &self.pa_state(), nullifier).0;
+    pub async fn is_nullifier_contained(&self, nullifier: &[u8; 32]) -> BindingsResult<bool> {
+        let marker = derive_nullifier_pda(&self.address, &self.pa_state(), nullifier).0;
         self.is_marker(marker, "the nullifier marker").await
     }
 
     /// `getKindTreeRoot()`.
-    pub async fn get_kind_tree_root(&self) -> Result<[u8; 32], InstanceError> {
+    pub async fn get_kind_tree_root(&self) -> BindingsResult<[u8; 32]> {
         Ok(self.state().await?.kind_tree_root)
     }
 
@@ -286,7 +222,7 @@ impl<'a> ProtocolAdapter<'a> {
         &self,
         logic_ref: &[u8; 32],
         consumed: bool,
-    ) -> Result<bool, InstanceError> {
+    ) -> BindingsResult<bool> {
         Ok(is_logic_ref_denied(
             &self.state().await?,
             logic_ref,
@@ -295,7 +231,7 @@ impl<'a> ProtocolAdapter<'a> {
     }
 
     /// `owner()`: the zero key once the ownership is renounced.
-    pub async fn owner(&self) -> Result<Pubkey, InstanceError> {
+    pub async fn owner(&self) -> BindingsResult<Pubkey> {
         Ok(self.state().await?.owner)
     }
 
@@ -308,7 +244,7 @@ impl<'a> ProtocolAdapter<'a> {
         proof_selector: [u8; 4],
     ) -> Instruction {
         instructions::initialize_ix(
-            &self.program_id,
+            &self.address,
             payer,
             initial_owner,
             verifier_router,
@@ -318,12 +254,12 @@ impl<'a> ProtocolAdapter<'a> {
 
     /// `pause`, by the owner `authority`.
     pub fn pause_ix(&self, authority: &Pubkey) -> Instruction {
-        instructions::pause_ix(&self.program_id, authority)
+        instructions::pause_ix(&self.address, authority)
     }
 
     /// `unpause`, by the owner `authority`.
     pub fn unpause_ix(&self, authority: &Pubkey) -> Instruction {
-        instructions::unpause_ix(&self.program_id, authority)
+        instructions::unpause_ix(&self.address, authority)
     }
 
     /// `deny_logic_refs`, by the owner `authority`.
@@ -332,7 +268,7 @@ impl<'a> ProtocolAdapter<'a> {
         authority: &Pubkey,
         logic_refs: &[DeniedLogicRef],
     ) -> Instruction {
-        instructions::deny_logic_refs_ix(&self.program_id, authority, logic_refs)
+        instructions::deny_logic_refs_ix(&self.address, authority, logic_refs)
     }
 
     /// `set_kind_tree_root`, by the owner `authority`.
@@ -341,17 +277,17 @@ impl<'a> ProtocolAdapter<'a> {
         authority: &Pubkey,
         new_kind_tree_root: [u8; 32],
     ) -> Instruction {
-        instructions::set_kind_tree_root_ix(&self.program_id, authority, new_kind_tree_root)
+        instructions::set_kind_tree_root_ix(&self.address, authority, new_kind_tree_root)
     }
 
     /// `transfer_ownership`, by the owner `authority`.
     pub fn transfer_ownership_ix(&self, authority: &Pubkey, new_owner: &Pubkey) -> Instruction {
-        instructions::transfer_ownership_ix(&self.program_id, authority, new_owner)
+        instructions::transfer_ownership_ix(&self.address, authority, new_owner)
     }
 
     /// `renounce_ownership`, by the owner `authority`.
     pub fn renounce_ownership_ix(&self, authority: &Pubkey) -> Instruction {
-        instructions::renounce_ownership_ix(&self.program_id, authority)
+        instructions::renounce_ownership_ix(&self.address, authority)
     }
 
     /// `update_expiry_config`, by the owner `authority`.
@@ -362,7 +298,7 @@ impl<'a> ProtocolAdapter<'a> {
         new_max_expiry_slots: u64,
     ) -> Instruction {
         instructions::update_expiry_config_ix(
-            &self.program_id,
+            &self.address,
             authority,
             new_min_expiry_slots,
             new_max_expiry_slots,
@@ -371,7 +307,7 @@ impl<'a> ProtocolAdapter<'a> {
 
     /// `upgrade` to `buffer`'s code, by the owner `authority`.
     pub fn upgrade_ix(&self, authority: &Pubkey, buffer: &Pubkey, spill: &Pubkey) -> Instruction {
-        instructions::upgrade_ix(&self.program_id, authority, buffer, spill)
+        instructions::upgrade_ix(&self.address, authority, buffer, spill)
     }
 
     /// `risc_zero_verifier_paused`, for the deployment's `verifier_router`
@@ -382,14 +318,14 @@ impl<'a> ProtocolAdapter<'a> {
         proof_selector: [u8; 4],
     ) -> Instruction {
         instructions::risc_zero_verifier_paused_ix(
-            &self.program_id,
+            &self.address,
             &derive_verifier_entry_pda(verifier_router, proof_selector),
         )
     }
 
     /// `version`.
     pub fn version_ix(&self) -> Instruction {
-        instructions::version_ix(&self.program_id)
+        instructions::version_ix(&self.address)
     }
 
     /// `txdata_init` of `authority`'s upload `upload_id`.
@@ -400,13 +336,7 @@ impl<'a> ProtocolAdapter<'a> {
         capacity: u32,
         expires_slot: u64,
     ) -> Instruction {
-        instructions::txdata_init_ix(
-            &self.program_id,
-            authority,
-            upload_id,
-            capacity,
-            expires_slot,
-        )
+        instructions::txdata_init_ix(&self.address, authority, upload_id, capacity, expires_slot)
     }
 
     /// `txdata_write` of `chunk` at `offset` into `authority`'s upload
@@ -418,7 +348,7 @@ impl<'a> ProtocolAdapter<'a> {
         offset: u32,
         chunk: &[u8],
     ) -> Instruction {
-        instructions::txdata_write_ix(&self.program_id, authority, upload_id, offset, chunk)
+        instructions::txdata_write_ix(&self.address, authority, upload_id, offset, chunk)
     }
 
     /// `txdata_extend` of `authority`'s upload `upload_id`.
@@ -428,7 +358,7 @@ impl<'a> ProtocolAdapter<'a> {
         upload_id: u64,
         new_expires_slot: u64,
     ) -> Instruction {
-        instructions::txdata_extend_ix(&self.program_id, authority, upload_id, new_expires_slot)
+        instructions::txdata_extend_ix(&self.address, authority, upload_id, new_expires_slot)
     }
 
     /// `txdata_close` of `authority`'s upload `upload_id`, its rent going to
@@ -439,7 +369,7 @@ impl<'a> ProtocolAdapter<'a> {
         refund: &Pubkey,
         upload_id: u64,
     ) -> Instruction {
-        instructions::txdata_close_ix(&self.program_id, authority, refund, upload_id)
+        instructions::txdata_close_ix(&self.address, authority, refund, upload_id)
     }
 
     /// `txdata_close_expired` of `authority`'s upload `upload_id`, by
@@ -451,7 +381,7 @@ impl<'a> ProtocolAdapter<'a> {
         authority: &Pubkey,
         upload_id: u64,
     ) -> Instruction {
-        instructions::txdata_close_expired_ix(&self.program_id, payer, refund, upload_id, authority)
+        instructions::txdata_close_expired_ix(&self.address, payer, refund, upload_id, authority)
     }
 
     /// `settle` of `input`, paid for by `payer`.
@@ -461,7 +391,7 @@ impl<'a> ProtocolAdapter<'a> {
         input: &[u8],
         settlement: SettlementAccounts,
     ) -> Instruction {
-        instructions::settle_ix(&self.program_id, payer, input, settlement)
+        instructions::settle_ix(&self.address, payer, input, settlement)
     }
 
     /// `simulate_execute` of `input` (pa-evm's `simulateExecute`).
@@ -473,7 +403,7 @@ impl<'a> ProtocolAdapter<'a> {
         settlement: SettlementAccounts,
     ) -> Instruction {
         instructions::simulate_execute_ix(
-            &self.program_id,
+            &self.address,
             payer,
             input,
             skip_risc_zero_proof_verification,
@@ -488,7 +418,7 @@ impl<'a> ProtocolAdapter<'a> {
         upload_id: u64,
         settlement: SettlementAccounts,
     ) -> Instruction {
-        instructions::settle_from_txdata_ix(&self.program_id, authority, upload_id, settlement)
+        instructions::settle_from_txdata_ix(&self.address, authority, upload_id, settlement)
     }
 }
 
@@ -520,9 +450,9 @@ fn is_logic_ref_denied(state: &PAStateAccount, logic_ref: &[u8; 32], consumed: b
 fn returned<T: AnchorDeserialize>(
     program: &Pubkey,
     return_data: Option<UiTransactionReturnData>,
-) -> Result<T, InstanceError> {
+) -> BindingsResult<T> {
     let what = format!("the return data of {program}");
-    let decode = |error: String| InstanceError::Decode {
+    let decode = |error: String| BindingsError::Decode {
         what: what.clone(),
         error,
     };
@@ -555,80 +485,43 @@ mod tests {
 
     #[test]
     fn the_recorded_staging_devnet_adapter_is_the_idls_program() {
-        let found = recorded_deployment(Environment::Staging, &genesis_hash(ClusterType::Devnet))
-            .unwrap_or_else(|e| panic!("{e}"));
+        let found = recorded_address(Environment::Staging, &genesis_hash(ClusterType::Devnet));
         println!("{found:?}");
-        assert_eq!(found.chain_id, "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1");
-        assert_eq!(found.program_id, crate::generated::protocol_adapter::ID);
+        assert!(
+            matches!(found, Ok(address) if address == crate::generated::protocol_adapter::ID),
+            "{found:?}"
+        );
     }
 
     #[test]
     fn production_records_nothing_on_mainnet_beta() {
-        let found = recorded_deployment(
+        let found = recorded_address(
             Environment::Production,
             &genesis_hash(ClusterType::MainnetBeta),
         );
         println!("{found:?}");
         assert!(
             matches!(
-                &found,
-                Err(InstanceError::NoDeployment { chain_id })
-                    if chain_id == "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+                found,
+                Err(BindingsError::UnsupportedChain(ClusterType::MainnetBeta))
             ),
             "{found:?}"
         );
     }
 
-    /// A cluster no environment records, such as a local validator, is no
-    /// deployment, under the chain id its genesis hash gives.
+    /// A genesis hash of no known cluster, such as a local validator's, is
+    /// `ChainIdUnknown` in every environment.
     #[test]
-    fn an_unrecorded_genesis_hash_is_no_deployment_on_its_chain() {
+    fn a_genesis_hash_of_no_known_cluster_is_chain_id_unknown() {
         let unknown = Hash::new_from_array([0; 32]);
         for environment in [Environment::Staging, Environment::Production] {
-            let found = recorded_deployment(environment, &unknown);
+            let found = recorded_address(environment, &unknown);
             println!("{environment:?}: {found:?}");
             assert!(
-                matches!(
-                    &found,
-                    Err(InstanceError::NoDeployment { chain_id })
-                        if chain_id == "solana:11111111111111111111111111111111"
-                ),
+                matches!(found, Err(BindingsError::ChainIdUnknown)),
                 "{found:?}"
             );
         }
-    }
-
-    #[test]
-    fn a_deployed_entry_is_the_clusters_deployment() {
-        let record = Record::parse(
-            r#"{"staging": [{"chainId": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-                             "programId": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx",
-                             "deploymentSlot": 4242}],
-                "production": []}"#,
-        );
-        let found = deployment_in(
-            &record,
-            Environment::Staging,
-            &genesis_hash(ClusterType::Devnet),
-        );
-        println!("{found:?}");
-        assert_eq!(
-            found.unwrap(),
-            Deployment {
-                chain_id: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1".to_owned(),
-                program_id: crate::generated::protocol_adapter::ID,
-                deployment_slot: 4242,
-            }
-        );
-        let other = deployment_in(
-            &record,
-            Environment::Production,
-            &genesis_hash(ClusterType::Devnet),
-        );
-        assert!(
-            matches!(other, Err(InstanceError::NoDeployment { .. })),
-            "{other:?}"
-        );
     }
 
     /// The state `initialize` writes, as the program's `PAStateAccount::running`
@@ -745,7 +638,7 @@ mod tests {
             let result = returned::<bool>(&program, data);
             println!("{what}: {result:?}");
             assert!(
-                matches!(result, Err(InstanceError::Decode { .. })),
+                matches!(result, Err(BindingsError::Decode { .. })),
                 "{what}: {result:?}"
             );
         }
@@ -775,8 +668,8 @@ mod tests {
         let mut built_names = std::collections::BTreeSet::new();
         let rpc = RpcClient::new("http://127.0.0.1:1".to_owned());
         let pa = key(9);
-        let adapter = ProtocolAdapter::at(&rpc, pa);
-        assert_eq!(adapter.program_id(), pa);
+        let adapter = ProtocolAdapterInstance::new(pa, &rpc);
+        assert_eq!(adapter.address(), pa);
         let settlement = SettlementAccounts {
             new_root_marker: None,
             verifier_router_program: key(11),
@@ -912,11 +805,12 @@ mod tests {
     /// The tree's initial root, the padding leaf, is historical from
     /// `initialize` on (pa-evm's initializer adds it to the root set; the
     /// adapter accepts it with no marker), so answering needs no account.
-    /// Nothing listens on port 1: any other root's read fails with Rpc.
+    /// Nothing listens on port 1: any other root's read fails with
+    /// `RpcTransportError`.
     #[tokio::test]
     async fn the_initial_root_is_historical_without_a_marker() {
         let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
-        let adapter = ProtocolAdapter::at(&rpc, key(9));
+        let adapter = ProtocolAdapterInstance::new(key(9), &rpc);
         let initial = adapter
             .is_commitment_tree_root_historical(&PADDING_LEAF)
             .await;
@@ -930,7 +824,7 @@ mod tests {
             .await;
         println!("another root: {other:?}");
         assert!(
-            matches!(other, Err(InstanceError::Rpc { .. })),
+            matches!(other, Err(BindingsError::RpcTransportError { .. })),
             "any other root is read from its marker, got {other:?}"
         );
     }

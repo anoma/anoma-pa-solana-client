@@ -4,7 +4,7 @@
 //! bytes for `settle`, `simulate_execute`, `txdata_write` and
 //! `deny_logic_refs`. The TS package
 //! builds the same instructions and checks them against the same file
-//! (`ts/src/instance.test.ts`).
+//! (`ts/src/contract.test.ts`).
 //!
 //! Regenerate it after a builder or IDL change:
 //!

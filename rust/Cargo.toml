@@ -66,10 +66,6 @@ name = "instructions_fixture"
 required-features = ["solana"]
 
 [[test]]
-name = "deployments"
-required-features = ["solana"]
-
-[[test]]
 name = "deployed"
 required-features = ["rpc"]
 

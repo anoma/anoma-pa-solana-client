@@ -8,15 +8,19 @@ export * from "./constants.js";
 export * from "./pda.js";
 export * from "./codecs.js";
 export * from "./events.js";
-export * from "./deployments.js";
 export {
-  InstanceError,
+  protocolAdapterAddress,
+  protocolAdapterDeploymentsMap,
+  type ClusterType,
+  type Environment,
+} from "./addresses.js";
+export {
+  BindingsError,
   protocolAdapter,
-  ProtocolAdapter,
-  recordedDeployment,
+  ProtocolAdapterInstance,
+  type BindingsErrorDetail,
   type DeniedLogicRef,
-  type InstanceErrorDetail,
   type SettlementAccounts,
-} from "./instance.js";
+} from "./contract.js";
 export * from "./confirmation.js";
 export * from "./labelValueRef.js";

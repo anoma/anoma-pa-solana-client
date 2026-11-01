@@ -1,6 +1,6 @@
 // The adapter deployed at an address, as pa-evm's bindings return it
 // (`contract::protocol_adapter`): its reads under their EVM names, from its
-// state and marker accounts, as the Rust crate's `instance` reads them.
+// state and marker accounts, as the Rust crate's `contract` reads them.
 
 import type { IdlInstructionAccount, IdlSeed, IdlSeedConst } from "@anchor-lang/core";
 import { sha256 } from "@noble/hashes/sha2";
@@ -30,7 +30,7 @@ import {
 
 import { coder } from "./coder.js";
 import { PADDING_LEAF } from "./constants.js";
-import { chainIdOfGenesisHash, deployment, type Deployment, type DeploymentRecord, type Environment } from "./deployments.js";
+import { clusterOfGenesisHash, protocolAdapterAddress, type ClusterType, type Environment } from "./addresses.js";
 import { idl, idlConstant, idlSeed } from "./idl.js";
 import { toJson } from "./json.js";
 import {
@@ -42,26 +42,30 @@ import {
 } from "./pda.js";
 
 /** Why an instance could not be made or could not answer. */
-export type InstanceErrorDetail =
+export type BindingsErrorDetail =
+  /** The genesis hash the RPC transport returned is no known cluster's. */
+  | { kind: "ChainIdUnknown" }
+  /** An RPC request failed: retrying may succeed. */
+  | { kind: "RpcTransportError"; what: string; error: string }
   /** The environment records no deployed adapter on the cluster. */
-  | { kind: "NoDeployment"; chainId: string }
+  | { kind: "UnsupportedChain"; cluster: ClusterType }
   /** An account the answer is read from does not exist. */
   | { kind: "AccountMissing"; address: Address }
-  /** An RPC request failed: retrying may succeed. */
-  | { kind: "Rpc"; what: string; error: string }
   /** What the chain holds does not decode. */
   | { kind: "Decode"; what: string; error: string }
   /** A simulated instruction failed. */
   | { kind: "Simulation"; error: TransactionError; logs: readonly string[] };
 
-function describe(detail: InstanceErrorDetail): string {
+function describe(detail: BindingsErrorDetail): string {
   switch (detail.kind) {
-    case "NoDeployment":
-      return `no deployed adapter is recorded on ${detail.chainId}`;
+    case "ChainIdUnknown":
+      return "The genesis hash returned by the RPC transport is not in the list of known clusters.";
+    case "RpcTransportError":
+      return `The RPC transport returned an error fetching ${detail.what}: ${detail.error}`;
+    case "UnsupportedChain":
+      return `The current protocol adapter version has not been deployed on the provided chain '${detail.cluster}'.`;
     case "AccountMissing":
       return `the account ${detail.address} does not exist`;
-    case "Rpc":
-      return `failed to fetch ${detail.what}: ${detail.error}`;
     case "Decode":
       return `${detail.what} does not decode: ${detail.error}`;
     case "Simulation":
@@ -69,47 +73,41 @@ function describe(detail: InstanceErrorDetail): string {
   }
 }
 
-export class InstanceError extends Error {
+export class BindingsError extends Error {
   constructor(
-    readonly detail: InstanceErrorDetail,
+    readonly detail: BindingsErrorDetail,
     options?: ErrorOptions,
   ) {
     super(describe(detail), options);
-    this.name = "InstanceError";
+    this.name = "BindingsError";
   }
 }
 
-/** The RPC's answer `response`, a failed request thrown as `Rpc`. */
+/** The RPC's answer `response`, a failed request thrown as `RpcTransportError`. */
 async function answered<T>(what: string, response: Promise<T>): Promise<T> {
   try {
     return await response;
   } catch (error) {
-    throw new InstanceError({ kind: "Rpc", what, error: String(error) }, { cause: error });
+    throw new BindingsError({ kind: "RpcTransportError", what, error: String(error) }, { cause: error });
   }
 }
 
-/**
- * The adapter `environment` records on the cluster whose genesis hash is
- * `genesisHash`, in `record` (the package's `deployments.json` by default).
- */
-export function recordedDeployment(
-  environment: Environment,
-  genesisHash: string,
-  record?: DeploymentRecord,
-): Deployment {
-  const id = chainIdOfGenesisHash(genesisHash);
-  const recorded = deployment(environment, id, record);
-  if (recorded === undefined) throw new InstanceError({ kind: "NoDeployment", chainId: id });
+/** The adapter `environment` records on the cluster whose genesis hash is `genesisHash`. */
+export function recordedAddress(environment: Environment, genesisHash: string): Address {
+  const cluster = clusterOfGenesisHash(genesisHash);
+  if (cluster === undefined) throw new BindingsError({ kind: "ChainIdUnknown" });
+  const recorded = protocolAdapterAddress(environment, cluster);
+  if (recorded === undefined) throw new BindingsError({ kind: "UnsupportedChain", cluster });
   return recorded;
 }
 
-/**
- * The adapter `environment` records on the cluster behind `rpc`, as
- * pa-evm's `contract::protocol_adapter(provider, environment)`.
- */
-export async function protocolAdapter(rpc: Rpc<SolanaRpcApiMainnet>, environment: Environment): Promise<ProtocolAdapter> {
+/** Returns a protocol adapter instance of the environment for the given RPC. */
+export async function protocolAdapter(
+  rpc: Rpc<SolanaRpcApiMainnet>,
+  environment: Environment,
+): Promise<ProtocolAdapterInstance> {
   const genesisHash = await answered("the genesis hash", rpc.getGenesisHash().send());
-  return ProtocolAdapter.at(rpc, recordedDeployment(environment, genesisHash).programId);
+  return new ProtocolAdapterInstance(recordedAddress(environment, genesisHash), rpc);
 }
 
 /**
@@ -158,17 +156,13 @@ function role(signer: boolean, writable: boolean): AccountRole {
 }
 
 /** The adapter at an address, read over an RPC at its commitment. */
-export class ProtocolAdapter {
-  private constructor(
-    private readonly rpc: Rpc<SolanaRpcApiMainnet>,
+export class ProtocolAdapterInstance {
+  /** The adapter at `address`, as alloy's `ProtocolAdapterInstance::new(address, provider)`. */
+  constructor(
     /** The address the adapter is deployed at. */
-    readonly programId: Address,
+    readonly address: Address,
+    private readonly rpc: Rpc<SolanaRpcApiMainnet>,
   ) {}
-
-  /** The adapter at `programId`, as alloy's `IProtocolAdapter::new(address, provider)`. */
-  static at(rpc: Rpc<SolanaRpcApiMainnet>, programId: Address): ProtocolAdapter {
-    return new ProtocolAdapter(rpc, programId);
-  }
 
   /** The addresses that depend only on the adapter's address, each derived on first use. */
   private readonly derived = new Map<string, Promise<Address>>();
@@ -183,7 +177,7 @@ export class ProtocolAdapter {
   }
 
   private async pda(...seeds: Uint8Array[]): Promise<Address> {
-    return (await getProgramDerivedAddress({ programAddress: this.programId, seeds }))[0];
+    return (await getProgramDerivedAddress({ programAddress: this.address, seeds }))[0];
   }
 
   /** The adapter's PDA of the constant `seeds`. */
@@ -196,11 +190,11 @@ export class ProtocolAdapter {
   }
 
   private eventAuthority(): Promise<Address> {
-    return this.once("event_authority", async () => (await deriveEventAuthorityPda(this.programId))[0]);
+    return this.once("event_authority", async () => (await deriveEventAuthorityPda(this.address))[0]);
   }
 
   private programData(): Promise<Address> {
-    return this.once("program_data", () => deriveProgramDataAddress(this.programId));
+    return this.once("program_data", () => deriveProgramDataAddress(this.address));
   }
 
   /** The data and owner of the account at `address` (`what`), or `null` when it does not exist. */
@@ -214,13 +208,13 @@ export class ProtocolAdapter {
     const address = await this.paState();
     const what = `the adapter's state ${address}`;
     const account = await this.account(address, what);
-    if (account === null) throw new InstanceError({ kind: "AccountMissing", address });
+    if (account === null) throw new BindingsError({ kind: "AccountMissing", address });
     // The layout number sits right after the discriminator in every layout.
     const discriminator = coder.accounts.accountDiscriminator("PAStateAccount");
     const schemaVersion = idlConstant("SCHEMA_VERSION");
     const found = account.data[discriminator.length];
     if (containsBytes(account.data, discriminator, 0) && found !== schemaVersion) {
-      throw new InstanceError({
+      throw new BindingsError({
         kind: "Decode",
         what,
         error: `its schema version is ${found}; this client reads ${schemaVersion}`,
@@ -229,14 +223,14 @@ export class ProtocolAdapter {
     try {
       return coder.accounts.decode("PAStateAccount", account.data);
     } catch (error) {
-      throw new InstanceError({ kind: "Decode", what, error: String(error) }, { cause: error });
+      throw new BindingsError({ kind: "Decode", what, error: String(error) }, { cause: error });
     }
   }
 
   /** Whether the account at `address` exists and the adapter owns it: a marker the adapter created. */
   private async isMarker(address: Address, what: string): Promise<boolean> {
     const account = await this.account(address, `${what} ${address}`);
-    return account !== null && account.owner === this.programId;
+    return account !== null && account.owner === this.address;
   }
 
   /** `paused()`. */
@@ -276,9 +270,9 @@ export class ProtocolAdapter {
         .send(),
     );
     if (value.err !== null) {
-      throw new InstanceError({ kind: "Simulation", error: value.err, logs: value.logs ?? [] });
+      throw new BindingsError({ kind: "Simulation", error: value.err, logs: value.logs ?? [] });
     }
-    return returnedBool(this.programId, value.returnData);
+    return returnedBool(this.address, value.returnData);
   }
 
   /** `RISC_ZERO_VERIFIER_ROUTER()`. */
@@ -327,13 +321,13 @@ export class ProtocolAdapter {
    */
   async isCommitmentTreeRootHistorical(root: Uint8Array): Promise<boolean> {
     if (root.length === PADDING_LEAF.length && root.every((byte, i) => byte === PADDING_LEAF[i])) return true;
-    const [marker] = await deriveRootMarkerPda(this.programId, await this.paState(), root);
+    const [marker] = await deriveRootMarkerPda(this.address, await this.paState(), root);
     return this.isMarker(marker, "the root marker");
   }
 
   /** `isNullifierContained(nullifier)`: the adapter holds `nullifier`'s marker. */
   async isNullifierContained(nullifier: Uint8Array): Promise<boolean> {
-    const [marker] = await deriveNullifierPda(this.programId, await this.paState(), nullifier);
+    const [marker] = await deriveNullifierPda(this.address, await this.paState(), nullifier);
     return this.isMarker(marker, "the nullifier marker");
   }
 
@@ -384,7 +378,7 @@ export class ProtocolAdapter {
         if (given === null) {
           if (!a.optional) throw new Error(`${name}: ${a.name} is not optional`);
           // Anchor reads an optional account as absent when it is the address of the program it runs.
-          return { address: this.programId, role: AccountRole.READONLY };
+          return { address: this.address, role: AccountRole.READONLY };
         }
         const account = given ?? (await this.filled(a, emitsEvents));
         if (account === undefined) throw new Error(`${name} takes an account ${a.name} not given`);
@@ -392,7 +386,7 @@ export class ProtocolAdapter {
       }),
     );
     return {
-      programAddress: this.programId,
+      programAddress: this.address,
       accounts: [...metas, ...remaining],
       data: coder.instruction.encode(name, args),
     };
@@ -406,7 +400,7 @@ export class ProtocolAdapter {
       return this.constPda(seeds.map((seed) => Uint8Array.from(seed.value)));
     }
     if (emitsEvents && a.name === "event_authority") return this.eventAuthority();
-    if (emitsEvents && a.name === "program") return this.programId;
+    if (emitsEvents && a.name === "program") return this.address;
     return undefined;
   }
 
@@ -481,7 +475,7 @@ export class ProtocolAdapter {
   async upgradeIx(authority: Address, buffer: Address, spill: Address): Promise<Instruction> {
     return this.instruction(
       "upgrade",
-      { authority, program_data: await this.programData(), upgraded_program: this.programId, buffer, spill },
+      { authority, program_data: await this.programData(), upgraded_program: this.address, buffer, spill },
       {},
     );
   }
@@ -617,7 +611,7 @@ export function returnedBool(
   returnData: Readonly<{ data: readonly [string, "base64"]; programId: Address }> | null,
 ): boolean {
   const what = `the return data of ${program}`;
-  const fail = (error: string) => new InstanceError({ kind: "Decode", what, error });
+  const fail = (error: string) => new BindingsError({ kind: "Decode", what, error });
   if (returnData === null) throw fail("the simulation returned nothing");
   if (returnData.programId !== program) throw fail(`${returnData.programId} returned it`);
   const bytes = getBase64Encoder().encode(returnData.data[0]);

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { PADDING_LEAF } from "./constants.js";
 import { idlConstant } from "./idl.js";
-import { protocolAdapter } from "./instance.js";
+import { protocolAdapter } from "./contract.js";
 
 function devnetUrl(): string {
   const url = process.env.HELIUS_DEVNET_URL;
@@ -29,7 +29,7 @@ describe("the staging adapter on devnet", () => {
     const root = await adapter.latestCommitmentTreeRoot();
     const kindTreeRoot = await adapter.getKindTreeRoot();
     console.log({
-      programId: adapter.programId,
+      address: adapter.address,
       owner,
       paused: await adapter.paused(),
       verifierRouter: await adapter.riscZeroVerifierRouter(),
