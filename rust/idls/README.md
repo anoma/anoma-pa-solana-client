@@ -6,8 +6,6 @@ Files:
 
 - `protocol_adapter.json` — IDL for the PA Anchor program (production build).
 - `verifier_router.json` — IDL for the RISC Zero verifier router the adapter settles through.
-- `block_time_forwarder.json` — IDL for the example forwarder the adapter's fixtures call.
-- `test_forwarder.json` — IDL for the adapter repo's localnet test forwarder.
 
 Regenerated on every release. Consumed by:
 
