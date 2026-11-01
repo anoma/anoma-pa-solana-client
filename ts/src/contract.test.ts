@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 import { coder } from "./coder.js";
 import { MOCK_SELECTOR, PADDING_LEAF, TXDATA_CHUNK_SIZE } from "./constants.js";
 import {
-  BindingsError,
   capacity,
   emptySubtreeRoots,
   isLogicRefDenied,
@@ -28,6 +27,7 @@ import {
   type DeniedLogicRef,
   type SettlementAccounts,
 } from "./contract.js";
+import { BindingsError } from "./error.js";
 import { idl } from "./idl.js";
 
 const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";

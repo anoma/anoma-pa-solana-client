@@ -15,12 +15,11 @@ export {
   type Environment,
 } from "./addresses.js";
 export {
-  BindingsError,
   protocolAdapter,
   ProtocolAdapterInstance,
-  type BindingsErrorDetail,
   type DeniedLogicRef,
   type SettlementAccounts,
 } from "./contract.js";
+export * from "./error.js";
 export * from "./confirmation.js";
 export * from "./labelValueRef.js";

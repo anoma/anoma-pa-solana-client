@@ -25,14 +25,13 @@ import {
   type Instruction,
   type Rpc,
   type SolanaRpcApiMainnet,
-  type TransactionError,
 } from "@solana/kit";
 
 import { coder } from "./coder.js";
 import { PADDING_LEAF } from "./constants.js";
-import { clusterOfGenesisHash, protocolAdapterAddress, type ClusterType, type Environment } from "./addresses.js";
+import { clusterOfGenesisHash, protocolAdapterAddress, type Environment } from "./addresses.js";
+import { BindingsError } from "./error.js";
 import { idl, idlConstant, idlSeed } from "./idl.js";
-import { toJson } from "./json.js";
 import {
   deriveEventAuthorityPda,
   deriveNullifierPda,
@@ -40,48 +39,6 @@ import {
   deriveRootMarkerPda,
   deriveVerifierRouterPdas,
 } from "./pda.js";
-
-/** Why an instance could not be made or could not answer. */
-export type BindingsErrorDetail =
-  /** The genesis hash the RPC transport returned is no known cluster's. */
-  | { kind: "ChainIdUnknown" }
-  /** An RPC request failed: retrying may succeed. */
-  | { kind: "RpcTransportError"; what: string; error: string }
-  /** The environment records no deployed adapter on the cluster. */
-  | { kind: "UnsupportedChain"; cluster: ClusterType }
-  /** An account the answer is read from does not exist. */
-  | { kind: "AccountMissing"; address: Address }
-  /** What the chain holds does not decode. */
-  | { kind: "Decode"; what: string; error: string }
-  /** A simulated instruction failed. */
-  | { kind: "Simulation"; error: TransactionError; logs: readonly string[] };
-
-function describe(detail: BindingsErrorDetail): string {
-  switch (detail.kind) {
-    case "ChainIdUnknown":
-      return "The genesis hash returned by the RPC transport is not in the list of known clusters.";
-    case "RpcTransportError":
-      return `The RPC transport returned an error fetching ${detail.what}: ${detail.error}`;
-    case "UnsupportedChain":
-      return `The current protocol adapter version has not been deployed on the provided chain '${detail.cluster}'.`;
-    case "AccountMissing":
-      return `the account ${detail.address} does not exist`;
-    case "Decode":
-      return `${detail.what} does not decode: ${detail.error}`;
-    case "Simulation":
-      return `the simulation failed: ${toJson(detail.error)}; logs: ${toJson(detail.logs)}`;
-  }
-}
-
-export class BindingsError extends Error {
-  constructor(
-    readonly detail: BindingsErrorDetail,
-    options?: ErrorOptions,
-  ) {
-    super(describe(detail), options);
-    this.name = "BindingsError";
-  }
-}
 
 /** The RPC's answer `response`, a failed request thrown as `RpcTransportError`. */
 async function answered<T>(what: string, response: Promise<T>): Promise<T> {
