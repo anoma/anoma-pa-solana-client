@@ -554,17 +554,12 @@ mod tests {
     }
 
     #[test]
-    fn the_recorded_staging_devnet_adapter_is_not_deployed_yet() {
-        let found = recorded_deployment(Environment::Staging, &genesis_hash(ClusterType::Devnet));
+    fn the_recorded_staging_devnet_adapter_is_the_idls_program() {
+        let found = recorded_deployment(Environment::Staging, &genesis_hash(ClusterType::Devnet))
+            .unwrap_or_else(|e| panic!("{e}"));
         println!("{found:?}");
-        assert!(
-            matches!(
-                &found,
-                Err(InstanceError::NoDeployment { chain_id })
-                    if chain_id == "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
-            ),
-            "{found:?}"
-        );
+        assert_eq!(found.chain_id, "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1");
+        assert_eq!(found.program_id, crate::generated::protocol_adapter::ID);
     }
 
     #[test]
