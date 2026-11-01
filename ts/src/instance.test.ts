@@ -50,10 +50,11 @@ function thrown(f: () => unknown): InstanceError {
 }
 
 describe("recordedDeployment", () => {
-  it("finds the recorded staging devnet adapter not deployed yet", () => {
-    const e = thrown(() => recordedDeployment("staging", DEVNET_GENESIS));
-    console.log(e.message);
-    expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" });
+  it("finds the recorded staging devnet adapter at the IDL's address", () => {
+    const found = recordedDeployment("staging", DEVNET_GENESIS);
+    console.log(found);
+    expect(found.chainId).toBe("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1");
+    expect(found.programId).toBe(address(idl.address));
   });
 
   it("finds production recording nothing on mainnet-beta", () => {
