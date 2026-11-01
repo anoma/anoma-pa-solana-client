@@ -10,5 +10,5 @@ Files:
 Regenerated on every release. Consumed by:
 
 - The Rust crate, whose `declare_program!` generates `generated::protocol_adapter` and `generated::verifier_router` from them, and whose `build.rs` generates the adapter error's `TryFrom<u32>`.
-- The TS package, which copies `protocol_adapter.json` into itself (`ts/src/data/`) and decodes with `@anchor-lang/core`'s `BorshCoder` over it.
+- The TS package, which copies `protocol_adapter.json` into itself (`ts/src/data/`) and decodes with `@anchor-lang/core`'s `BorshCoder` over it; its deployed test decodes the verifier router's entry with `verifier_router.json`.
 - External integrators that need event decoding without depending on a language package (e.g. the Elixir indexer consumes these directly).
