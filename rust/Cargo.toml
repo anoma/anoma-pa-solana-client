@@ -67,6 +67,11 @@ required-features = ["solana"]
 name = "instructions_fixture"
 required-features = ["solana"]
 
+# Reads a record through the public `addresses` API.
+[[test]]
+name = "deployment_record"
+required-features = ["solana"]
+
 [[test]]
 name = "deployed"
 required-features = ["rpc"]
