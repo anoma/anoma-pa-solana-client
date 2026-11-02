@@ -134,7 +134,7 @@ Each builder takes typed inputs and returns a fully-formed Solana `Instruction` 
 
 - SemVer. Major version bump on any wire-incompatible PA change.
 - Rust crate version and TS package version must match exactly per release.
-- Git tags follow `bindings/vMAJOR.MINOR.PATCH`; consumers pin the tag. Neither package is published to a registry.
+- Git tags follow `bindings/vMAJOR.MINOR.PATCH`. The Rust crate is published to crates.io at the tag's version, and Rust consumers depend on it there; the npm package is not published to a registry, and its consumers pin the tag.
 
 ### 4.2 Source-of-truth coupling to the PA
 

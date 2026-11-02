@@ -94,6 +94,21 @@ jobs:
       - name: cargo clippy -p anoma-pa-solana-client --all-targets --all-features --features anchor/idl-build -- -D warnings
         run: cargo clippy -p anoma-pa-solana-client --all-targets --all-features --features anchor/idl-build -- -D warnings
 
+  rust-package:
+    name: Rust package (crates.io dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      # Packages the crate as crates.io would take it and builds it from the
+      # packaged files alone: a git dependency, or a file the build reads that
+      # the package lacks, fails here rather than at release.
+      - name: cargo publish --dry-run -p anoma-pa-solana-client
+        run: cargo publish --dry-run -p anoma-pa-solana-client
+
   ts:
     name: TS (tsc + vitest)
     runs-on: ubuntu-latest
