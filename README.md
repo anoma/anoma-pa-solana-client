@@ -1,6 +1,6 @@
 # anoma-pa-solana-client
 
-Releases: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). The Rust crate `anoma-pa-solana-client` and the npm package `@anomaorg/pa-solana-client` release as `bindings/v*` git tags.
+Releases: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). The Rust crate `anoma-pa-solana-client` and the npm package `@anomaorg/pa-solana-client` release as `bindings/v*` git tags; the crate is published to crates.io at each tag's version.
 
 Client bindings for the Solana Protocol Adapter. One source of truth for instruction builders, account decoders, PDA helpers, event decoders, and constants — released as a Rust crate and a TypeScript/npm package from this repository. The SPL token forwarder's bindings are in [anoma/anomapay-spl-token-forwarder](https://github.com/anoma/anomapay-spl-token-forwarder) (`crates/client` and `ts/`).
 
