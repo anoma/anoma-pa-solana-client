@@ -17,81 +17,57 @@ import { describe, expect, it } from "vitest";
 
 import { coder } from "./coder.js";
 import { MOCK_SELECTOR, PADDING_LEAF, TXDATA_CHUNK_SIZE } from "./constants.js";
-import type { DeploymentRecord } from "./deployments.js";
-import { idl } from "./idl.js";
 import {
   capacity,
   emptySubtreeRoots,
-  InstanceError,
   isLogicRefDenied,
-  ProtocolAdapter,
-  recordedDeployment,
+  ProtocolAdapterInstance,
+  recordedAddress,
   returnedBool,
   type DeniedLogicRef,
   type SettlementAccounts,
-} from "./instance.js";
+} from "./contract.js";
+import { BindingsError } from "./error.js";
+import { idl } from "./idl.js";
 
 const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
-const ZERO_ADDRESS = address("11111111111111111111111111111111");
 
 /** The address of 32 bytes `n`, as the Rust crate's tests' `key(n)`. */
 const key = (n: number): Address => getAddressDecoder().decode(new Uint8Array(32).fill(n));
 
 /** What `f` throws, or a failure when it returns. */
-function thrown(f: () => unknown): InstanceError {
+function thrown(f: () => unknown): BindingsError {
   try {
     f();
   } catch (e) {
-    if (e instanceof InstanceError) return e;
+    if (e instanceof BindingsError) return e;
     throw e;
   }
-  throw new Error("returned a deployment");
+  throw new Error("returned without throwing");
 }
 
-describe("recordedDeployment", () => {
+describe("recordedAddress", () => {
   it("finds the recorded staging devnet adapter at the IDL's address", () => {
-    const found = recordedDeployment("staging", DEVNET_GENESIS);
+    const found = recordedAddress("staging", DEVNET_GENESIS);
     console.log(found);
-    expect(found.chainId).toBe("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1");
-    expect(found.programId).toBe(address(idl.address));
+    expect(found).toBe(address(idl.address));
   });
 
   it("finds production recording nothing on mainnet-beta", () => {
-    const e = thrown(() => recordedDeployment("production", MAINNET_GENESIS));
+    const e = thrown(() => recordedAddress("production", MAINNET_GENESIS));
     console.log(e.message);
-    expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" });
+    expect(e.detail).toEqual({ kind: "UnsupportedChain", cluster: "mainnet-beta" });
   });
 
-  // A cluster no environment records, such as a local validator, is no
-  // deployment, under the chain id its genesis hash gives.
-  it("finds a genesis hash of no recorded cluster no deployment on its chain", () => {
+  // A genesis hash of no known cluster, such as a local validator's, is
+  // ChainIdUnknown in every environment.
+  it("finds a genesis hash of no known cluster ChainIdUnknown", () => {
     for (const environment of ["staging", "production"] as const) {
-      const e = thrown(() => recordedDeployment(environment, ZERO_ADDRESS));
+      const e = thrown(() => recordedAddress(environment, "11111111111111111111111111111111"));
       console.log(`${environment}: ${e.message}`);
-      expect(e.detail).toEqual({ kind: "NoDeployment", chainId: "solana:11111111111111111111111111111111" });
+      expect(e.detail).toEqual({ kind: "ChainIdUnknown" });
     }
-  });
-
-  it("is the cluster's deployed entry", () => {
-    const record: DeploymentRecord = {
-      staging: [
-        {
-          chainId: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-          programId: "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx",
-          deploymentSlot: 4242,
-        },
-      ],
-      production: [],
-    };
-    const found = recordedDeployment("staging", DEVNET_GENESIS, record);
-    console.log(found);
-    expect(found).toEqual({
-      chainId: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-      programId: address(idl.address),
-      deploymentSlot: 4242,
-    });
-    expect(thrown(() => recordedDeployment("production", DEVNET_GENESIS, record)).detail.kind).toBe("NoDeployment");
   });
 });
 
@@ -162,18 +138,18 @@ describe("the reads computed from the state", () => {
   });
 });
 
-describe("ProtocolAdapter's reads", () => {
+describe("ProtocolAdapterInstance's reads", () => {
   // Nothing listens on port 1, so every request fails.
-  it("fail with Rpc when the RPC cannot answer, naming the account", async () => {
-    const unreachable = ProtocolAdapter.at(createSolanaRpc("http://127.0.0.1:1"), key(9));
+  it("fail with RpcTransportError when the RPC cannot answer, naming the account", async () => {
+    const unreachable = new ProtocolAdapterInstance(key(9), createSolanaRpc("http://127.0.0.1:1"));
     for (const [what, read] of [
       ["the adapter's state", () => unreachable.paused()],
       ["the nullifier marker", () => unreachable.isNullifierContained(new Uint8Array(32))],
     ] as const) {
       const e = await read().catch((error: unknown) => error);
       console.log(`${what}: ${String(e)}`);
-      expect(e, what).toBeInstanceOf(InstanceError);
-      expect(e, what).toMatchObject({ detail: { kind: "Rpc", what: expect.stringMatching(new RegExp(`^${what} `)) } });
+      expect(e, what).toBeInstanceOf(BindingsError);
+      expect(e, what).toMatchObject({ detail: { kind: "RpcTransportError", what: expect.stringMatching(new RegExp(`^${what} `)) } });
     }
   });
 
@@ -182,11 +158,11 @@ describe("ProtocolAdapter's reads", () => {
   // with no marker), so answering needs no account; any other root is read
   // from its marker, which fails here.
   it("answer the initial root historical without a marker", async () => {
-    const unreachable = ProtocolAdapter.at(createSolanaRpc("http://127.0.0.1:1"), key(9));
+    const unreachable = new ProtocolAdapterInstance(key(9), createSolanaRpc("http://127.0.0.1:1"));
     expect(await unreachable.isCommitmentTreeRootHistorical(PADDING_LEAF)).toBe(true);
     const e = await unreachable.isCommitmentTreeRootHistorical(new Uint8Array(32).fill(0x99)).catch((error: unknown) => error);
     console.log(`another root: ${String(e)}`);
-    expect(e).toMatchObject({ detail: { kind: "Rpc", what: expect.stringMatching(/^the root marker /) } });
+    expect(e).toMatchObject({ detail: { kind: "RpcTransportError", what: expect.stringMatching(/^the root marker /) } });
   });
 });
 
@@ -200,7 +176,7 @@ function parts(ix: Instruction): { accounts: readonly AccountMeta[]; data: Uint8
 // `key(9)`, every other account `key(n)`; and inputs larger than 1000 bytes
 // (byte i of a large input is i mod 256).
 const pa = key(9);
-const adapter = ProtocolAdapter.at(createSolanaRpc("http://127.0.0.1:1"), pa);
+const adapter = new ProtocolAdapterInstance(pa, createSolanaRpc("http://127.0.0.1:1"));
 const encode = (s: string) => new TextEncoder().encode(s);
 const large = (n: number) => Uint8Array.from({ length: n }, (_, i) => i % 256);
 const entries: DeniedLogicRef[] = [
@@ -253,7 +229,7 @@ function written(name: string, ix: Instruction): FixtureInstruction {
   };
 }
 
-describe("ProtocolAdapter's builders, against the Rust crate's", () => {
+describe("ProtocolAdapterInstance's builders, against the Rust crate's", () => {
   const built: [string, () => Promise<Instruction>][] = [
     ["initialize", () => adapter.initializeIx(key(1), key(2), key(3), MOCK_SELECTOR)],
     ["pause", () => adapter.pauseIx(key(4))],
@@ -286,6 +262,7 @@ describe("ProtocolAdapter's builders, against the Rust crate's", () => {
   ];
 
   it("builds every instruction the Rust crate does, byte for byte and account for account", async () => {
+    expect(adapter.address).toBe(pa);
     expect(
       built.map(([name]) => name),
       "an entry for each of the fixture's",

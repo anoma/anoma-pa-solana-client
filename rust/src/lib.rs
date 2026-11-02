@@ -6,7 +6,8 @@
 //! what the IDL does not describe: settlement planning, the CPI event framing,
 //! the PDAs the instructions take as remaining accounts, the Merkle helpers, the
 //! settlement input, RPC submission, the external calls' wire format, the
-//! deployment record (`deployments`), and the adapter instance (`instance`).
+//! deployment record (`addresses`), and the adapter instance (`contract`), as
+//! pa-evm's bindings name them, with its errors (`error`).
 
 pub mod constants;
 pub mod external_call;
@@ -17,15 +18,17 @@ pub mod settlement_input;
 #[cfg(feature = "solana")]
 pub mod accounts;
 #[cfg(feature = "solana")]
-pub mod deployments;
+pub mod addresses;
+#[cfg(feature = "rpc")]
+pub mod contract;
+#[cfg(feature = "rpc")]
+pub mod error;
 #[cfg(feature = "solana")]
 pub mod events;
 #[cfg(feature = "rpc")]
 pub mod forwarders;
 #[cfg(feature = "solana")]
 pub mod generated;
-#[cfg(feature = "rpc")]
-pub mod instance;
 #[cfg(feature = "solana")]
 pub mod instructions;
 #[cfg(feature = "solana")]
