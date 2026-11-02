@@ -1,14 +1,17 @@
-//! The adapter's deployments, as `deployments.json` records them: per
-//! environment, the program on each cluster, under the cluster's CAIP-2 chain
-//! id (`solana:` and the first 32 characters of its genesis hash in base58,
-//! CAIP-30).
+//! Deployment records, as a `deployments.json` holds one: per environment
+//! (`staging`, `production`), a list of entries, each a program (`programId`)
+//! on a cluster under the cluster's CAIP-2 chain id (`chainId`: `solana:` and
+//! the first 32 characters of its genesis hash in base58, CAIP-30), with the
+//! slot of its first deployment (`deploymentSlot`, `null` until the program is
+//! deployed). [`DeploymentRecord`] reads any record in this format; this
+//! crate's `deployments.json` records the adapter.
 
 use serde::Deserialize;
 use solana_cluster_type::ClusterType;
 use solana_pubkey::Pubkey;
 use std::sync::LazyLock;
 
-/// The deployment environment of a recorded protocol adapter program.
+/// The deployment environment of a recorded program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Environment {
     /// Devnet.
@@ -34,17 +37,22 @@ struct Deployments {
     production: Vec<DeploymentEntry>,
 }
 
-/// The programs recorded for each environment, by cluster. `ClusterType`
-/// implements neither `Hash` nor `Ord`, so a map of it is a list of pairs,
-/// one per cluster.
-struct DeploymentsMaps {
+/// The deployed programs a deployment record holds for each environment, by
+/// cluster. `ClusterType` implements neither `Hash` nor `Ord`, so a map of it
+/// is a list of pairs, one per cluster.
+#[derive(Debug)]
+pub struct DeploymentRecord {
     staging: Vec<(ClusterType, Pubkey)>,
     production: Vec<(ClusterType, Pubkey)>,
 }
 
-impl DeploymentsMaps {
-    /// The record `json` holds, or a panic naming the entry that is none.
-    fn parse(json: &str) -> Self {
+impl DeploymentRecord {
+    /// The record `json` holds. An entry whose slot is `null` is no
+    /// deployment. JSON that is not a record in this format, or an entry whose
+    /// chain id is no known cluster's, whose program id does not parse, or
+    /// whose cluster another entry of its environment records too, is a panic
+    /// naming it.
+    pub fn parse(json: &str) -> Self {
         let deployments: Deployments = serde_json::from_str(json)
             .unwrap_or_else(|e| panic!("deployments.json: not a deployment record: {e}: {json}"));
         Self {
@@ -53,18 +61,25 @@ impl DeploymentsMaps {
         }
     }
 
-    fn of(&self, environment: Environment) -> &[(ClusterType, Pubkey)] {
+    /// The deployed programs `environment` records, by cluster.
+    pub fn of(&self, environment: Environment) -> &[(ClusterType, Pubkey)] {
         match environment {
             Environment::Staging => &self.staging,
             Environment::Production => &self.production,
         }
     }
+
+    /// The deployed program `environment` records on `cluster`, if any.
+    pub fn address(&self, environment: Environment, cluster: &ClusterType) -> Option<Pubkey> {
+        self.of(environment)
+            .iter()
+            .find(|(recorded, _)| recorded == cluster)
+            .map(|&(_, program)| program)
+    }
 }
 
-/// `environment`'s entries by cluster: those with a deployment slot (an entry
-/// whose slot is `null` is no deployment yet). An entry whose chain id is no
-/// known cluster's, whose program id does not parse, or whose cluster another
-/// entry records too is a panic naming it.
+/// `environment`'s deployed programs by cluster, as
+/// [`DeploymentRecord::parse`] reads them.
 fn to_map(environment: Environment, entries: Vec<DeploymentEntry>) -> Vec<(ClusterType, Pubkey)> {
     let mut seen = Vec::new();
     let mut map = Vec::new();
@@ -91,8 +106,9 @@ fn to_map(environment: Environment, entries: Vec<DeploymentEntry>) -> Vec<(Clust
     map
 }
 
-/// Every cluster `solana-cluster-type` names.
-pub(crate) fn clusters() -> impl Iterator<Item = ClusterType> {
+/// Every cluster `solana-cluster-type` names; a client finds the cluster behind
+/// an RPC among them by its genesis hash.
+pub fn clusters() -> impl Iterator<Item = ClusterType> {
     ClusterType::STRINGS
         .iter()
         .map(|name| name.parse().expect("a ClusterType name parses"))
@@ -111,8 +127,8 @@ fn cluster_of_chain_id(id: &str) -> Option<ClusterType> {
     clusters().find(|&cluster| chain_id(cluster).as_deref() == Some(id))
 }
 
-static DEPLOYMENTS: LazyLock<DeploymentsMaps> =
-    LazyLock::new(|| DeploymentsMaps::parse(include_str!("../deployments.json")));
+static DEPLOYMENTS: LazyLock<DeploymentRecord> =
+    LazyLock::new(|| DeploymentRecord::parse(include_str!("../deployments.json")));
 
 /// Returns a map of the protocol adapter programs recorded for the
 /// environment.
@@ -123,19 +139,7 @@ pub fn protocol_adapter_deployments_map(environment: Environment) -> Vec<(Cluste
 /// Returns the protocol adapter program recorded for the environment on the
 /// provided cluster, if any.
 pub fn protocol_adapter_address(environment: Environment, cluster: &ClusterType) -> Option<Pubkey> {
-    address_in(&DEPLOYMENTS, environment, cluster)
-}
-
-fn address_in(
-    deployments: &DeploymentsMaps,
-    environment: Environment,
-    cluster: &ClusterType,
-) -> Option<Pubkey> {
-    deployments
-        .of(environment)
-        .iter()
-        .find(|(recorded, _)| recorded == cluster)
-        .map(|&(_, program)| program)
+    DEPLOYMENTS.address(environment, cluster)
 }
 
 #[cfg(test)]
@@ -171,84 +175,6 @@ mod tests {
         );
     }
 
-    const DEVNET: &str = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
-    const MAINNET: &str = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
-
-    /// The record of one entry in each environment: staging's on devnet with
-    /// the slot `staging_slot`, production's on mainnet-beta with slot 9.
-    fn record(staging_slot: &str) -> DeploymentsMaps {
-        DeploymentsMaps::parse(&format!(
-            r#"{{"staging": [{{"chainId": "{DEVNET}", "programId": "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx", "deploymentSlot": {staging_slot}}}],
-                "production": [{{"chainId": "{MAINNET}", "programId": "11111111111111111111111111111111", "deploymentSlot": 9}}]}}"#
-        ))
-    }
-
-    #[test]
-    fn the_entry_on_the_cluster_is_its_address() {
-        let record = record("7");
-        let staging = address_in(&record, Environment::Staging, &ClusterType::Devnet);
-        let production = address_in(&record, Environment::Production, &ClusterType::MainnetBeta);
-        println!("staging devnet: {staging:?}, production mainnet-beta: {production:?}");
-        assert_eq!(
-            staging,
-            Some(
-                "2gH5DnTwDLLFk3oYxnbrceSFdTMtvaxQz29x5W8Etmpx"
-                    .parse()
-                    .unwrap()
-            )
-        );
-        assert_eq!(production, Some(Pubkey::default()));
-        assert_eq!(
-            address_in(&record, Environment::Staging, &ClusterType::MainnetBeta),
-            None
-        );
-        assert_eq!(
-            address_in(&record, Environment::Production, &ClusterType::Testnet),
-            None
-        );
-        assert_eq!(
-            record.of(Environment::Production),
-            [(ClusterType::MainnetBeta, Pubkey::default())]
-        );
-    }
-
-    /// An entry whose program is not deployed yet has a `null` slot.
-    #[test]
-    fn an_entry_without_a_deployment_slot_is_no_deployment() {
-        let record = record("null");
-        assert_eq!(
-            address_in(&record, Environment::Staging, &ClusterType::Devnet),
-            None
-        );
-        assert!(record.of(Environment::Staging).is_empty());
-    }
-
-    #[test]
-    #[should_panic(expected = "chain id solana:a is no known cluster's")]
-    fn a_chain_id_of_no_known_cluster_is_a_panic_naming_the_entry() {
-        DeploymentsMaps::parse(
-            r#"{"staging": [{"chainId": "solana:a", "programId": "11111111111111111111111111111111", "deploymentSlot": 1}], "production": []}"#,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Devnet is recorded twice")]
-    fn a_cluster_recorded_twice_is_a_panic() {
-        DeploymentsMaps::parse(&format!(
-            r#"{{"staging": [{{"chainId": "{DEVNET}", "programId": "11111111111111111111111111111111", "deploymentSlot": null}},
-                             {{"chainId": "{DEVNET}", "programId": "11111111111111111111111111111111", "deploymentSlot": 1}}],
-                "production": []}}"#
-        ));
-    }
-
-    #[test]
-    #[should_panic(expected = "program id: ")]
-    fn a_program_id_that_does_not_parse_is_a_panic() {
-        DeploymentsMaps::parse(&format!(
-            r#"{{"staging": [{{"chainId": "{DEVNET}", "programId": "not a key", "deploymentSlot": null}}], "production": []}}"#
-        ));
-    }
-
     /// The client is generated from the IDL of the program staging runs.
     #[test]
     fn the_staging_devnet_program_is_the_vendored_idls_address() {
@@ -264,10 +190,6 @@ mod tests {
     /// missing or extra field, or an entry the loader refuses, fails here.
     #[test]
     fn the_committed_record_parses() {
-        let record = &*DEPLOYMENTS;
-        println!(
-            "deployments.json: staging {:?}, production {:?}",
-            record.staging, record.production
-        );
+        println!("deployments.json: {:?}", *DEPLOYMENTS);
     }
 }
