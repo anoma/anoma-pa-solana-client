@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "anoma-pa-solana-client"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "anchor-lang",
  "anoma-pa-testkit",
@@ -5478,7 +5478,7 @@ dependencies = [
 
 [[package]]
 name = "settle-fixture"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "anchor-lang",
  "anoma-pa-solana-client",
