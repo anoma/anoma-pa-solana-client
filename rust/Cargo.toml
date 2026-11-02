@@ -6,6 +6,13 @@ license.workspace = true
 description = "Client bindings for the Solana Anoma Protocol Adapter"
 repository.workspace = true
 readme = "../README.md"
+# The tests that check the crate against the repository's files outside it
+# (`fixtures/`, `PA_TAG.txt`): the published crate does not carry those.
+exclude = [
+  "tests/events_fixture.rs",
+  "tests/instructions_fixture.rs",
+  "tests/idl_at_tag.rs",
+]
 
 [lib]
 path = "src/lib.rs"
