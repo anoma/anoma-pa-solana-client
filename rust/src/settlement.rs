@@ -26,7 +26,7 @@ use crate::pda::{
 /// The v1 transaction settings of a settlement transaction: its compute and
 /// heap budgets, and the runtime's maximum of loaded account data, which a v1
 /// transaction states rather than defaults to.
-const SETTLE_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
+pub(crate) const SETTLE_TRANSACTION_CONFIG: TransactionConfig = TransactionConfig {
     priority_fee: None,
     compute_unit_limit: Some(SETTLE_COMPUTE_UNIT_LIMIT),
     loaded_accounts_data_size_limit: Some(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES),

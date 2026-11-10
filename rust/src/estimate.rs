@@ -20,7 +20,7 @@ use risc0_zkvm::{MaybePruned, ReceiptClaim};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::v1::TransactionConfig;
-use solana_message::{Message, VersionedMessage};
+use solana_message::VersionedMessage;
 use solana_program_runtime::declare_process_instruction;
 use solana_program_runtime::solana_sbpf::program::BuiltinFunctionDefinition;
 use solana_pubkey::Pubkey;
@@ -34,7 +34,9 @@ use crate::pda::{
     derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
     derive_verifier_entry_pda,
 };
-use crate::settlement::{plan_settlement, PlanError, PlannedTransaction, SettlementPlan};
+use crate::settlement::{
+    plan_settlement, PlanError, PlannedTransaction, SettlementPlan, SETTLE_TRANSACTION_CONFIG,
+};
 use crate::settlement_input::{mock_seal, placeholder_settlement_input};
 use crate::submission::{
     decode_account, decode_adapter_state, decode_verifier_entry, settlement_failure, Failure,
@@ -285,12 +287,11 @@ fn unsigned(
 const MEASUREMENT_PAYER: Pubkey = Pubkey::new_from_array([0x4d; 32]);
 
 /// The compute units the verifier program of `svm` uses to verify one proof
-/// of `selector`'s proof system, as one instruction of a transaction with the
-/// default heap. A settlement's router invokes the verifier within the
-/// settlement transaction, and that invocation is charged no heap of its
-/// own: the harness's estimates equal its settlements' units measured this
-/// way, and exceed them by the 56 units of the settlement's 256 KiB heap
-/// measured under the settlement transaction's settings.
+/// of `selector`'s proof system, with the settlement transaction's settings:
+/// the runtime charges every program invocation, the router's of the
+/// verifier included, for the transaction's heap (56 units for the
+/// settlement's 256 KiB), which a log's `consumed` line of the invocation
+/// leaves out.
 fn verification_units(
     svm: &mut LiteSVM,
     verifier_program: &Pubkey,
@@ -309,21 +310,18 @@ fn verification_units(
         address: MEASUREMENT_PAYER,
         error: e.to_string(),
     })?;
-    let verify = Instruction {
-        program_id: *verifier_program,
-        accounts: vec![AccountMeta::new_readonly(
-            solana_sdk_ids::system_program::ID,
-            false,
-        )],
-        data: verification_measurement(selector)?,
+    let verify = PlannedTransaction {
+        instructions: vec![Instruction {
+            program_id: *verifier_program,
+            accounts: vec![AccountMeta::new_readonly(
+                solana_sdk_ids::system_program::ID,
+                false,
+            )],
+            data: verification_measurement(selector)?,
+        }],
+        config: SETTLE_TRANSACTION_CONFIG,
     };
-    let message =
-        Message::new_with_blockhash(&[verify], Some(&MEASUREMENT_PAYER), &svm.latest_blockhash());
-    let transaction = VersionedTransaction {
-        signatures: vec![Signature::default()],
-        message: VersionedMessage::Legacy(message),
-    };
-    svm.simulate_transaction(transaction)
+    svm.simulate_transaction(unsigned(&verify, &MEASUREMENT_PAYER, svm)?)
         .map(|simulated| simulated.meta.compute_units_consumed)
         .map_err(|failed| SubmissionError::VerifierMeasurement {
             verifier_program: *verifier_program,
@@ -471,15 +469,16 @@ fn run(
             return failed(failure);
         }
     }
-    // The verification's compute stands in for the accepting verifier's. One
-    // using more than the settlement's whole budget leaves it none.
+    // The verification's compute stands in for the accepting verifier's. The
+    // measurement ran under the settlement's own limit, so it fits that.
     let held_back = verification.saturating_sub(ACCEPTING_VERIFIER_UNITS);
     let settle = PlannedTransaction {
         instructions: plan.settle.instructions.clone(),
         config: TransactionConfig {
             compute_unit_limit: Some(
-                u32::try_from(held_back)
-                    .map_or(0, |units| SETTLE_COMPUTE_UNIT_LIMIT.saturating_sub(units)),
+                SETTLE_COMPUTE_UNIT_LIMIT
+                    - u32::try_from(held_back)
+                        .expect("the measurement ran under the settlement's compute limit"),
             ),
             ..plan.settle.config
         },
@@ -498,8 +497,8 @@ mod tests {
 
     /// The devnet verifier program verifies the Groth16 measurement proof
     /// with the compute its verifications use in devnet settlements: 99,541
-    /// units in both of the staging adapter's settlements at slots 518006892
-    /// and 518008799.
+    /// units in the log of both of the staging adapter's settlements at slots
+    /// 518006892 and 518008799, and the 56 units of the settlement's heap.
     #[tokio::test]
     #[ignore = "needs a Helius endpoint: run with --ignored, HELIUS_DEVNET_URL set"]
     async fn the_groth16_measurement_uses_a_devnet_verifications_compute() {
@@ -521,6 +520,6 @@ mod tests {
         let units = verification_units(&mut svm, &verifier, measurement.selector).unwrap();
 
         println!("a Groth16 verification on devnet: {units} compute units");
-        assert_eq!(units, 99_541);
+        assert_eq!(units, 99_541 + 56);
     }
 }
