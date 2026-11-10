@@ -158,7 +158,6 @@ pub enum Estimate {
 
 /// The cluster's accounts as of one read.
 struct Snapshot {
-    slot: u64,
     accounts: BTreeMap<Pubkey, Account>,
 }
 
@@ -207,20 +206,20 @@ fn program_data_accounts(snapshot: &Snapshot) -> BTreeSet<Pubkey> {
 }
 
 /// The accounts at `keys`, each `None` when it does not exist, at the RPC
-/// client's commitment, and the slot the RPC read them at.
+/// client's commitment, in one read.
 async fn read_accounts(
     rpc: &RpcClient,
     keys: &[Pubkey],
     what: &str,
-) -> Result<(u64, Vec<Option<Account>>), SubmissionError> {
-    let read = rpc
+) -> Result<Vec<Option<Account>>, SubmissionError> {
+    Ok(rpc
         .get_multiple_accounts_with_commitment(keys, rpc.commitment())
         .await
         .map_err(|error| SubmissionError::Rpc {
             what: what.to_owned(),
             error: error.to_string(),
-        })?;
-    Ok((read.context.slot, read.value))
+        })?
+        .value)
 }
 
 /// The accounts at `keys`, in one read.
@@ -231,9 +230,8 @@ async fn read(rpc: &RpcClient, keys: &BTreeSet<Pubkey>) -> Result<Snapshot, Subm
         });
     }
     let keys: Vec<Pubkey> = keys.iter().copied().collect();
-    let (slot, accounts) = read_accounts(rpc, &keys, "the settlement's accounts").await?;
+    let accounts = read_accounts(rpc, &keys, "the settlement's accounts").await?;
     Ok(Snapshot {
-        slot,
         accounts: keys
             .into_iter()
             .zip(accounts)
@@ -242,13 +240,15 @@ async fn read(rpc: &RpcClient, keys: &BTreeSet<Pubkey>) -> Result<Snapshot, Subm
     })
 }
 
-/// The features active on the cluster behind `rpc` at `slot`: each of the
-/// runtime's features whose account records an activation at or before it.
-async fn read_feature_set(rpc: &RpcClient, slot: u64) -> Result<FeatureSet, SubmissionError> {
+/// The features active on the cluster behind `rpc`: each of the runtime's
+/// features whose account records its activation. A feature's account
+/// records the slot it activated at only once it has, so every recorded one
+/// is active; a local runtime may record another cluster's slots.
+async fn read_feature_set(rpc: &RpcClient) -> Result<FeatureSet, SubmissionError> {
     let ids: Vec<Pubkey> = FEATURE_NAMES.keys().copied().collect();
     let mut features = FeatureSet::default();
     for chunk in ids.chunks(MAX_MULTIPLE_ACCOUNTS) {
-        let (_, accounts) = read_accounts(rpc, chunk, "the cluster's feature accounts").await?;
+        let accounts = read_accounts(rpc, chunk, "the cluster's feature accounts").await?;
         for (id, account) in chunk.iter().zip(accounts) {
             let Some(account) = account else { continue };
             let feature: solana_feature_gate_interface::Feature = decode_account(
@@ -256,7 +256,7 @@ async fn read_feature_set(rpc: &RpcClient, slot: u64) -> Result<FeatureSet, Subm
                 format!("the feature account {id}"),
                 |data| bincode::deserialize(data),
             )?;
-            if let Some(activated) = feature.activated_at.filter(|activated| *activated <= slot) {
+            if let Some(activated) = feature.activated_at {
                 features.activate(id, activated);
             }
         }
@@ -419,7 +419,7 @@ impl Submission {
             }
             keys.extend(needed);
         };
-        let features = read_feature_set(rpc, snapshot.slot).await?;
+        let features = read_feature_set(rpc).await?;
 
         // Loading the programs and running the settlement is compute, not
         // I/O: it runs off the async runtime's workers.
@@ -515,15 +515,12 @@ mod tests {
             .chain([verifier, derive_program_data_address(&verifier)])
             .collect();
         let snapshot = read(&rpc, &keys).await.unwrap();
-        let features = read_feature_set(&rpc, snapshot.slot).await.unwrap();
+        let features = read_feature_set(&rpc).await.unwrap();
         let mut svm = svm_of(&snapshot, features).unwrap();
 
         let units = verification_units(&mut svm, &verifier, measurement.selector).unwrap();
 
-        println!(
-            "a Groth16 verification on devnet at slot {}: {units} compute units",
-            snapshot.slot
-        );
+        println!("a Groth16 verification on devnet: {units} compute units");
         assert_eq!(units, 99_541);
     }
 }
