@@ -19,7 +19,8 @@ use risc0_zkvm::sha::{Digest, Digestible};
 use risc0_zkvm::{MaybePruned, ReceiptClaim};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_message::{Message, VersionedMessage};
+use solana_message::v1::TransactionConfig;
+use solana_message::VersionedMessage;
 use solana_program_runtime::declare_process_instruction;
 use solana_program_runtime::solana_sbpf::program::BuiltinFunctionDefinition;
 use solana_pubkey::Pubkey;
@@ -33,7 +34,9 @@ use crate::pda::{
     derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
     derive_verifier_entry_pda,
 };
-use crate::settlement::{plan_settlement, PlanError, PlannedTransaction, SettlementPlan};
+use crate::settlement::{
+    plan_settlement, PlanError, PlannedTransaction, SettlementPlan, SETTLE_TRANSACTION_CONFIG,
+};
 use crate::settlement_input::{mock_seal, placeholder_settlement_input};
 use crate::submission::{
     decode_account, decode_adapter_state, decode_verifier_entry, settlement_failure, Failure,
@@ -63,15 +66,13 @@ const SYSVARS: [Pubkey; 7] = [
 
 /// A Groth16 proof's verify instruction that a verifier program accepted:
 /// the router's call to it in a devnet settlement, which the file names with
-/// its verifier program and payer. Its compute is the compute of one
+/// its verifier program. Its compute is the compute of one
 /// Groth16 verification, which does not depend on the proof.
 struct Groth16Measurement {
     selector: [u8; 4],
     verify_instruction_data: Vec<u8>,
     #[cfg(test)]
     verifier_program: Pubkey,
-    #[cfg(test)]
-    payer: Pubkey,
 }
 
 static GROTH16_MEASUREMENT: LazyLock<Groth16Measurement> = LazyLock::new(|| {
@@ -99,8 +100,6 @@ static GROTH16_MEASUREMENT: LazyLock<Groth16Measurement> = LazyLock::new(|| {
             .expect("the Groth16 measurement's instruction data is base64"),
         #[cfg(test)]
         verifier_program: key("verifier_program"),
-        #[cfg(test)]
-        payer: key("payer"),
     }
 });
 
@@ -282,28 +281,45 @@ fn unsigned(
     })
 }
 
+/// The account that pays for the verification measurement in the local SVM,
+/// which funds it: the measurement is the verifier's, whatever the
+/// settlement's payer holds.
+const MEASUREMENT_PAYER: Pubkey = Pubkey::new_from_array([0x4d; 32]);
+
 /// The compute units the verifier program of `svm` uses to verify one proof
-/// of `selector`'s proof system, paid for by `payer`.
+/// of `selector`'s proof system, in a transaction of the settlement
+/// transaction's settings (its heap size among them, which the runtime
+/// charges each program invocation for).
 fn verification_units(
-    svm: &LiteSVM,
+    svm: &mut LiteSVM,
     verifier_program: &Pubkey,
     selector: [u8; 4],
-    payer: &Pubkey,
 ) -> Result<u64, SubmissionError> {
-    let verify = Instruction {
-        program_id: *verifier_program,
-        accounts: vec![AccountMeta::new_readonly(
-            solana_sdk_ids::system_program::ID,
-            false,
-        )],
-        data: verification_measurement(selector)?,
+    svm.set_account(
+        MEASUREMENT_PAYER,
+        Account {
+            // One SOL: more than the fee of any transaction.
+            lamports: 1_000_000_000,
+            owner: solana_sdk_ids::system_program::ID,
+            ..Account::default()
+        },
+    )
+    .map_err(|e| SubmissionError::LoadAccount {
+        address: MEASUREMENT_PAYER,
+        error: e.to_string(),
+    })?;
+    let verify = PlannedTransaction {
+        instructions: vec![Instruction {
+            program_id: *verifier_program,
+            accounts: vec![AccountMeta::new_readonly(
+                solana_sdk_ids::system_program::ID,
+                false,
+            )],
+            data: verification_measurement(selector)?,
+        }],
+        config: SETTLE_TRANSACTION_CONFIG,
     };
-    let message = Message::new_with_blockhash(&[verify], Some(payer), &svm.latest_blockhash());
-    let transaction = VersionedTransaction {
-        signatures: vec![Signature::default()],
-        message: VersionedMessage::Legacy(message),
-    };
-    svm.simulate_transaction(transaction)
+    svm.simulate_transaction(unsigned(&verify, &MEASUREMENT_PAYER, svm)?)
         .map(|simulated| simulated.meta.compute_units_consumed)
         .map_err(|failed| SubmissionError::VerifierMeasurement {
             verifier_program: *verifier_program,
@@ -329,8 +345,8 @@ fn svm_of(snapshot: &Snapshot, features: FeatureSet) -> Result<LiteSVM, Submissi
         .partition(|(_, account)| account.executable);
     for (address, account) in data.into_iter().chain(programs) {
         svm.set_account(*address, account.clone())
-            .map_err(|e| SubmissionError::Decode {
-                what: format!("the account {address}"),
+            .map_err(|e| SubmissionError::LoadAccount {
+                address: *address,
                 error: e.to_string(),
             })?;
     }
@@ -350,17 +366,20 @@ impl Submission {
     pub async fn estimate(&self, rpc: &RpcClient) -> Result<Estimate, SubmissionError> {
         let pa_program = self.pa_program;
         let payer = self.payer;
-        let input =
-            placeholder_settlement_input(self.transaction.clone(), self.state.proof_selector)?;
         let upload = derive_tx_data_pda(&pa_program, &payer, ESTIMATE_UPLOAD_ID).0;
         let (state_address, _) = derive_pa_state_pda(&pa_program);
+        let input = |selector| placeholder_settlement_input(self.transaction.clone(), selector);
 
         // The read's keys depend on what it reads: the adapter's state names
         // the verifier entry, the entry names the verifier program, and each
         // program names its program data. Read until one read holds every
         // account that the settlement, planned from that read, names.
         let first = plan_settlement(
-            self.request_with(&input, &self.state, self.verifier_program),
+            self.request_with(
+                &input(self.state.proof_selector)?,
+                &self.state,
+                self.verifier_program,
+            ),
             ESTIMATE_UPLOAD_ID,
             0,
         )?;
@@ -372,6 +391,10 @@ impl Submission {
             let snapshot = read(rpc, &keys).await?;
             let state = decode_adapter_state(&state_address, snapshot.data(&state_address))?;
             let entry = derive_verifier_entry_pda(&state.verifier_router, state.proof_selector);
+            if keys.insert(entry) {
+                // The state names another verifier entry than the read held.
+                continue;
+            }
             let verifier_program = decode_verifier_entry(&entry, snapshot.data(&entry))?;
             let clock: solana_clock::Clock = decode_account(
                 snapshot.data(&solana_sdk_ids::sysvar::clock::ID),
@@ -379,7 +402,7 @@ impl Submission {
                 |data| bincode::deserialize(data),
             )?;
             let plan = plan_settlement(
-                self.request_with(&input, &state, verifier_program),
+                self.request_with(&input(state.proof_selector)?, &state, verifier_program),
                 ESTIMATE_UPLOAD_ID,
                 clock.slot + TXDATA_EXPIRY_SLOTS_DEFAULT,
             )?;
@@ -392,42 +415,76 @@ impl Submission {
             }
             keys.extend(needed);
         };
+        let features = read_feature_set(rpc, snapshot.slot).await?;
 
-        let mut svm = svm_of(&snapshot, read_feature_set(rpc, snapshot.slot).await?)?;
-        let verification =
-            verification_units(&svm, &verifier_program, state.proof_selector, &payer)?;
-        svm.add_builtin(verifier_program, AcceptingVerifier::register);
-
-        let failed = |failed: FailedTransactionMetadata| -> Result<Estimate, SubmissionError> {
-            Ok(
-                match settlement_failure(&failed.meta.logs, &pa_program, &verifier_program)? {
-                    Some(failure) => Estimate::Failed(failure),
-                    None => Estimate::Other {
-                        error: failed.err,
-                        logs: failed.meta.logs,
-                    },
-                },
+        // Loading the programs and running the settlement is compute, not
+        // I/O: it runs off the async runtime's workers.
+        tokio::task::spawn_blocking(move || {
+            run(
+                &snapshot,
+                features,
+                &plan,
+                &pa_program,
+                &payer,
+                &verifier_program,
+                state.proof_selector,
             )
-        };
-        for planned in plan.upload.iter().flat_map(|upload| upload.filling()) {
-            if let Err(failure) = svm.send_transaction(unsigned(planned, &payer, &svm)?) {
-                return failed(failure);
-            }
+        })
+        .await
+        .unwrap_or_else(|join| std::panic::resume_unwind(join.into_panic()))
+    }
+}
+
+/// Runs `plan`, paid for by `payer`, in a local SVM holding `snapshot` under
+/// `features`, with `verifier_program`, whose proofs carry `selector`,
+/// replaced by one that accepts every proof.
+fn run(
+    snapshot: &Snapshot,
+    features: FeatureSet,
+    plan: &SettlementPlan,
+    pa_program: &Pubkey,
+    payer: &Pubkey,
+    verifier_program: &Pubkey,
+    selector: [u8; 4],
+) -> Result<Estimate, SubmissionError> {
+    let mut svm = svm_of(snapshot, features)?;
+    let verification = verification_units(&mut svm, verifier_program, selector)?;
+    svm.add_builtin(*verifier_program, AcceptingVerifier::register);
+
+    let failed = |failed: FailedTransactionMetadata| -> Result<Estimate, SubmissionError> {
+        Ok(
+            match settlement_failure(&failed.meta.logs, pa_program, verifier_program)? {
+                Some(failure) => Estimate::Failed(failure),
+                None => Estimate::Other {
+                    error: failed.err,
+                    logs: failed.meta.logs,
+                },
+            },
+        )
+    };
+    for planned in plan.upload.iter().flat_map(|upload| upload.filling()) {
+        if let Err(failure) = svm.send_transaction(unsigned(planned, payer, &svm)?) {
+            return failed(failure);
         }
-        let mut settle = plan.settle;
-        // The verification's compute stands in for the accepting verifier's.
-        // One using more than the settlement's whole budget leaves it none.
-        let held_back = verification.saturating_sub(ACCEPTING_VERIFIER_UNITS);
-        settle.config.compute_unit_limit = Some(
-            u32::try_from(held_back)
-                .map_or(0, |units| SETTLE_COMPUTE_UNIT_LIMIT.saturating_sub(units)),
-        );
-        match svm.send_transaction(unsigned(&settle, &payer, &svm)?) {
-            Ok(meta) => Ok(Estimate::Executable {
-                units_consumed: meta.compute_units_consumed + held_back,
-            }),
-            Err(failure) => failed(failure),
-        }
+    }
+    // The verification's compute stands in for the accepting verifier's. One
+    // using more than the settlement's whole budget leaves it none.
+    let held_back = verification.saturating_sub(ACCEPTING_VERIFIER_UNITS);
+    let settle = PlannedTransaction {
+        instructions: plan.settle.instructions.clone(),
+        config: TransactionConfig {
+            compute_unit_limit: Some(
+                u32::try_from(held_back)
+                    .map_or(0, |units| SETTLE_COMPUTE_UNIT_LIMIT.saturating_sub(units)),
+            ),
+            ..plan.settle.config
+        },
+    };
+    match svm.send_transaction(unsigned(&settle, payer, &svm)?) {
+        Ok(meta) => Ok(Estimate::Executable {
+            units_consumed: meta.compute_units_consumed + held_back,
+        }),
+        Err(failure) => failed(failure),
     }
 }
 
@@ -451,18 +508,13 @@ mod tests {
         let verifier = measurement.verifier_program;
         let keys: BTreeSet<Pubkey> = SYSVARS
             .into_iter()
-            .chain([
-                verifier,
-                measurement.payer,
-                derive_program_data_address(&verifier),
-            ])
+            .chain([verifier, derive_program_data_address(&verifier)])
             .collect();
         let snapshot = read(&rpc, &keys).await.unwrap();
         let features = read_feature_set(&rpc, snapshot.slot).await.unwrap();
-        let svm = svm_of(&snapshot, features).unwrap();
+        let mut svm = svm_of(&snapshot, features).unwrap();
 
-        let units =
-            verification_units(&svm, &verifier, measurement.selector, &measurement.payer).unwrap();
+        let units = verification_units(&mut svm, &verifier, measurement.selector).unwrap();
 
         println!(
             "a Groth16 verification on devnet at slot {}: {units} compute units",

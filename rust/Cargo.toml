@@ -68,6 +68,8 @@ solana-program-runtime = { version = "4.3.2", optional = true }
 solana-account = { version = "4", optional = true }
 solana-clock = { version = "3", features = ["serde"], optional = true }
 solana-feature-gate-interface = { version = "4", features = ["serde"], optional = true }
+# Runs the local SVM off the async runtime's workers.
+tokio = { version = "1", features = ["rt"], optional = true }
 
 [build-dependencies]
 # Reads the adapter IDL's errors for `build.rs`.
@@ -148,6 +150,7 @@ estimate = [
   "dep:solana-account",
   "dep:solana-clock",
   "dep:solana-feature-gate-interface",
+  "dep:tokio",
 ]
 
 # The cfgs `declare_program!`'s output tests: the Solana target, and the

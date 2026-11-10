@@ -49,6 +49,10 @@ pub enum SubmissionError {
     /// proof selector with.
     #[cfg(feature = "estimate")]
     UnmeasuredProofSelector { selector: [u8; 4] },
+    /// An account the cluster holds cannot be loaded into the estimate's
+    /// local SVM (a program its runtime does not load).
+    #[cfg(feature = "estimate")]
+    LoadAccount { address: Pubkey, error: String },
     /// The verifier program did not verify the proof the estimate measures a
     /// verification's compute on.
     #[cfg(feature = "estimate")]
@@ -82,6 +86,11 @@ impl fmt::Display for SubmissionError {
             Self::UnmeasuredProofSelector { selector } => write!(
                 f,
                 "the estimate has no proof to measure a verification of the selector {selector:02x?} with"
+            ),
+            #[cfg(feature = "estimate")]
+            Self::LoadAccount { address, error } => write!(
+                f,
+                "the account {address} cannot be loaded into the estimate's local SVM: {error}"
             ),
             #[cfg(feature = "estimate")]
             Self::VerifierMeasurement {
