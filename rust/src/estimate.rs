@@ -469,15 +469,16 @@ fn run(
             return failed(failure);
         }
     }
-    // The verification's compute stands in for the accepting verifier's. One
-    // using more than the settlement's whole budget leaves it none.
+    // The verification's compute stands in for the accepting verifier's. The
+    // measurement ran under the settlement's own limit, so it fits that.
     let held_back = verification.saturating_sub(ACCEPTING_VERIFIER_UNITS);
     let settle = PlannedTransaction {
         instructions: plan.settle.instructions.clone(),
         config: TransactionConfig {
             compute_unit_limit: Some(
-                u32::try_from(held_back)
-                    .map_or(0, |units| SETTLE_COMPUTE_UNIT_LIMIT.saturating_sub(units)),
+                SETTLE_COMPUTE_UNIT_LIMIT
+                    - u32::try_from(held_back)
+                        .expect("the measurement ran under the settlement's compute limit"),
             ),
             ..plan.settle.config
         },
