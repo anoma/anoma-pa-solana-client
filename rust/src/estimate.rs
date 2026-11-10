@@ -20,7 +20,7 @@ use risc0_zkvm::{MaybePruned, ReceiptClaim};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::v1::TransactionConfig;
-use solana_message::VersionedMessage;
+use solana_message::{Message, VersionedMessage};
 use solana_program_runtime::declare_process_instruction;
 use solana_program_runtime::solana_sbpf::program::BuiltinFunctionDefinition;
 use solana_pubkey::Pubkey;
@@ -34,9 +34,7 @@ use crate::pda::{
     derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
     derive_verifier_entry_pda,
 };
-use crate::settlement::{
-    plan_settlement, PlanError, PlannedTransaction, SettlementPlan, SETTLE_TRANSACTION_CONFIG,
-};
+use crate::settlement::{plan_settlement, PlanError, PlannedTransaction, SettlementPlan};
 use crate::settlement_input::{mock_seal, placeholder_settlement_input};
 use crate::submission::{
     decode_account, decode_adapter_state, decode_verifier_entry, settlement_failure, Failure,
@@ -287,9 +285,12 @@ fn unsigned(
 const MEASUREMENT_PAYER: Pubkey = Pubkey::new_from_array([0x4d; 32]);
 
 /// The compute units the verifier program of `svm` uses to verify one proof
-/// of `selector`'s proof system, in a transaction of the settlement
-/// transaction's settings (its heap size among them, which the runtime
-/// charges each program invocation for).
+/// of `selector`'s proof system, as one instruction of a transaction with the
+/// default heap. A settlement's router invokes the verifier within the
+/// settlement transaction, and that invocation is charged no heap of its
+/// own: the harness's estimates equal its settlements' units measured this
+/// way, and exceed them by the 56 units of the settlement's 256 KiB heap
+/// measured under the settlement transaction's settings.
 fn verification_units(
     svm: &mut LiteSVM,
     verifier_program: &Pubkey,
@@ -308,18 +309,21 @@ fn verification_units(
         address: MEASUREMENT_PAYER,
         error: e.to_string(),
     })?;
-    let verify = PlannedTransaction {
-        instructions: vec![Instruction {
-            program_id: *verifier_program,
-            accounts: vec![AccountMeta::new_readonly(
-                solana_sdk_ids::system_program::ID,
-                false,
-            )],
-            data: verification_measurement(selector)?,
-        }],
-        config: SETTLE_TRANSACTION_CONFIG,
+    let verify = Instruction {
+        program_id: *verifier_program,
+        accounts: vec![AccountMeta::new_readonly(
+            solana_sdk_ids::system_program::ID,
+            false,
+        )],
+        data: verification_measurement(selector)?,
     };
-    svm.simulate_transaction(unsigned(&verify, &MEASUREMENT_PAYER, svm)?)
+    let message =
+        Message::new_with_blockhash(&[verify], Some(&MEASUREMENT_PAYER), &svm.latest_blockhash());
+    let transaction = VersionedTransaction {
+        signatures: vec![Signature::default()],
+        message: VersionedMessage::Legacy(message),
+    };
+    svm.simulate_transaction(transaction)
         .map(|simulated| simulated.meta.compute_units_consumed)
         .map_err(|failed| SubmissionError::VerifierMeasurement {
             verifier_program: *verifier_program,
