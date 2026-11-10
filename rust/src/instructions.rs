@@ -377,7 +377,7 @@ pub fn txdata_close_expired_ix(
     )
 }
 
-/// The accounts every settlement instruction (`settle`, `simulate_execute`,
+/// The accounts every settlement instruction (`settle`,
 /// `settle_from_txdata`) names besides its payer and its upload, then its
 /// remaining accounts.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -419,39 +419,6 @@ pub fn settle_ix(
         settlement.remaining_accounts,
         args::Settle {
             transaction_data: input.to_vec(),
-        },
-    )
-}
-
-/// Build a PA `simulate_execute` instruction (pa-evm's `simulateExecute`):
-/// `settle_ix`'s accounts and input, and whether to skip verifying the RISC
-/// Zero proof. It always fails: with `Simulated` when the settlement would
-/// execute, otherwise with the error `settle` would.
-pub fn simulate_execute_ix(
-    pa_program: &Pubkey,
-    payer: &Pubkey,
-    input: &[u8],
-    skip_risc_zero_proof_verification: bool,
-    settlement: SettlementAccounts,
-) -> Instruction {
-    instruction(
-        pa_program,
-        accounts::SimulateExecute {
-            pa_state: derive_pa_state_pda(pa_program).0,
-            payer: *payer,
-            system_program: system_program::id(),
-            new_root_marker: settlement.new_root_marker,
-            verifier_router_program: settlement.verifier_router_program,
-            router: settlement.router,
-            verifier_entry: settlement.verifier_entry,
-            verifier_program: settlement.verifier_program,
-            event_authority: derive_event_authority_pda(pa_program).0,
-            program: *pa_program,
-        },
-        settlement.remaining_accounts,
-        args::SimulateExecute {
-            transaction_data: input.to_vec(),
-            skip_risc_zero_proof_verification,
         },
     )
 }
@@ -607,23 +574,14 @@ mod tests {
     }
 
     #[test]
-    fn the_inline_settlement_instructions_match_the_adapters_idl() {
-        let accounts = settlement(Some(key(10)), false);
+    fn the_inline_settlement_instruction_matches_the_adapters_idl() {
         let input = b"input";
         let encoded_input = [&5u32.to_le_bytes()[..], input].concat();
-        let settle = settle_ix(&ID, &key(1), input, accounts.clone());
-        for skip in [false, true] {
-            let simulate = simulate_execute_ix(&ID, &key(1), input, skip, accounts.clone());
-            let args = [&encoded_input[..], &[u8::from(skip)]].concat();
-            let by_name = assert_matches_the_adapters_idl(&simulate, "simulate_execute", &args);
-            assert_eq!(by_name("payer"), key(1));
-            assert_eq!(by_name("new_root_marker"), key(10));
-            assert_eq!(by_name("verifier_program"), key(14));
-            // The same accounts as `settle`.
-            assert_eq!(simulate.accounts, settle.accounts);
-        }
+        let settle = settle_ix(&ID, &key(1), input, settlement(Some(key(10)), false));
         let by_name = assert_matches_the_adapters_idl(&settle, "settle", &encoded_input);
+        assert_eq!(by_name("payer"), key(1));
         assert_eq!(by_name("new_root_marker"), key(10));
+        assert_eq!(by_name("verifier_program"), key(14));
     }
 
     #[test]

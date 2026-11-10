@@ -394,23 +394,6 @@ impl<'a> ProtocolAdapterInstance<'a> {
         instructions::settle_ix(&self.address, payer, input, settlement)
     }
 
-    /// `simulate_execute` of `input` (pa-evm's `simulateExecute`).
-    pub fn simulate_execute_ix(
-        &self,
-        payer: &Pubkey,
-        input: &[u8],
-        skip_risc_zero_proof_verification: bool,
-        settlement: SettlementAccounts,
-    ) -> Instruction {
-        instructions::simulate_execute_ix(
-            &self.address,
-            payer,
-            input,
-            skip_risc_zero_proof_verification,
-            settlement,
-        )
-    }
-
     /// `settle_from_txdata` of `authority`'s upload `upload_id`.
     pub fn settle_from_txdata_ix(
         &self,
@@ -770,11 +753,6 @@ mod tests {
                 "settle",
                 adapter.settle_ix(&key(1), b"input", settlement.clone()),
                 instructions::settle_ix(&pa, &key(1), b"input", settlement.clone()),
-            ),
-            (
-                "simulate_execute",
-                adapter.simulate_execute_ix(&key(1), b"input", true, settlement.clone()),
-                instructions::simulate_execute_ix(&pa, &key(1), b"input", true, settlement.clone()),
             ),
             (
                 "settle_from_txdata",

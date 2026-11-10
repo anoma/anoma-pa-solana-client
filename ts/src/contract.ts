@@ -68,8 +68,8 @@ export async function protocolAdapter(
 }
 
 /**
- * The accounts every settlement instruction (`settle`, `simulate_execute`,
- * `settle_from_txdata`) names besides its payer and its upload, then its
+ * The accounts every settlement instruction (`settle`, `settle_from_txdata`)
+ * names besides its payer and its upload, then its
  * remaining accounts.
  */
 export interface SettlementAccounts {
@@ -504,21 +504,6 @@ export class ProtocolAdapterInstance {
       "settle",
       { payer, ...settlementNamed(settlement) },
       { transaction_data: input },
-      settlement.remainingAccounts,
-    );
-  }
-
-  /** `simulate_execute` of `input` (pa-evm's `simulateExecute`). */
-  simulateExecuteIx(
-    payer: Address,
-    input: Uint8Array,
-    skipRiscZeroProofVerification: boolean,
-    settlement: SettlementAccounts,
-  ): Promise<Instruction> {
-    return this.instruction(
-      "simulate_execute",
-      { payer, ...settlementNamed(settlement) },
-      { transaction_data: input, skip_risc_zero_proof_verification: skipRiscZeroProofVerification },
       settlement.remainingAccounts,
     );
   }

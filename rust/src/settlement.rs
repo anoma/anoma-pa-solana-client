@@ -15,8 +15,8 @@ use crate::constants::{
 };
 use crate::generated::protocol_adapter::accounts::PAStateAccount;
 use crate::instructions::{
-    settle_from_txdata_ix, settle_ix, simulate_execute_ix, txdata_close_ix, txdata_init_ix,
-    txdata_write_ix, SettlementAccounts,
+    settle_from_txdata_ix, settle_ix, txdata_close_ix, txdata_init_ix, txdata_write_ix,
+    SettlementAccounts,
 };
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
 use crate::pda::{
@@ -115,6 +115,14 @@ pub struct Upload {
     pub writes: Vec<PlannedTransaction>,
     /// Closes the upload, whatever the settlement's outcome.
     pub close: PlannedTransaction,
+}
+
+impl Upload {
+    /// The transactions that fill the upload before the settlement: its init,
+    /// then its writes.
+    pub fn filling(&self) -> impl Iterator<Item = &PlannedTransaction> {
+        std::iter::once(&self.init).chain(&self.writes)
+    }
 }
 
 /// One settlement's transactions.
@@ -370,34 +378,6 @@ pub fn plan_settlement(
         settle,
         new_root: s.new_root,
     })
-}
-
-/// The transaction simulating one settlement (pa-evm's `simulateExecute`):
-/// the settlement's one transaction with `simulate_execute` in place of
-/// `settle`, verifying the RISC Zero proof unless
-/// `skip_risc_zero_proof_verification`. Sent to the RPC's simulation, it
-/// changes nothing and needs no signature. A simulation too large for one
-/// transaction is refused (`TooLarge`): unlike a settlement, it is never
-/// uploaded.
-pub fn plan_simulation(
-    request: SettlementRequest<'_>,
-    skip_risc_zero_proof_verification: bool,
-) -> Result<PlannedTransaction, PlanError> {
-    let s = settling(request)?;
-    let mut instructions = s.preceding;
-    instructions.push(simulate_execute_ix(
-        &s.pa_program,
-        &s.payer,
-        s.input,
-        skip_risc_zero_proof_verification,
-        s.accounts,
-    ));
-    let simulation = PlannedTransaction {
-        instructions,
-        config: SETTLE_TRANSACTION_CONFIG,
-    };
-    within_limits(&simulation.message(&s.payer, Hash::default())?)?;
-    Ok(simulation)
 }
 
 #[cfg(test)]
@@ -746,69 +726,6 @@ pub(crate) mod tests {
             "a settlement transaction over {} bytes is planned: {}",
             v1::MAX_TRANSACTION_SIZE,
             outcome(&result)
-        );
-    }
-
-    #[test]
-    fn a_simulation_is_the_settlement_transaction_with_simulate_execute_for_settle() {
-        let state = state_with(&[[3; 32]]);
-        let nullifiers = [[10; 32]];
-        let roots = [state.root];
-        let created = [[5; 32]];
-        let segment = vec![AccountMeta::new(key(21), false)];
-        let preceding = Instruction::new_with_bytes(key(30), b"check", vec![]);
-        let request = || {
-            let mut req = request(
-                &state,
-                b"input",
-                &nullifiers,
-                &roots,
-                &created,
-                vec![segment.clone()],
-            );
-            req.accounts.preceding = vec![preceding.clone()];
-            req
-        };
-        let settlement = plan_settlement(request(), 7, 500).unwrap();
-        assert!(settlement.upload.is_none(), "a 5-byte input uploads");
-        for skip in [false, true] {
-            let simulation = plan_simulation(request(), skip).unwrap();
-            assert_eq!(simulation.config, settlement.settle.config);
-            let [check, simulate] = &simulation.instructions[..] else {
-                panic!("{} instructions", simulation.instructions.len());
-            };
-            let [_, settle] = &settlement.settle.instructions[..] else {
-                panic!("{} instructions", settlement.settle.instructions.len());
-            };
-            assert_eq!(check, &preceding);
-            assert_eq!(simulate.accounts, settle.accounts);
-            // The request's 5-byte input, then the skip flag.
-            assert_eq!(
-                simulate.data,
-                [
-                    args::SimulateExecute::DISCRIMINATOR,
-                    &5u32.to_le_bytes(),
-                    b"input",
-                    &[u8::from(skip)],
-                ]
-                .concat()
-            );
-        }
-    }
-
-    #[test]
-    fn a_simulation_too_large_for_one_transaction_is_refused() {
-        let state = state_with(&[]);
-        let input = vec![0u8; v1::MAX_TRANSACTION_SIZE];
-        let result = plan_simulation(request(&state, &input, &[], &[], &[], vec![]), true);
-        assert!(
-            matches!(result, Err(PlanError::TooLarge { bytes }) if bytes > v1::MAX_TRANSACTION_SIZE),
-            "a simulation over {} bytes is planned: {}",
-            v1::MAX_TRANSACTION_SIZE,
-            match &result {
-                Ok(_) => "a transaction".to_string(),
-                Err(e) => e.to_string(),
-            }
         );
     }
 

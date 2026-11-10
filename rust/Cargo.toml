@@ -12,6 +12,7 @@ exclude = [
   "tests/events_fixture.rs",
   "tests/instructions_fixture.rs",
   "tests/idl_at_tag.rs",
+  "tests/estimate_deployed.rs",
 ]
 
 [lib]
@@ -48,7 +49,7 @@ anoma-rm-risc0 = { version = "2.0.0-rc.8.1", default-features = false, features 
 risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
 
 # Submission (`rpc` feature): the adapter's state and the forwarders' accounts
-# read over an RPC, and simulations run there.
+# read over an RPC, and the reads simulated there.
 solana-rpc-client = { version = "4", optional = true }
 solana-rpc-client-api = { version = "4", optional = true }
 solana-signature = { version = "3", optional = true }
@@ -58,6 +59,17 @@ solana-transaction-error = { version = "3", optional = true }
 base64 = { version = "0.22", optional = true }
 # The instance's errors (`error`), derived as pa-evm's bindings derive theirs.
 thiserror = { version = "2", optional = true }
+
+# Estimate (`estimate` feature): a settlement run in a local SVM on the
+# cluster's accounts as of one read, with the cluster's active features.
+litesvm = { version = "0.18.2", features = ["precompiles"], optional = true }
+agave-feature-set = { version = "4.3.2", optional = true }
+solana-program-runtime = { version = "4.3.2", optional = true }
+solana-account = { version = "4", optional = true }
+solana-clock = { version = "3", features = ["serde"], optional = true }
+solana-feature-gate-interface = { version = "4", features = ["serde"], optional = true }
+# Runs the local SVM off the async runtime's workers.
+tokio = { version = "1", features = ["rt"], optional = true }
 
 [build-dependencies]
 # Reads the adapter IDL's errors for `build.rs`.
@@ -82,6 +94,11 @@ required-features = ["solana"]
 [[test]]
 name = "deployed"
 required-features = ["rpc"]
+
+# Reads `fixtures/devnet_settlement.json`.
+[[test]]
+name = "estimate_deployed"
+required-features = ["estimate"]
 
 [dev-dependencies]
 # Read the vendored IDL and the cross-package fixtures under `fixtures/`.
@@ -111,7 +128,7 @@ solana = [
 # re-encoded as the verifier-router seal the adapter decodes.
 arm = ["dep:anoma-rm-risc0", "dep:risc0-zkvm"]
 # Submission: the forwarder registry each forwarder's client plugs into, and
-# a settlement prepared, planned and simulated over an RPC.
+# a settlement prepared and planned over an RPC.
 rpc = [
   "solana",
   "arm",
@@ -122,6 +139,18 @@ rpc = [
   "dep:solana-transaction-error",
   "dep:base64",
   "dep:thiserror",
+]
+# Estimate: a settlement run before it is proven, as pa-evm's integrators
+# estimate `execute` with the verifier's code overridden.
+estimate = [
+  "rpc",
+  "dep:litesvm",
+  "dep:agave-feature-set",
+  "dep:solana-program-runtime",
+  "dep:solana-account",
+  "dep:solana-clock",
+  "dep:solana-feature-gate-interface",
+  "dep:tokio",
 ]
 
 # The cfgs `declare_program!`'s output tests: the Solana target, and the
