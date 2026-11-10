@@ -72,12 +72,12 @@ pub fn proven_settlement_input_len(tx: &Transaction) -> Result<usize, Settlement
         .map_err(|e| SettlementInputError::Serialize(e.to_string()))
 }
 
-/// `tx` as `simulate_execute` takes it: a proven transaction as
-/// `settlement_input` encodes it; an unproven one (its aggregation proof
-/// empty) with `selector`, the adapter's proof selector, as its proof, which
-/// the adapter checks even when it skips verifying the proof, as pa-evm's
-/// `simulateExecute` reads an unproven transaction's proof selector.
-pub fn simulation_input(
+/// `tx` as the adapter would settle it once proven, with a placeholder in
+/// place of the router seal: `selector`, the adapter's proof selector, then
+/// a zero Groth16 proof. It has the proven input's length, as pa-evm's
+/// estimates carry a placeholder seal of the real length; whatever proof `tx`
+/// carries is replaced.
+pub fn placeholder_settlement_input(
     mut tx: Transaction,
     selector: [u8; 4],
 ) -> Result<Vec<u8>, SettlementInputError> {
@@ -85,10 +85,9 @@ pub fn simulation_input(
         .aggregation
         .as_mut()
         .ok_or(SettlementInputError::NoAggregation)?;
-    if !aggregation.proof.is_empty() {
-        return settlement_input(tx);
-    }
-    aggregation.proof = selector.to_vec();
+    let mut seal = selector.to_vec();
+    seal.resize(ROUTER_SEAL_LEN, 0);
+    aggregation.proof = seal;
     bincode::serialize(&tx).map_err(|e| SettlementInputError::Serialize(e.to_string()))
 }
 
@@ -413,20 +412,15 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_proven_transaction_simulates_as_it_settles() {
-        let tx = proven_trivial_transaction(1).await;
-        assert_eq!(
-            simulation_input(tx.clone(), MOCK_SELECTOR).expect("simulation input"),
-            settlement_input(tx).expect("settlement input")
-        );
-    }
-
-    #[tokio::test]
-    async fn an_unproven_transaction_simulates_with_the_selector_as_its_proof() {
+    async fn a_placeholder_input_is_the_proven_inputs_length_with_a_zero_proof() {
         let mut tx = proven_trivial_transaction(1).await;
         tx.aggregation.as_mut().unwrap().proof = vec![];
-        let input = simulation_input(tx.clone(), MOCK_SELECTOR).expect("input");
-        assert_eq!(settled_proof(&input), MOCK_SELECTOR.to_vec());
+        let selector = [0x73, 0xc4, 0x57, 0xba];
+        let input = placeholder_settlement_input(tx.clone(), selector).expect("input");
+        let mut expected_seal = selector.to_vec();
+        expected_seal.extend([0u8; 64 + 128 + 64]);
+        assert_eq!(settled_proof(&input), expected_seal);
+        assert_eq!(input.len(), proven_settlement_input_len(&tx).unwrap());
         let mut settled: Transaction = bincode::deserialize(&input).unwrap();
         settled.aggregation.as_mut().unwrap().proof = vec![];
         assert_eq!(

@@ -252,12 +252,6 @@ describe("ProtocolAdapterInstance's builders, against the Rust crate's", () => {
     ["settle", () => adapter.settleIx(key(1), encode("input"), settlement(key(10), true))],
     ["settle_no_marker", () => adapter.settleIx(key(1), encode("input"), settlement(null, false))],
     ["settle_large", () => adapter.settleIx(key(1), large(1500), settlement(key(10), true))],
-    [
-      "simulate_execute_false",
-      () => adapter.simulateExecuteIx(key(1), encode("input"), false, settlement(key(10), true)),
-    ],
-    ["simulate_execute_true", () => adapter.simulateExecuteIx(key(1), encode("input"), true, settlement(null, false))],
-    ["simulate_execute_large", () => adapter.simulateExecuteIx(key(1), large(1500), true, settlement(key(10), true))],
     ["settle_from_txdata", () => adapter.settleFromTxdataIx(key(1), 7n, settlement(key(10), true))],
   ];
 

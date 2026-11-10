@@ -1,18 +1,13 @@
 //! A settlement as every submitter prepares it, whatever the application: the
 //! adapter's state read from the chain, each external call's accounts from
 //! the forwarder registered for its program, and the settlement planned or
-//! simulated from them. Sending is the submitter's own.
+//! estimated from them. Sending is the submitter's own.
 
 use std::fmt;
 
 use anoma_rm_risc0::transaction::Transaction;
-use solana_message::{Hash, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use solana_rpc_client_api::config::RpcSimulateTransactionConfig;
-use solana_signature::Signature;
-use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_error::TransactionError;
 
 use anchor::error::ERROR_CODE_OFFSET;
 use anchor::AccountDeserialize;
@@ -24,15 +19,14 @@ use crate::generated::protocol_adapter::error::ProtocolAdapterError;
 use crate::generated::verifier_router::accounts::VerifierEntry;
 use crate::pda::{derive_pa_state_pda, derive_verifier_entry_pda};
 use crate::settlement::{
-    plan_settlement, plan_simulation, CallAccounts, PlanError, PlannedTransaction, SettlementPlan,
-    SettlementRequest,
+    plan_settlement, CallAccounts, PlanError, SettlementPlan, SettlementRequest,
 };
 use crate::settlement_input::{
     external_calls, proven_settlement_input_len, settled_resources, settlement_input,
-    simulation_input, SettledResources, SettlementInputError,
+    SettledResources, SettlementInputError,
 };
 
-/// Why a settlement could not be prepared, planned or simulated.
+/// Why a settlement could not be prepared, planned or estimated.
 #[derive(Debug)]
 pub enum SubmissionError {
     /// An RPC request failed: retrying may succeed.
@@ -47,6 +41,18 @@ pub enum SubmissionError {
     Input(SettlementInputError),
     /// The settlement cannot be planned.
     Plan(PlanError),
+    /// The estimate's read names more accounts than one RPC read returns.
+    TooManyAccounts { accounts: usize },
+    /// The estimate has no proof to measure a verification of the adapter's
+    /// proof selector with.
+    UnmeasuredProofSelector { selector: [u8; 4] },
+    /// The verifier program did not verify the proof the estimate measures a
+    /// verification's compute on.
+    VerifierMeasurement {
+        verifier_program: Pubkey,
+        error: String,
+        logs: Vec<String>,
+    },
     /// The runtime truncated the log, so it does not say which program failed:
     /// past its limit the runtime drops lines, the deepest failure's among
     /// them, while a shorter later one can still fit.
@@ -62,6 +68,22 @@ impl fmt::Display for SubmissionError {
             Self::Accounts(e) => write!(f, "the external calls' accounts: {e}"),
             Self::Input(e) => write!(f, "the transaction: {e}"),
             Self::Plan(e) => write!(f, "the settlement cannot be planned: {e}"),
+            Self::TooManyAccounts { accounts } => write!(
+                f,
+                "the settlement's estimate reads {accounts} accounts; one RPC read returns at most 100"
+            ),
+            Self::UnmeasuredProofSelector { selector } => write!(
+                f,
+                "the estimate has no proof to measure a verification of the selector {selector:02x?} with"
+            ),
+            Self::VerifierMeasurement {
+                verifier_program,
+                error,
+                logs,
+            } => write!(
+                f,
+                "the verifier program {verifier_program} refused the measurement proof: {error}; logs: {logs:?}"
+            ),
             Self::TruncatedLog => write!(
                 f,
                 "the runtime truncated the log, so it does not say which program failed"
@@ -144,11 +166,11 @@ pub async fn read_verifier_program(
 /// A transaction ready to be planned: the adapter's state and the accounts of
 /// its external calls, read from the chain.
 pub struct Submission {
-    pa_program: Pubkey,
-    payer: Pubkey,
-    verifier_program: Pubkey,
-    state: PAStateAccount,
-    transaction: Transaction,
+    pub(crate) pa_program: Pubkey,
+    pub(crate) payer: Pubkey,
+    pub(crate) verifier_program: Pubkey,
+    pub(crate) state: PAStateAccount,
+    pub(crate) transaction: Transaction,
     resources: SettledResources,
     accounts: CallAccounts,
 }
@@ -193,12 +215,23 @@ impl Submission {
     }
 
     fn request<'a>(&'a self, input: &'a [u8]) -> SettlementRequest<'a> {
+        self.request_with(input, &self.state, self.verifier_program)
+    }
+
+    /// The request settling `input` against `state`, whose proofs
+    /// `verifier_program` verifies.
+    pub(crate) fn request_with<'a>(
+        &'a self,
+        input: &'a [u8],
+        state: &'a PAStateAccount,
+        verifier_program: Pubkey,
+    ) -> SettlementRequest<'a> {
         SettlementRequest {
             pa_program: self.pa_program,
             payer: self.payer,
             input,
-            state: &self.state,
-            verifier_program: self.verifier_program,
+            state,
+            verifier_program,
             nullifiers: &self.resources.nullifiers,
             consumed_roots: &self.resources.consumed_roots,
             created: &self.resources.created,
@@ -233,89 +266,6 @@ impl Submission {
         let input = vec![0; proven_settlement_input_len(&self.transaction)?];
         Ok(plan_settlement(self.request(&input), 0, 0)?.transaction_count())
     }
-
-    /// The transaction simulating the settlement (`plan_simulation`), skipping
-    /// the RISC Zero proof's verification when
-    /// `skip_risc_zero_proof_verification`. An unproven transaction (its
-    /// aggregation proof empty) carries the adapter's proof selector instead.
-    pub fn plan_simulation(
-        &self,
-        skip_risc_zero_proof_verification: bool,
-    ) -> Result<PlannedTransaction, SubmissionError> {
-        let input = simulation_input(self.transaction.clone(), self.state.proof_selector)?;
-        Ok(plan_simulation(
-            self.request(&input),
-            skip_risc_zero_proof_verification,
-        )?)
-    }
-
-    /// Simulates the settlement (pa-evm's `simulateExecute`) on the state
-    /// behind `rpc` at its commitment, as `plan_simulation` plans it:
-    /// unsigned and on the latest blockhash, which the RPC fills in.
-    pub async fn simulate(
-        &self,
-        rpc: &RpcClient,
-        skip_risc_zero_proof_verification: bool,
-    ) -> Result<SimulationOutcome, SubmissionError> {
-        let message = self
-            .plan_simulation(skip_risc_zero_proof_verification)?
-            .message(&self.payer, Hash::default())
-            .map_err(PlanError::from)?;
-        let unsigned = VersionedTransaction {
-            signatures: vec![
-                Signature::default();
-                usize::from(message.header.num_required_signatures)
-            ],
-            message: VersionedMessage::V1(message),
-        };
-        let simulated = rpc
-            .simulate_transaction_with_config(
-                &unsigned,
-                RpcSimulateTransactionConfig {
-                    sig_verify: false,
-                    replace_recent_blockhash: true,
-                    commitment: Some(rpc.commitment()),
-                    ..RpcSimulateTransactionConfig::default()
-                },
-            )
-            .await
-            .map_err(|error| SubmissionError::Rpc {
-                what: "the simulation".to_owned(),
-                error: error.to_string(),
-            })?
-            .value;
-        let logs = simulated.logs.unwrap_or_default();
-        Ok(
-            match settlement_failure(&logs, &self.pa_program, &self.verifier_program)? {
-                Some(Failure::Adapter(ProtocolAdapterError::Simulated)) => {
-                    SimulationOutcome::Executable {
-                        units_consumed: simulated.units_consumed,
-                    }
-                }
-                Some(failure) => SimulationOutcome::Failed(failure),
-                None => SimulationOutcome::Other {
-                    error: simulated.err.map(TransactionError::from),
-                    logs,
-                },
-            },
-        )
-    }
-}
-
-/// How a simulation of a settlement ended.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SimulationOutcome {
-    /// `simulate_execute` ended with `Simulated`: the settlement would
-    /// execute, using these compute units in all.
-    Executable { units_consumed: Option<u64> },
-    /// The settlement would fail.
-    Failed(Failure),
-    /// The transaction failed without any program's custom error, or did not
-    /// fail at all, which `simulate_execute` never does.
-    Other {
-        error: Option<TransactionError>,
-        logs: Vec<String>,
-    },
 }
 
 /// The failure that ended a settlement.

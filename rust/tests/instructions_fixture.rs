@@ -1,8 +1,7 @@
 //! Cross-package fixture: `fixtures/instructions_fixture.json` holds every
 //! adapter instruction the crate's builders build for fixed inputs (the
 //! program `key(9)`, other accounts `key(n)`), with inputs larger than 1000
-//! bytes for `settle`, `simulate_execute`, `txdata_write` and
-//! `deny_logic_refs`. The TS package
+//! bytes for `settle`, `txdata_write` and `deny_logic_refs`. The TS package
 //! builds the same instructions and checks them against the same file
 //! (`ts/src/contract.test.ts`).
 //!
@@ -129,30 +128,6 @@ fn instructions() -> Vec<(&'static str, Instruction)> {
         (
             "settle_large",
             settle_ix(&pa, &key(1), &large(1500), settlement(Some(key(10)), true)),
-        ),
-        (
-            "simulate_execute_false",
-            simulate_execute_ix(
-                &pa,
-                &key(1),
-                b"input",
-                false,
-                settlement(Some(key(10)), true),
-            ),
-        ),
-        (
-            "simulate_execute_true",
-            simulate_execute_ix(&pa, &key(1), b"input", true, settlement(None, false)),
-        ),
-        (
-            "simulate_execute_large",
-            simulate_execute_ix(
-                &pa,
-                &key(1),
-                &large(1500),
-                true,
-                settlement(Some(key(10)), true),
-            ),
         ),
         (
             "settle_from_txdata",
