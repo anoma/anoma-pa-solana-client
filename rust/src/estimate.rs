@@ -116,7 +116,13 @@ fn verification_measurement(selector: [u8; 4]) -> Result<Vec<u8>, SubmissionErro
     }
 }
 
-declare_process_instruction!(AcceptingVerifier, 0, |_invoke_context| { Ok(()) });
+/// The compute units the verifier that accepts every proof consumes: the
+/// least the runtime lets a builtin consume.
+const ACCEPTING_VERIFIER_UNITS: u64 = 1;
+
+declare_process_instruction!(AcceptingVerifier, ACCEPTING_VERIFIER_UNITS, |_invoke_context| {
+    Ok(())
+});
 
 /// How the estimate of a settlement ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -420,15 +426,16 @@ impl Submission {
             }
         }
         let mut settle = plan.settle;
-        // A verification using more than the settlement's whole budget leaves
-        // it none.
+        // The verification's compute stands in for the accepting verifier's.
+        // One using more than the settlement's whole budget leaves it none.
+        let held_back = verification.saturating_sub(ACCEPTING_VERIFIER_UNITS);
         settle.config.compute_unit_limit = Some(
-            u32::try_from(verification)
+            u32::try_from(held_back)
                 .map_or(0, |units| SETTLE_COMPUTE_UNIT_LIMIT.saturating_sub(units)),
         );
         match svm.send_transaction(unsigned(&settle, &payer, &svm)?) {
             Ok(meta) => Ok(Estimate::Executable {
-                units_consumed: meta.compute_units_consumed + verification,
+                units_consumed: meta.compute_units_consumed + held_back,
             }),
             Err(failure) => failed(failure),
         }
