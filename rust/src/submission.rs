@@ -41,13 +41,17 @@ pub enum SubmissionError {
     Input(SettlementInputError),
     /// The settlement cannot be planned.
     Plan(PlanError),
-    /// The estimate's read names more accounts than one RPC read returns.
+    /// The estimate's read names more accounts than one RPC read returns
+    /// (`MAX_MULTIPLE_ACCOUNTS`).
+    #[cfg(feature = "estimate")]
     TooManyAccounts { accounts: usize },
     /// The estimate has no proof to measure a verification of the adapter's
     /// proof selector with.
+    #[cfg(feature = "estimate")]
     UnmeasuredProofSelector { selector: [u8; 4] },
     /// The verifier program did not verify the proof the estimate measures a
     /// verification's compute on.
+    #[cfg(feature = "estimate")]
     VerifierMeasurement {
         verifier_program: Pubkey,
         error: String,
@@ -68,14 +72,18 @@ impl fmt::Display for SubmissionError {
             Self::Accounts(e) => write!(f, "the external calls' accounts: {e}"),
             Self::Input(e) => write!(f, "the transaction: {e}"),
             Self::Plan(e) => write!(f, "the settlement cannot be planned: {e}"),
+            #[cfg(feature = "estimate")]
             Self::TooManyAccounts { accounts } => write!(
                 f,
-                "the settlement's estimate reads {accounts} accounts; one RPC read returns at most 100"
+                "the settlement's estimate reads {accounts} accounts; one RPC read returns at most {}",
+                crate::estimate::MAX_MULTIPLE_ACCOUNTS
             ),
+            #[cfg(feature = "estimate")]
             Self::UnmeasuredProofSelector { selector } => write!(
                 f,
                 "the estimate has no proof to measure a verification of the selector {selector:02x?} with"
             ),
+            #[cfg(feature = "estimate")]
             Self::VerifierMeasurement {
                 verifier_program,
                 error,
@@ -112,29 +120,63 @@ impl From<PlanError> for SubmissionError {
     }
 }
 
-/// The account at `address`, `what` the settlement reads, as `decode` reads
-/// it, at the RPC client's commitment.
-async fn read_account<T, E: fmt::Display>(
-    rpc: &RpcClient,
-    address: &Pubkey,
+/// The account `what`, `data` its data when it exists, as `decode` reads it.
+pub(crate) fn decode_account<T, E: fmt::Display>(
+    data: Option<&[u8]>,
     what: String,
     decode: impl FnOnce(&[u8]) -> Result<T, E>,
 ) -> Result<T, SubmissionError> {
-    let account = rpc
-        .get_account_with_commitment(address, rpc.commitment())
-        .await
-        .map_err(|error| SubmissionError::Rpc {
-            what: what.clone(),
-            error: error.to_string(),
-        })?
-        .value;
-    let Some(account) = account else {
+    let Some(data) = data else {
         return Err(SubmissionError::MissingAccount { what });
     };
-    decode(&account.data).map_err(|e| SubmissionError::Decode {
+    decode(data).map_err(|e| SubmissionError::Decode {
         what,
         error: e.to_string(),
     })
+}
+
+/// The adapter's state at `address`, `data` its account's data when it
+/// exists.
+pub(crate) fn decode_adapter_state(
+    address: &Pubkey,
+    data: Option<&[u8]>,
+) -> Result<PAStateAccount, SubmissionError> {
+    decode_account(
+        data,
+        format!("the adapter's state {address}"),
+        decode_pa_state,
+    )
+}
+
+/// The verifier program the router's verifier entry at `entry` names, `data`
+/// the entry's data when it exists.
+pub(crate) fn decode_verifier_entry(
+    entry: &Pubkey,
+    data: Option<&[u8]>,
+) -> Result<Pubkey, SubmissionError> {
+    decode_account(
+        data,
+        format!("the router's verifier entry {entry}"),
+        |mut data| VerifierEntry::try_deserialize(&mut data),
+    )
+    .map(|entry| entry.verifier)
+}
+
+/// The data of the account at `address`, at the RPC client's commitment, or
+/// `None` when it does not exist.
+async fn read_account_data(
+    rpc: &RpcClient,
+    address: &Pubkey,
+) -> Result<Option<Vec<u8>>, SubmissionError> {
+    Ok(rpc
+        .get_account_with_commitment(address, rpc.commitment())
+        .await
+        .map_err(|error| SubmissionError::Rpc {
+            what: format!("the account {address}"),
+            error: error.to_string(),
+        })?
+        .value
+        .map(|account| account.data))
 }
 
 /// The state of the adapter `pa_program`.
@@ -143,8 +185,7 @@ pub async fn read_adapter_state(
     pa_program: &Pubkey,
 ) -> Result<PAStateAccount, SubmissionError> {
     let (address, _) = derive_pa_state_pda(pa_program);
-    let what = format!("the adapter's state {address}");
-    read_account(rpc, &address, what, decode_pa_state).await
+    decode_adapter_state(&address, read_account_data(rpc, &address).await?.as_deref())
 }
 
 /// The verifier program the entry of `router` for `selector` names; an
@@ -155,12 +196,7 @@ pub async fn read_verifier_program(
     selector: [u8; 4],
 ) -> Result<Pubkey, SubmissionError> {
     let entry = derive_verifier_entry_pda(router, selector);
-    let what = format!("the router's verifier entry {entry}");
-    let decoded = read_account(rpc, &entry, what, |data| {
-        VerifierEntry::try_deserialize(&mut &*data)
-    })
-    .await?;
-    Ok(decoded.verifier)
+    decode_verifier_entry(&entry, read_account_data(rpc, &entry).await?.as_deref())
 }
 
 /// A transaction ready to be planned: the adapter's state and the accounts of
@@ -286,8 +322,8 @@ pub enum Failure {
 }
 
 /// The failure that ended a settlement of the adapter `pa_program`, whose
-/// proofs `verifier_program` verifies, from the runtime's log of it (a
-/// simulation's, or a send's preflight simulation): `None` when no program
+/// proofs `verifier_program` verifies, from the runtime's log of it (an
+/// estimate's, or a send's preflight simulation): `None` when no program
 /// failed with a custom error.
 pub fn settlement_failure(
     logs: &[String],

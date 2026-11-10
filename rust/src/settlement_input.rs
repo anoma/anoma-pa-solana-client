@@ -190,7 +190,7 @@ fn router_seal(proof: &[u8]) -> Result<Vec<u8>, SettlementInputError> {
 /// Groth16 proof (a: 64 bytes, b: 128, c: 64) that is zero but for the claim
 /// digest at the start of c, where the mock verifier reads it (the adapter
 /// negates a before it calls the router).
-fn mock_seal(claim: Digest) -> Vec<u8> {
+pub(crate) fn mock_seal(claim: Digest) -> Vec<u8> {
     let mut seal = Vec::with_capacity(ROUTER_SEAL_LEN);
     seal.extend(MOCK_SELECTOR);
     seal.extend([0u8; 64 + 128]);

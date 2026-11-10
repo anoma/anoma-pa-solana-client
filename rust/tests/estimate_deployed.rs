@@ -36,9 +36,7 @@ async fn a_settled_devnet_transaction_estimated_again_fails_as_its_settlement_wo
     let rpc = RpcClient::new(url);
     let adapter = protocol_adapter_address(Environment::Staging, &ClusterType::Devnet).unwrap();
     // The account that paid for the settlement.
-    let payer: Pubkey = "5S8LtbDPtQE7GtWWMBFY78gmiYp2LqS5BsoFDxKjoHr9"
-        .parse()
-        .unwrap();
+    let payer: Pubkey = fixture["payer"].as_str().unwrap().parse().unwrap();
     let state = read_adapter_state(&rpc, &adapter).await.unwrap();
     let verifier = read_verifier_program(&rpc, &state.verifier_router, state.proof_selector)
         .await

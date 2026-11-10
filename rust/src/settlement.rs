@@ -117,6 +117,14 @@ pub struct Upload {
     pub close: PlannedTransaction,
 }
 
+impl Upload {
+    /// The transactions that fill the upload before the settlement: its init,
+    /// then its writes.
+    pub fn filling(&self) -> impl Iterator<Item = &PlannedTransaction> {
+        std::iter::once(&self.init).chain(&self.writes)
+    }
+}
+
 /// One settlement's transactions.
 #[derive(Debug)]
 pub struct SettlementPlan {

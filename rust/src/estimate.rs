@@ -8,13 +8,15 @@
 //! cluster's verifier program, is held back from the settlement's compute
 //! budget.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use agave_feature_set::{FeatureSet, FEATURE_NAMES};
 use base64::Engine;
 use litesvm::types::FailedTransactionMetadata;
 use litesvm::LiteSVM;
+use risc0_zkvm::sha::{Digest, Digestible};
+use risc0_zkvm::{MaybePruned, ReceiptClaim};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::{Message, VersionedMessage};
@@ -26,24 +28,21 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 
-use anchor::AccountDeserialize;
-
-use crate::accounts::decode_pa_state;
-use risc0_zkvm::sha::{Digest, Digestible};
-use risc0_zkvm::{MaybePruned, ReceiptClaim};
-
 use crate::constants::{MOCK_SELECTOR, SETTLE_COMPUTE_UNIT_LIMIT, TXDATA_EXPIRY_SLOTS_DEFAULT};
-use crate::generated::verifier_router::accounts::VerifierEntry;
 use crate::pda::{
-    derive_pa_state_pda, derive_root_marker_pda, derive_tx_data_pda, derive_verifier_entry_pda,
+    derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
+    derive_verifier_entry_pda,
 };
-use crate::settlement::{plan_settlement, PlannedTransaction, SettlementPlan};
-use crate::settlement_input::placeholder_settlement_input;
-use crate::submission::{settlement_failure, Failure, Submission, SubmissionError};
+use crate::settlement::{plan_settlement, PlanError, PlannedTransaction, SettlementPlan};
+use crate::settlement_input::{mock_seal, placeholder_settlement_input};
+use crate::submission::{
+    decode_account, decode_adapter_state, decode_verifier_entry, settlement_failure, Failure,
+    Submission, SubmissionError,
+};
 
 /// How many accounts one `getMultipleAccounts` returns, the RPC's limit: a
 /// read that needs more cannot be one read.
-const MAX_MULTIPLE_ACCOUNTS: usize = 100;
+pub const MAX_MULTIPLE_ACCOUNTS: usize = 100;
 
 /// The upload id the estimate's upload, when it has one, takes. Its account
 /// is the estimate's own: the read leaves it out, so the upload starts empty
@@ -62,11 +61,20 @@ const SYSVARS: [Pubkey; 7] = [
     solana_sdk_ids::sysvar::stake_history::ID,
 ];
 
-/// The selector of a Groth16 proof and the verify instruction of one its
-/// verifier program accepted: the router's call to it in a devnet settlement
-/// (the file names the transaction). Its compute is the compute of one
+/// A Groth16 proof's verify instruction that a verifier program accepted:
+/// the router's call to it in a devnet settlement, which the file names with
+/// its verifier program and payer. Its compute is the compute of one
 /// Groth16 verification, which does not depend on the proof.
-static GROTH16_MEASUREMENT: LazyLock<([u8; 4], Vec<u8>)> = LazyLock::new(|| {
+struct Groth16Measurement {
+    selector: [u8; 4],
+    verify_instruction_data: Vec<u8>,
+    #[cfg(test)]
+    verifier_program: Pubkey,
+    #[cfg(test)]
+    payer: Pubkey,
+}
+
+static GROTH16_MEASUREMENT: LazyLock<Groth16Measurement> = LazyLock::new(|| {
     let measurement: serde_json::Value =
         serde_json::from_str(include_str!("groth16_compute_measurement.json"))
             .expect("the Groth16 measurement is JSON");
@@ -76,39 +84,48 @@ static GROTH16_MEASUREMENT: LazyLock<([u8; 4], Vec<u8>)> = LazyLock::new(|| {
             .unwrap_or_else(|| panic!("the Groth16 measurement holds no {name}"))
             .to_owned()
     };
-    let selector = u32::from_str_radix(&field("selector"), 16)
-        .expect("the Groth16 measurement's selector is 4 hex bytes")
-        .to_be_bytes();
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(field("verify_instruction_data_base64"))
-        .expect("the Groth16 measurement's instruction data is base64");
-    (selector, data)
+    #[cfg(test)]
+    let key = |name: &str| {
+        field(name)
+            .parse()
+            .unwrap_or_else(|_| panic!("the Groth16 measurement's {name} is no address"))
+    };
+    Groth16Measurement {
+        selector: u32::from_str_radix(&field("selector"), 16)
+            .expect("the Groth16 measurement's selector is 4 hex bytes")
+            .to_be_bytes(),
+        verify_instruction_data: base64::engine::general_purpose::STANDARD
+            .decode(field("verify_instruction_data_base64"))
+            .expect("the Groth16 measurement's instruction data is base64"),
+        #[cfg(test)]
+        verifier_program: key("verifier_program"),
+        #[cfg(test)]
+        payer: key("payer"),
+    }
 });
 
 /// The verify instruction the mock verifier accepts, for the mock selector:
-/// a proof that is zero but for the receipt claim digest of its image id and
-/// journal digest at the start of c, where the mock verifier reads it. The
-/// discriminator is the verify instruction's, which every verifier the
-/// router dispatches to shares.
+/// the mock seal's proof of the receipt claim of a zero image id and journal
+/// digest. The discriminator is the verify instruction's, which every
+/// verifier the router dispatches to shares.
 fn mock_verification() -> Vec<u8> {
-    let (_, groth16) = &*GROTH16_MEASUREMENT;
     let (image_id, journal_digest) = (Digest::ZERO, Digest::ZERO);
     let claim = ReceiptClaim::ok(image_id, MaybePruned::Pruned(journal_digest)).digest();
-    let mut data = groth16[..8].to_vec();
-    data.extend([0u8; 64 + 128]);
-    data.extend(claim.as_bytes());
-    data.extend([0u8; 32]);
-    data.extend(image_id.as_bytes());
-    data.extend(journal_digest.as_bytes());
-    data
+    [
+        &GROTH16_MEASUREMENT.verify_instruction_data[..8],
+        // The seal without its selector: the proof.
+        &mock_seal(claim)[4..],
+        image_id.as_bytes(),
+        journal_digest.as_bytes(),
+    ]
+    .concat()
 }
 
 /// The verify instruction the estimate measures the verifier program behind
 /// `selector` with.
 fn verification_measurement(selector: [u8; 4]) -> Result<Vec<u8>, SubmissionError> {
-    let (groth16_selector, groth16) = &*GROTH16_MEASUREMENT;
-    if selector == *groth16_selector {
-        Ok(groth16.clone())
+    if selector == GROTH16_MEASUREMENT.selector {
+        Ok(GROTH16_MEASUREMENT.verify_instruction_data.clone())
     } else if selector == MOCK_SELECTOR {
         Ok(mock_verification())
     } else {
@@ -145,31 +162,13 @@ pub enum Estimate {
 /// The cluster's accounts as of one read.
 struct Snapshot {
     slot: u64,
-    accounts: Vec<(Pubkey, Account)>,
+    accounts: BTreeMap<Pubkey, Account>,
 }
 
 impl Snapshot {
-    fn get(&self, address: &Pubkey) -> Option<&Account> {
-        self.accounts
-            .iter()
-            .find_map(|(key, account)| (key == address).then_some(account))
-    }
-
-    /// The account at `address`, which the settlement reads, as `decode`
-    /// reads it.
-    fn decode<T, E: std::fmt::Display>(
-        &self,
-        address: &Pubkey,
-        what: String,
-        decode: impl FnOnce(&[u8]) -> Result<T, E>,
-    ) -> Result<T, SubmissionError> {
-        let account = self
-            .get(address)
-            .ok_or_else(|| SubmissionError::MissingAccount { what: what.clone() })?;
-        decode(&account.data).map_err(|e| SubmissionError::Decode {
-            what,
-            error: e.to_string(),
-        })
+    /// The data of the account at `address`, when it exists.
+    fn data(&self, address: &Pubkey) -> Option<&[u8]> {
+        self.accounts.get(address).map(|account| &account.data[..])
     }
 }
 
@@ -185,12 +184,10 @@ fn existing_accounts(
     let new_root_marker = plan
         .new_root
         .map(|root| derive_root_marker_pda(pa_program, &pa_state, &root).0);
-    let transactions = plan
-        .upload
+    plan.upload
         .iter()
-        .flat_map(|upload| std::iter::once(&upload.init).chain(&upload.writes))
-        .chain([&plan.settle]);
-    transactions
+        .flat_map(|upload| upload.filling())
+        .chain([&plan.settle])
         .flat_map(|planned| &planned.instructions)
         .flat_map(|ix| {
             std::iter::once(ix.program_id).chain(ix.accounts.iter().map(|meta| meta.pubkey))
@@ -208,10 +205,28 @@ fn program_data_accounts(snapshot: &Snapshot) -> BTreeSet<Pubkey> {
         .filter(|(_, account)| {
             account.executable && account.owner == solana_sdk_ids::bpf_loader_upgradeable::ID
         })
-        .map(|(program, _)| solana_loader_v3_interface::get_program_data_address(program))
+        .map(|(program, _)| derive_program_data_address(program))
         .collect()
 }
 
+/// The accounts at `keys`, each `None` when it does not exist, at the RPC
+/// client's commitment, and the slot the RPC read them at.
+async fn read_accounts(
+    rpc: &RpcClient,
+    keys: &[Pubkey],
+    what: &str,
+) -> Result<(u64, Vec<Option<Account>>), SubmissionError> {
+    let read = rpc
+        .get_multiple_accounts_with_commitment(keys, rpc.commitment())
+        .await
+        .map_err(|error| SubmissionError::Rpc {
+            what: what.to_owned(),
+            error: error.to_string(),
+        })?;
+    Ok((read.context.slot, read.value))
+}
+
+/// The accounts at `keys`, in one read.
 async fn read(rpc: &RpcClient, keys: &BTreeSet<Pubkey>) -> Result<Snapshot, SubmissionError> {
     if keys.len() > MAX_MULTIPLE_ACCOUNTS {
         return Err(SubmissionError::TooManyAccounts {
@@ -219,18 +234,12 @@ async fn read(rpc: &RpcClient, keys: &BTreeSet<Pubkey>) -> Result<Snapshot, Subm
         });
     }
     let keys: Vec<Pubkey> = keys.iter().copied().collect();
-    let read = rpc
-        .get_multiple_accounts_with_commitment(&keys, rpc.commitment())
-        .await
-        .map_err(|error| SubmissionError::Rpc {
-            what: "the settlement's accounts".to_owned(),
-            error: error.to_string(),
-        })?;
+    let (slot, accounts) = read_accounts(rpc, &keys, "the settlement's accounts").await?;
     Ok(Snapshot {
-        slot: read.context.slot,
+        slot,
         accounts: keys
             .into_iter()
-            .zip(read.value)
+            .zip(accounts)
             .filter_map(|(key, account)| Some((key, account?)))
             .collect(),
     })
@@ -242,21 +251,14 @@ async fn read_feature_set(rpc: &RpcClient, slot: u64) -> Result<FeatureSet, Subm
     let ids: Vec<Pubkey> = FEATURE_NAMES.keys().copied().collect();
     let mut features = FeatureSet::default();
     for chunk in ids.chunks(MAX_MULTIPLE_ACCOUNTS) {
-        let accounts = rpc
-            .get_multiple_accounts_with_commitment(chunk, rpc.commitment())
-            .await
-            .map_err(|error| SubmissionError::Rpc {
-                what: "the cluster's feature accounts".to_owned(),
-                error: error.to_string(),
-            })?
-            .value;
+        let (_, accounts) = read_accounts(rpc, chunk, "the cluster's feature accounts").await?;
         for (id, account) in chunk.iter().zip(accounts) {
             let Some(account) = account else { continue };
-            let feature: solana_feature_gate_interface::Feature =
-                bincode::deserialize(&account.data).map_err(|e| SubmissionError::Decode {
-                    what: format!("the feature account {id}"),
-                    error: e.to_string(),
-                })?;
+            let feature: solana_feature_gate_interface::Feature = decode_account(
+                Some(&account.data),
+                format!("the feature account {id}"),
+                |data| bincode::deserialize(data),
+            )?;
             if let Some(activated) = feature.activated_at.filter(|activated| *activated <= slot) {
                 features.activate(id, activated);
             }
@@ -273,7 +275,7 @@ fn unsigned(
 ) -> Result<VersionedTransaction, SubmissionError> {
     let message = planned
         .message(payer, svm.latest_blockhash())
-        .map_err(crate::settlement::PlanError::from)?;
+        .map_err(PlanError::from)?;
     Ok(VersionedTransaction {
         signatures: vec![Signature::default(); usize::from(message.header.num_required_signatures)],
         message: VersionedMessage::V1(message),
@@ -357,55 +359,39 @@ impl Submission {
         // the verifier entry, the entry names the verifier program, and each
         // program names its program data. Read until one read holds every
         // account that the settlement, planned from that read, names.
-        let mut state = self.state.clone();
-        let mut verifier_program = self.verifier_program;
-        let mut keys: BTreeSet<Pubkey> = SYSVARS.into_iter().collect();
-        let snapshot = loop {
+        let first = plan_settlement(
+            self.request_with(&input, &self.state, self.verifier_program),
+            ESTIMATE_UPLOAD_ID,
+            0,
+        )?;
+        let mut keys: BTreeSet<Pubkey> = SYSVARS
+            .into_iter()
+            .chain(existing_accounts(&first, &pa_program, &upload))
+            .collect();
+        let (snapshot, state, verifier_program, plan) = loop {
+            let snapshot = read(rpc, &keys).await?;
+            let state = decode_adapter_state(&state_address, snapshot.data(&state_address))?;
+            let entry = derive_verifier_entry_pda(&state.verifier_router, state.proof_selector);
+            let verifier_program = decode_verifier_entry(&entry, snapshot.data(&entry))?;
+            let clock: solana_clock::Clock = decode_account(
+                snapshot.data(&solana_sdk_ids::sysvar::clock::ID),
+                "the Clock sysvar".to_owned(),
+                |data| bincode::deserialize(data),
+            )?;
             let plan = plan_settlement(
                 self.request_with(&input, &state, verifier_program),
                 ESTIMATE_UPLOAD_ID,
-                0,
+                clock.slot + TXDATA_EXPIRY_SLOTS_DEFAULT,
             )?;
-            keys.extend(existing_accounts(&plan, &pa_program, &upload));
-            let snapshot = read(rpc, &keys).await?;
-            state = snapshot.decode(
-                &state_address,
-                format!("the adapter's state {state_address}"),
-                decode_pa_state,
-            )?;
-            let entry = derive_verifier_entry_pda(&state.verifier_router, state.proof_selector);
-            verifier_program = snapshot
-                .decode(
-                    &entry,
-                    format!("the router's verifier entry {entry}"),
-                    |mut data| VerifierEntry::try_deserialize(&mut data),
-                )?
-                .verifier;
-            let replanned = plan_settlement(
-                self.request_with(&input, &state, verifier_program),
-                ESTIMATE_UPLOAD_ID,
-                0,
-            )?;
-            let needed: BTreeSet<Pubkey> = existing_accounts(&replanned, &pa_program, &upload)
+            let needed: BTreeSet<Pubkey> = existing_accounts(&plan, &pa_program, &upload)
                 .into_iter()
                 .chain(program_data_accounts(&snapshot))
                 .collect();
             if needed.is_subset(&keys) {
-                break snapshot;
+                break (snapshot, state, verifier_program, plan);
             }
             keys.extend(needed);
         };
-
-        let clock: solana_clock::Clock = snapshot.decode(
-            &solana_sdk_ids::sysvar::clock::ID,
-            "the Clock sysvar".to_owned(),
-            |data| bincode::deserialize(data),
-        )?;
-        let plan = plan_settlement(
-            self.request_with(&input, &state, verifier_program),
-            ESTIMATE_UPLOAD_ID,
-            clock.slot + TXDATA_EXPIRY_SLOTS_DEFAULT,
-        )?;
 
         let mut svm = svm_of(&snapshot, read_feature_set(rpc, snapshot.slot).await?)?;
         let verification =
@@ -423,12 +409,8 @@ impl Submission {
                 },
             )
         };
-        let uploading = plan
-            .upload
-            .into_iter()
-            .flat_map(|upload| std::iter::once(upload.init).chain(upload.writes));
-        for planned in uploading {
-            if let Err(failure) = svm.send_transaction(unsigned(&planned, &payer, &svm)?) {
+        for planned in plan.upload.iter().flat_map(|upload| upload.filling()) {
+            if let Err(failure) = svm.send_transaction(unsigned(planned, &payer, &svm)?) {
                 return failed(failure);
             }
         }
@@ -465,25 +447,22 @@ mod tests {
              (scripts/helius.env in the umbrella repository)",
         );
         let rpc = RpcClient::new(url);
-        let verifier: Pubkey = "2Yfa83Lzbn71ie3J1KQRiNQz1qHnvVm8gkBCpXZQ7ajD"
-            .parse()
-            .unwrap();
-        let payer: Pubkey = "5S8LtbDPtQE7GtWWMBFY78gmiYp2LqS5BsoFDxKjoHr9"
-            .parse()
-            .unwrap();
+        let measurement = &*GROTH16_MEASUREMENT;
+        let verifier = measurement.verifier_program;
         let keys: BTreeSet<Pubkey> = SYSVARS
             .into_iter()
             .chain([
                 verifier,
-                payer,
-                solana_loader_v3_interface::get_program_data_address(&verifier),
+                measurement.payer,
+                derive_program_data_address(&verifier),
             ])
             .collect();
         let snapshot = read(&rpc, &keys).await.unwrap();
         let features = read_feature_set(&rpc, snapshot.slot).await.unwrap();
         let svm = svm_of(&snapshot, features).unwrap();
 
-        let units = verification_units(&svm, &verifier, GROTH16_MEASUREMENT.0, &payer).unwrap();
+        let units =
+            verification_units(&svm, &verifier, measurement.selector, &measurement.payer).unwrap();
 
         println!(
             "a Groth16 verification on devnet at slot {}: {units} compute units",
