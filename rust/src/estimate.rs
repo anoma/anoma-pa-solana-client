@@ -120,9 +120,11 @@ fn verification_measurement(selector: [u8; 4]) -> Result<Vec<u8>, SubmissionErro
 /// least the runtime lets a builtin consume.
 const ACCEPTING_VERIFIER_UNITS: u64 = 1;
 
-declare_process_instruction!(AcceptingVerifier, ACCEPTING_VERIFIER_UNITS, |_invoke_context| {
-    Ok(())
-});
+declare_process_instruction!(
+    AcceptingVerifier,
+    ACCEPTING_VERIFIER_UNITS,
+    |_invoke_context| { Ok(()) }
+);
 
 /// How the estimate of a settlement ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,6 +310,31 @@ fn verification_units(
         })
 }
 
+/// A local SVM holding `snapshot`'s accounts, under `features`. The
+/// builtins stay the runtime's own.
+fn svm_of(snapshot: &Snapshot, features: FeatureSet) -> Result<LiteSVM, SubmissionError> {
+    let mut svm = LiteSVM::default()
+        .with_feature_set(features)
+        .with_builtins()
+        .with_precompiles()
+        .with_sysvars()
+        .with_transaction_history(0);
+    // A program's code must be in place before the program is.
+    let (programs, data): (Vec<_>, Vec<_>) = snapshot
+        .accounts
+        .iter()
+        .filter(|(_, account)| account.owner != solana_sdk_ids::native_loader::ID)
+        .partition(|(_, account)| account.executable);
+    for (address, account) in data.into_iter().chain(programs) {
+        svm.set_account(*address, account.clone())
+            .map_err(|e| SubmissionError::Decode {
+                what: format!("the account {address}"),
+                error: e.to_string(),
+            })?;
+    }
+    Ok(svm)
+}
+
 impl Submission {
     /// Estimates the settlement against the cluster behind `rpc`, at its
     /// commitment, before the transaction is proven: its transactions, as
@@ -380,27 +407,7 @@ impl Submission {
             clock.slot + TXDATA_EXPIRY_SLOTS_DEFAULT,
         )?;
 
-        let features = read_feature_set(rpc, snapshot.slot).await?;
-        let mut svm = LiteSVM::default()
-            .with_feature_set(features)
-            .with_builtins()
-            .with_precompiles()
-            .with_sysvars()
-            .with_transaction_history(0);
-        // A program's code must be in place before the program is.
-        let (programs, data): (Vec<_>, Vec<_>) = snapshot
-            .accounts
-            .iter()
-            .filter(|(_, account)| account.owner != solana_sdk_ids::native_loader::ID)
-            .partition(|(_, account)| account.executable);
-        for (address, account) in data.into_iter().chain(programs) {
-            svm.set_account(*address, account.clone())
-                .map_err(|e| SubmissionError::Decode {
-                    what: format!("the account {address}"),
-                    error: e.to_string(),
-                })?;
-        }
-
+        let mut svm = svm_of(&snapshot, read_feature_set(rpc, snapshot.slot).await?)?;
         let verification =
             verification_units(&svm, &verifier_program, state.proof_selector, &payer)?;
         svm.add_builtin(verifier_program, AcceptingVerifier::register);
@@ -439,5 +446,49 @@ impl Submission {
             }),
             Err(failure) => failed(failure),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The devnet verifier program verifies the Groth16 measurement proof
+    /// with the compute its verifications use in devnet settlements: 99,541
+    /// units in both of the staging adapter's settlements at slots 518006892
+    /// and 518008799.
+    #[tokio::test]
+    #[ignore = "needs a Helius endpoint: run with --ignored, HELIUS_DEVNET_URL set"]
+    async fn the_groth16_measurement_uses_a_devnet_verifications_compute() {
+        let url = std::env::var("HELIUS_DEVNET_URL").expect(
+            "HELIUS_DEVNET_URL is unset: set it to the Helius devnet endpoint \
+             (scripts/helius.env in the umbrella repository)",
+        );
+        let rpc = RpcClient::new(url);
+        let verifier: Pubkey = "2Yfa83Lzbn71ie3J1KQRiNQz1qHnvVm8gkBCpXZQ7ajD"
+            .parse()
+            .unwrap();
+        let payer: Pubkey = "5S8LtbDPtQE7GtWWMBFY78gmiYp2LqS5BsoFDxKjoHr9"
+            .parse()
+            .unwrap();
+        let keys: BTreeSet<Pubkey> = SYSVARS
+            .into_iter()
+            .chain([
+                verifier,
+                payer,
+                solana_loader_v3_interface::get_program_data_address(&verifier),
+            ])
+            .collect();
+        let snapshot = read(&rpc, &keys).await.unwrap();
+        let features = read_feature_set(&rpc, snapshot.slot).await.unwrap();
+        let svm = svm_of(&snapshot, features).unwrap();
+
+        let units = verification_units(&svm, &verifier, GROTH16_MEASUREMENT.0, &payer).unwrap();
+
+        println!(
+            "a Groth16 verification on devnet at slot {}: {units} compute units",
+            snapshot.slot
+        );
+        assert_eq!(units, 99_541);
     }
 }

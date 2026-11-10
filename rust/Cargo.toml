@@ -12,6 +12,7 @@ exclude = [
   "tests/events_fixture.rs",
   "tests/instructions_fixture.rs",
   "tests/idl_at_tag.rs",
+  "tests/estimate_deployed.rs",
 ]
 
 [lib]
@@ -92,6 +93,11 @@ required-features = ["solana"]
 [[test]]
 name = "deployed"
 required-features = ["rpc"]
+
+# Reads `fixtures/devnet_settlement.json`.
+[[test]]
+name = "estimate_deployed"
+required-features = ["estimate"]
 
 [dev-dependencies]
 # Read the vendored IDL and the cross-package fixtures under `fixtures/`.
