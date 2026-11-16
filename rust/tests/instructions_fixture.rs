@@ -71,7 +71,15 @@ fn instructions() -> Vec<(&'static str, Instruction)> {
     vec![
         (
             "initialize",
-            initialize_ix(&pa, &key(1), &key(2), &key(3), MOCK_SELECTOR),
+            initialize_ix(
+                &pa,
+                &key(1),
+                &key(2),
+                &AdapterVerifier {
+                    router: key(3),
+                    selector: MOCK_SELECTOR,
+                },
+            ),
         ),
         ("pause", pause_ix(&pa, &key(4))),
         ("unpause", unpause_ix(&pa, &key(4))),
@@ -102,6 +110,15 @@ fn instructions() -> Vec<(&'static str, Instruction)> {
             risc_zero_verifier_paused_ix(&pa, &derive_verifier_entry_pda(&key(3), MOCK_SELECTOR)),
         ),
         ("version", version_ix(&pa)),
+        (
+            "risc_zero_verifier_router",
+            risc_zero_verifier_router_ix(&pa),
+        ),
+        (
+            "risc_zero_verifier_selector",
+            risc_zero_verifier_selector_ix(&pa),
+        ),
+        ("migrate_state", migrate_state_ix(&pa, &key(4))),
         ("txdata_init", txdata_init_ix(&pa, &key(1), 7, 900, 500)),
         (
             "txdata_write",

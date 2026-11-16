@@ -23,7 +23,8 @@ import {
   isLogicRefDenied,
   ProtocolAdapterInstance,
   recordedAddress,
-  returnedBool,
+  decodeBool,
+  returnedBytes,
   type DeniedLogicRef,
   type SettlementAccounts,
 } from "./contract.js";
@@ -122,8 +123,10 @@ describe("the reads computed from the state", () => {
       programId: from,
       data: [Buffer.from(bytes).toString("base64"), "base64"] as const,
     });
-    expect(returnedBool(program, data([1]))).toBe(true);
-    expect(returnedBool(program, data([0]))).toBe(false);
+    const returnedBool = (returned: Parameters<typeof returnedBytes>[1]) =>
+      decodeBool(program, returnedBytes(program, returned));
+    expect(returnedBool(data([1]))).toBe(true);
+    expect(returnedBool(data([0]))).toBe(false);
     for (const [what, returned] of [
       ["nothing", null],
       ["another program's", data([1], key(2))],
@@ -131,7 +134,7 @@ describe("the reads computed from the state", () => {
       ["two bytes", data([1, 0])],
       ["no bytes", data([])],
     ] as const) {
-      const e = thrown(() => returnedBool(program, returned));
+      const e = thrown(() => returnedBool(returned));
       console.log(`${what}: ${e.message}`);
       expect(e.detail.kind, what).toBe("Decode");
     }
@@ -231,7 +234,7 @@ function written(name: string, ix: Instruction): FixtureInstruction {
 
 describe("ProtocolAdapterInstance's builders, against the Rust crate's", () => {
   const built: [string, () => Promise<Instruction>][] = [
-    ["initialize", () => adapter.initializeIx(key(1), key(2), key(3), MOCK_SELECTOR)],
+    ["initialize", () => adapter.initializeIx(key(1), key(2), { router: key(3), selector: MOCK_SELECTOR })],
     ["pause", () => adapter.pauseIx(key(4))],
     ["unpause", () => adapter.unpauseIx(key(4))],
     ["deny_logic_refs", () => adapter.denyLogicRefsIx(key(4), entries)],
@@ -241,8 +244,11 @@ describe("ProtocolAdapterInstance's builders, against the Rust crate's", () => {
     ["renounce_ownership", () => adapter.renounceOwnershipIx(key(4))],
     ["update_expiry_config", () => adapter.updateExpiryConfigIx(key(4), 100n, U64_MAX)],
     ["upgrade", () => adapter.upgradeIx(key(4), key(6), key(7))],
-    ["risc_zero_verifier_paused", () => adapter.riscZeroVerifierPausedIx(key(3), MOCK_SELECTOR)],
+    ["risc_zero_verifier_paused", () => adapter.riscZeroVerifierPausedIx({ router: key(3), selector: MOCK_SELECTOR })],
     ["version", () => adapter.versionIx()],
+    ["risc_zero_verifier_router", () => adapter.riscZeroVerifierRouterIx()],
+    ["risc_zero_verifier_selector", () => adapter.riscZeroVerifierSelectorIx()],
+    ["migrate_state", () => adapter.migrateStateIx(key(4))],
     ["txdata_init", () => adapter.txdataInitIx(key(1), 7n, 900, 500n)],
     ["txdata_write", () => adapter.txdataWriteIx(key(1), 7n, 3856, Uint8Array.from([1, 2, 3, 4, 5]))],
     ["txdata_write_large", () => adapter.txdataWriteIx(key(1), 7n, 0, large(TXDATA_CHUNK_SIZE))],

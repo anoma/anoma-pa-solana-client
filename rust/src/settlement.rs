@@ -21,6 +21,7 @@ use crate::instructions::{
 use crate::merkle::{CommitmentTreeState, MerkleError, PADDING_LEAF};
 use crate::pda::{
     derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_verifier_router_pdas,
+    AdapterVerifier,
 };
 
 /// The v1 transaction settings of a settlement transaction: its compute and
@@ -90,7 +91,9 @@ pub struct SettlementRequest<'a> {
     pub input: &'a [u8],
     /// The adapter's state before the settlement.
     pub state: &'a PAStateAccount,
-    /// The verifier program the router's entry for the adapter's selector names.
+    /// The verifier the adapter build verifies with.
+    pub verifier: AdapterVerifier,
+    /// The verifier program the router's entry for the build's selector names.
     pub verifier_program: Pubkey,
     /// The consumed resources' nullifiers, in the aggregation instance's order.
     pub nullifiers: &'a [[u8; 32]],
@@ -225,6 +228,7 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
         payer,
         input,
         state,
+        verifier,
         verifier_program,
         nullifiers,
         consumed_roots,
@@ -266,14 +270,13 @@ fn settling(request: SettlementRequest<'_>) -> Result<Settling<'_>, PlanError> {
         )
     }));
 
-    let (router, verifier_entry) =
-        derive_verifier_router_pdas(&state.verifier_router, state.proof_selector);
+    let (router, verifier_entry) = derive_verifier_router_pdas(&verifier.router, verifier.selector);
     Ok(Settling {
         pa_program,
         payer,
         accounts: SettlementAccounts {
             new_root_marker,
-            verifier_router_program: state.verifier_router,
+            verifier_router_program: verifier.router,
             router,
             verifier_entry,
             verifier_program,
@@ -399,8 +402,6 @@ pub(crate) mod tests {
             schema_version: SCHEMA_VERSION,
             bump: 255,
             owner: key(1),
-            verifier_router: key(2),
-            proof_selector: MOCK_SELECTOR,
             kind_tree_root: [0; 32],
             paused: false,
             root: tree.root,
@@ -413,6 +414,13 @@ pub(crate) mod tests {
             denied_created_logic_refs: vec![],
         }
     }
+
+    /// The verifier the tests' adapter build verifies with: router `key(2)`,
+    /// the mock selector.
+    pub(crate) const VERIFIER: AdapterVerifier = AdapterVerifier {
+        router: Pubkey::new_from_array([2; 32]),
+        selector: MOCK_SELECTOR,
+    };
 
     fn request<'a>(
         state: &'a PAStateAccount,
@@ -427,6 +435,7 @@ pub(crate) mod tests {
             payer: key(8),
             input,
             state,
+            verifier: VERIFIER,
             verifier_program: key(6),
             nullifiers,
             consumed_roots,
@@ -562,8 +571,8 @@ pub(crate) mod tests {
         assert_eq!(&settle.data[..8], args::Settle::DISCRIMINATOR);
         assert_eq!(settle.data[8..12], 5u32.to_le_bytes());
         assert_eq!(&settle.data[12..], b"input");
-        let router_program = state.verifier_router;
-        let (router, entry) = derive_verifier_router_pdas(&router_program, MOCK_SELECTOR);
+        let router_program = VERIFIER.router;
+        let (router, entry) = derive_verifier_router_pdas(&router_program, VERIFIER.selector);
         for k in [router_program, router, entry, key(6)] {
             assert!(
                 settle.accounts.iter().any(|a| a.pubkey == k),

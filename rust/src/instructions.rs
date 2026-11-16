@@ -13,7 +13,7 @@ use crate::generated::protocol_adapter::types::DeniedLogicRef;
 use crate::generated::protocol_adapter::ID;
 use crate::pda::{
     derive_event_authority_pda, derive_pa_state_pda, derive_program_data_address,
-    derive_tx_data_pda, derive_upgrade_authority_pda, derive_verifier_entry_pda,
+    derive_tx_data_pda, derive_upgrade_authority_pda, AdapterVerifier,
 };
 
 /// The instruction of the adapter at `pa_program` with `accounts`, then
@@ -44,14 +44,14 @@ fn instruction(
 }
 
 /// Build the PA's `initialize`: `payer`, the program's upgrade authority, sets
-/// the owner, verifier router and proof selector, and hands the upgrade
-/// authority to the program.
+/// the owner and hands the upgrade authority to the program. `verifier` is
+/// the build's (`risc_zero_verifier_router`, `risc_zero_verifier_selector`),
+/// whose router entry `initialize` reads to refuse a paused verifier.
 pub fn initialize_ix(
     pa_program: &Pubkey,
     payer: &Pubkey,
     initial_owner: &Pubkey,
-    verifier_router: &Pubkey,
-    proof_selector: [u8; 4],
+    verifier: &AdapterVerifier,
 ) -> Instruction {
     instruction(
         pa_program,
@@ -62,15 +62,13 @@ pub fn initialize_ix(
             program_data: derive_program_data_address(pa_program),
             upgrade_authority: derive_upgrade_authority_pda(pa_program).0,
             bpf_loader_upgradeable: bpf_loader_upgradeable::id(),
-            verifier_entry: derive_verifier_entry_pda(verifier_router, proof_selector),
+            verifier_entry: verifier.entry(),
             event_authority: derive_event_authority_pda(pa_program).0,
             program: *pa_program,
         },
         vec![],
         args::Initialize {
             initial_owner: *initial_owner,
-            verifier_router: *verifier_router,
-            proof_selector,
         },
     )
 }
@@ -242,16 +240,53 @@ pub fn upgrade_ix(
 
 /// Build the PA's `risc_zero_verifier_paused`, which returns whether the
 /// router has paused the verifier `verifier_entry`, the router's entry for
-/// the adapter's selector, names.
+/// the build's selector, names.
 pub fn risc_zero_verifier_paused_ix(pa_program: &Pubkey, verifier_entry: &Pubkey) -> Instruction {
     instruction(
         pa_program,
         accounts::RiscZeroVerifierPaused {
-            pa_state: derive_pa_state_pda(pa_program).0,
             verifier_entry: *verifier_entry,
         },
         vec![],
         args::RiscZeroVerifierPaused {},
+    )
+}
+
+/// Build the PA's `risc_zero_verifier_router`, which returns the verifier
+/// router the build verifies through.
+pub fn risc_zero_verifier_router_ix(pa_program: &Pubkey) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::RiscZeroVerifierRouter {},
+        vec![],
+        args::RiscZeroVerifierRouter {},
+    )
+}
+
+/// Build the PA's `risc_zero_verifier_selector`, which returns the selector
+/// of the verifier the build accepts proofs for.
+pub fn risc_zero_verifier_selector_ix(pa_program: &Pubkey) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::RiscZeroVerifierSelector {},
+        vec![],
+        args::RiscZeroVerifierSelector {},
+    )
+}
+
+/// Build the PA's `migrate_state`: the owner `authority` brings the state
+/// account from the previous schema version to this build's.
+pub fn migrate_state_ix(pa_program: &Pubkey, authority: &Pubkey) -> Instruction {
+    instruction(
+        pa_program,
+        accounts::MigrateState {
+            authority: *authority,
+            pa_state: derive_pa_state_pda(pa_program).0,
+            event_authority: derive_event_authority_pda(pa_program).0,
+            program: *pa_program,
+        },
+        vec![],
+        args::MigrateState {},
     )
 }
 
@@ -454,17 +489,41 @@ pub fn settle_from_txdata_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::derive_verifier_entry_pda;
 
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
     }
 
-    /// The verifier accounts `key(11)` to `key(14)`, and with `remaining` two
-    /// remaining accounts.
+    /// The verifier router the adapter build's IDL fixes `settle`'s
+    /// `verifier_router_program` to: the build's `RISC_ZERO_VERIFIER_ROUTER`.
+    pub(crate) fn idl_router() -> Pubkey {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/idls/protocol_adapter.json"
+        )))
+        .unwrap();
+        let settle = idl["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|spec| spec["name"] == "settle")
+            .unwrap();
+        let router = settle["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|account| account["name"] == "verifier_router_program")
+            .unwrap();
+        router["address"].as_str().unwrap().parse().unwrap()
+    }
+
+    /// The build's verifier router, the verifier accounts `key(12)` to
+    /// `key(14)`, and with `remaining` two remaining accounts.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
         SettlementAccounts {
             new_root_marker,
-            verifier_router_program: key(11),
+            verifier_router_program: idl_router(),
             router: key(12),
             verifier_entry: key(13),
             verifier_program: key(14),
@@ -556,15 +615,17 @@ mod tests {
 
     #[test]
     fn initialize_matches_the_adapters_idl() {
-        let (payer, owner, router) = (key(1), key(2), key(3));
-        let selector = crate::MOCK_SELECTOR;
-        let ix = initialize_ix(&ID, &payer, &owner, &router, selector);
-        let args = [owner.to_bytes().as_slice(), &router.to_bytes(), &selector].concat();
-        let by_name = assert_matches_the_adapters_idl(&ix, "initialize", &args);
+        let (payer, owner) = (key(1), key(2));
+        let verifier = AdapterVerifier {
+            router: key(3),
+            selector: crate::MOCK_SELECTOR,
+        };
+        let ix = initialize_ix(&ID, &payer, &owner, &verifier);
+        let by_name = assert_matches_the_adapters_idl(&ix, "initialize", &owner.to_bytes());
         assert_eq!(by_name("payer"), payer);
         assert_eq!(
             by_name("verifier_entry"),
-            derive_verifier_entry_pda(&router, selector)
+            derive_verifier_entry_pda(&verifier.router, verifier.selector)
         );
         assert_eq!(
             by_name("event_authority"),
@@ -700,10 +761,26 @@ mod tests {
         let by_name = assert_matches_the_adapters_idl(&ix, "risc_zero_verifier_paused", &[]);
         assert_eq!(by_name("verifier_entry"), entry);
 
-        let ix = version_ix(&ID);
-        // `version` takes no account, so no name has an address.
-        let _ = assert_matches_the_adapters_idl(&ix, "version", &[]);
-        assert!(ix.accounts.is_empty());
+        // The views that take no account, so no name has an address.
+        for (ix, name) in [
+            (version_ix(&ID), "version"),
+            (
+                risc_zero_verifier_router_ix(&ID),
+                "risc_zero_verifier_router",
+            ),
+            (
+                risc_zero_verifier_selector_ix(&ID),
+                "risc_zero_verifier_selector",
+            ),
+        ] {
+            let _ = assert_matches_the_adapters_idl(&ix, name, &[]);
+            assert!(ix.accounts.is_empty(), "{name}");
+        }
+
+        let ix = migrate_state_ix(&ID, &key(4));
+        let by_name = assert_matches_the_adapters_idl(&ix, "migrate_state", &[]);
+        assert_eq!(by_name("authority"), key(4));
+        assert_eq!(by_name("pa_state"), derive_pa_state_pda(&ID).0);
 
         let tx_data = derive_tx_data_pda(&ID, &key(1), 7).0;
         let ix = txdata_extend_ix(&ID, &key(1), 7, 900);

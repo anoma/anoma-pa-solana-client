@@ -45,8 +45,8 @@ solana-cluster-type = { version = "3", optional = true }
 
 # The settlement input (`arm` feature): a proven ARM transaction in the form
 # the adapter settles. Without the prover: no `prove` feature.
-anoma-rm-risc0 = { version = "2.0.0-rc.8.1", default-features = false, features = ["transaction"], optional = true }
-risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
+anoma-rm-risc0 = { version = "2.0.0-rc.9", default-features = false, features = ["transaction"], optional = true }
+risc0-zkvm = { version = "3.1.0", default-features = false, optional = true }
 
 # Submission (`rpc` feature): the adapter's state and the forwarders' accounts
 # read over an RPC, and the reads simulated there.

@@ -53,17 +53,18 @@ pub use accounts::{decode_pa_state, StateDecodeError};
 pub use events::{cpi_event_discriminator, decode_cpi_event, EventDecodeError};
 #[cfg(feature = "solana")]
 pub use instructions::{
-    deny_logic_refs_ix, initialize_ix, pause_ix, renounce_ownership_ix,
-    risc_zero_verifier_paused_ix, set_kind_tree_root_ix, settle_from_txdata_ix, settle_ix,
-    transfer_ownership_ix, txdata_close_expired_ix, txdata_close_ix, txdata_extend_ix,
-    txdata_init_ix, txdata_write_ix, unpause_ix, update_expiry_config_ix, upgrade_ix, version_ix,
-    SettlementAccounts,
+    deny_logic_refs_ix, initialize_ix, migrate_state_ix, pause_ix, renounce_ownership_ix,
+    risc_zero_verifier_paused_ix, risc_zero_verifier_router_ix, risc_zero_verifier_selector_ix,
+    set_kind_tree_root_ix, settle_from_txdata_ix, settle_ix, transfer_ownership_ix,
+    txdata_close_expired_ix, txdata_close_ix, txdata_extend_ix, txdata_init_ix, txdata_write_ix,
+    unpause_ix, update_expiry_config_ix, upgrade_ix, version_ix, SettlementAccounts,
 };
 #[cfg(feature = "solana")]
 pub use pda::{
     derive_event_authority_pda, derive_nullifier_pda, derive_pa_state_pda,
     derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
     derive_upgrade_authority_pda, derive_verifier_entry_pda, derive_verifier_router_pdas,
+    AdapterVerifier,
 };
 #[cfg(feature = "solana")]
 pub use settlement::{

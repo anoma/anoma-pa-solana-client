@@ -13,11 +13,13 @@ use anchor::error::ERROR_CODE_OFFSET;
 use anchor::AccountDeserialize;
 
 use crate::accounts::decode_pa_state;
+use crate::contract::ProtocolAdapterInstance;
+use crate::error::BindingsError;
 use crate::forwarders::{AccountsError, Forwarders};
 use crate::generated::protocol_adapter::accounts::PAStateAccount;
 use crate::generated::protocol_adapter::error::ProtocolAdapterError;
 use crate::generated::verifier_router::accounts::VerifierEntry;
-use crate::pda::{derive_pa_state_pda, derive_verifier_entry_pda};
+use crate::pda::{derive_pa_state_pda, AdapterVerifier};
 use crate::settlement::{
     plan_settlement, CallAccounts, PlanError, SettlementPlan, SettlementRequest,
 };
@@ -31,6 +33,8 @@ use crate::settlement_input::{
 pub enum SubmissionError {
     /// An RPC request failed: retrying may succeed.
     Rpc { what: String, error: String },
+    /// Reading the verifier the adapter's build verifies with failed.
+    Verifier(BindingsError),
     /// An account the settlement reads does not exist.
     MissingAccount { what: String },
     /// An account the chain holds does not decode.
@@ -71,6 +75,7 @@ impl fmt::Display for SubmissionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Rpc { what, error } => write!(f, "failed to fetch {what}: {error}"),
+            Self::Verifier(e) => write!(f, "the adapter's verifier: {e}"),
             Self::MissingAccount { what } => write!(f, "{what} does not exist"),
             Self::Decode { what, error } => write!(f, "{what} does not decode: {error}"),
             Self::Accounts(e) => write!(f, "the external calls' accounts: {e}"),
@@ -197,14 +202,54 @@ pub async fn read_adapter_state(
     decode_adapter_state(&address, read_account_data(rpc, &address).await?.as_deref())
 }
 
-/// The verifier program the entry of `router` for `selector` names; an
-/// adapter's are the router and the selector its state records.
+/// The adapter a settlement is planned against, as the chain holds it.
+#[derive(Clone, Debug)]
+pub struct DeployedAdapter {
+    pub address: Pubkey,
+    /// Its state (`read_adapter_state`).
+    pub state: PAStateAccount,
+    /// The verifier its build verifies with (`read_adapter_verifier`).
+    pub verifier: AdapterVerifier,
+    /// The verifier program the router names for it (`read_verifier_program`).
+    pub verifier_program: Pubkey,
+}
+
+/// The adapter `pa_program` as the chain holds it, `fee_payer`, any funded
+/// system account, paying for the simulations of its verifier's getters.
+pub async fn read_deployed_adapter(
+    rpc: &RpcClient,
+    pa_program: Pubkey,
+    fee_payer: &Pubkey,
+) -> Result<DeployedAdapter, SubmissionError> {
+    let verifier = read_adapter_verifier(rpc, pa_program, fee_payer).await?;
+    Ok(DeployedAdapter {
+        address: pa_program,
+        state: read_adapter_state(rpc, &pa_program).await?,
+        verifier,
+        verifier_program: read_verifier_program(rpc, &verifier).await?,
+    })
+}
+
+/// The verifier the build of the adapter `pa_program` verifies with, read
+/// from its `risc_zero_verifier_router` and `risc_zero_verifier_selector`
+/// with `fee_payer`, any funded system account, paying for the simulations.
+pub async fn read_adapter_verifier(
+    rpc: &RpcClient,
+    pa_program: Pubkey,
+    fee_payer: &Pubkey,
+) -> Result<AdapterVerifier, SubmissionError> {
+    ProtocolAdapterInstance::new(pa_program, rpc)
+        .verifier(fee_payer)
+        .await
+        .map_err(SubmissionError::Verifier)
+}
+
+/// The verifier program the router's entry for `verifier` names.
 pub async fn read_verifier_program(
     rpc: &RpcClient,
-    router: &Pubkey,
-    selector: [u8; 4],
+    verifier: &AdapterVerifier,
 ) -> Result<Pubkey, SubmissionError> {
-    let entry = derive_verifier_entry_pda(router, selector);
+    let entry = verifier.entry();
     decode_verifier_entry(&entry, read_account_data(rpc, &entry).await?.as_deref())
 }
 
@@ -213,6 +258,7 @@ pub async fn read_verifier_program(
 pub struct Submission {
     pub(crate) pa_program: Pubkey,
     pub(crate) payer: Pubkey,
+    pub(crate) verifier: AdapterVerifier,
     pub(crate) verifier_program: Pubkey,
     pub(crate) state: PAStateAccount,
     pub(crate) transaction: Transaction,
@@ -222,25 +268,29 @@ pub struct Submission {
 
 impl Submission {
     /// Prepares `transaction`, an aggregated transaction, for the adapter
-    /// `pa_program` as `state` records it (`read_adapter_state`): `payer`
-    /// pays for and signs the settlement, `verifier_program` is the one the
-    /// router names for the adapter's selector (`read_verifier_program`), and
-    /// `forwarders` supply the external calls' accounts.
+    /// `adapter` as the chain holds it (`read_deployed_adapter`): `payer`
+    /// pays for and signs the settlement, and `forwarders` supply the
+    /// external calls' accounts.
     pub async fn prepare(
         rpc: &RpcClient,
         forwarders: &Forwarders,
-        pa_program: Pubkey,
+        adapter: DeployedAdapter,
         payer: Pubkey,
-        state: PAStateAccount,
-        verifier_program: Pubkey,
         transaction: Transaction,
     ) -> Result<Self, SubmissionError> {
         let resources = settled_resources(&transaction)?;
         let calls = external_calls(&transaction)?;
         let accounts = forwarders.accounts(rpc, &calls).await?;
+        let DeployedAdapter {
+            address: pa_program,
+            state,
+            verifier,
+            verifier_program,
+        } = adapter;
         Ok(Self {
             pa_program,
             payer,
+            verifier,
             verifier_program,
             state,
             transaction,
@@ -264,7 +314,7 @@ impl Submission {
     }
 
     /// The request settling `input` against `state`, whose proofs
-    /// `verifier_program` verifies.
+    /// `verifier_program` verifies for the build's verifier.
     pub(crate) fn request_with<'a>(
         &'a self,
         input: &'a [u8],
@@ -276,6 +326,7 @@ impl Submission {
             payer: self.payer,
             input,
             state,
+            verifier: self.verifier,
             verifier_program,
             nullifiers: &self.resources.nullifiers,
             consumed_roots: &self.resources.consumed_roots,
@@ -399,10 +450,13 @@ mod tests {
         Submission::prepare(
             &RpcClient::new("http://127.0.0.1:1".to_owned()),
             &Forwarders::default(),
-            ADAPTER,
+            DeployedAdapter {
+                address: ADAPTER,
+                state: crate::settlement::tests::state_with(&[]),
+                verifier: crate::settlement::tests::VERIFIER,
+                verifier_program: Pubkey::new_from_array([6; 32]),
+            },
             Pubkey::new_from_array([8; 32]),
-            crate::settlement::tests::state_with(&[]),
-            Pubkey::new_from_array([6; 32]),
             tx,
         )
         .await

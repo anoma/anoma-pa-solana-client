@@ -1,8 +1,8 @@
 {
-  "selector": "73c457ba",
+  "selector": "e71e6620",
   "cluster": "devnet",
-  "transaction": "k2emswB6faq6JrDcEUV4wVanm1fXcc2mF6ShwT3xChu5ptbVVFEEDswFcKfwHm5x9vqz2AxudrzAEpMtqpEUCjE",
-  "slot": 518008799,
-  "verifier_program": "2Yfa83Lzbn71ie3J1KQRiNQz1qHnvVm8gkBCpXZQ7ajD",
-  "verify_instruction_data_base64": "haGNMHjGWJYnClvZ4p8GciltQu3QDaDFXA8jRc0a0VMAb3kf7Xi/RiahwJqFaia0Xt6UBXTQYUeKRTK26JIMZgugc79dETBmGW0IocMqDQiUNYl+2goSb5w5wSdHUIcY4m/ukwLJfdkcnSd/3mUtZbJJkrp3OkLWNmVV7yuZHD/ttOs5ER9dfQya/HQ8srSPb5eO7fTX13RPTa62IsYtYlNytSUtng9ULQnOxaarY3Ias4pjqWuSAuL7fudNUBB83mDFrValg78tzW6mGPp7kyn0/McypOMjezLrvf2F6NhG+RIyMILWoS19MqgmcLA8xCWVPIa50nfkykGs3SynUHm4us4pnG6ad+uXnMjVZLkZMpuuDtG4VwC+BZnaoQtXKbqIpVLsi0SrEIKVRNjKtEbFvfL9YjCwppwZsb51qusdUUYcW5i4dA=="
+  "transaction": "3bCL9qYnCug4RhrWHbS2JXQ7NhN7RbToWjKe4JUcquVXuRMKpG9TsCstoDMP1euTKQ9Lo4MKEXW66ZgWjhTazSKs",
+  "slot": 523022094,
+  "verifier_program": "5RrWAZFxm9biQ1PxD6azhevG2popHEC3gDJnZ4YoK1Ba",
+  "verify_instruction_data_base64": "haGNMHjGWJYhoMgaXMHFzdq8Pu/mo4QTFa0aHNdNo/NNsduR0BJApyVCQWxCulKEiUmE5bdq7Tv4c0+MH9FIHEGXli++J0IeEfuo2cUpaClYlPm24YBK/NoWtmlWrZc6KQy41nNoE1ArM2tOwDgqsadQh4Hz4ajX6nPUSROCyuOeyfFK/wf1NiO8XT1qcYpoZYi9YCexcTEQAxyF+jQRek/tlNmKQf6OC89XLTOJ7tzDTsAL0apXGwvKqArxOzC/PLJnQeVt6rsj0av379+6P1VSNofOEO8iDI1th58ukWFoTwRObjWXogh9BQtofSJCR23eCPeJ1yZjX1HM1vwhYJEpfwt7QWpqySQU2AzetDug9P9IgkR8IfGLVH1B/6UGqE2hZOjjH307iDnSnW/JKGuPlfnGdv8Qwa3TyL/juNYVO+kAIO2Rvg=="
 }

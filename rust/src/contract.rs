@@ -22,7 +22,7 @@ use crate::generated::protocol_adapter::types::DeniedLogicRef;
 use crate::instructions::{self, SettlementAccounts};
 use crate::merkle::{hash_two, PADDING_LEAF};
 use crate::pda::{
-    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, derive_verifier_entry_pda,
+    derive_nullifier_pda, derive_pa_state_pda, derive_root_marker_pda, AdapterVerifier,
 };
 
 /// Returns a protocol adapter instance of the environment for the given RPC
@@ -107,12 +107,15 @@ impl<'a> ProtocolAdapterInstance<'a> {
         Ok(self.state().await?.paused)
     }
 
-    /// `riscZeroVerifierPaused()`: the adapter's `risc_zero_verifier_paused`
-    /// simulated, with `fee_payer`, any funded system account, paying the
-    /// simulation's fee (nothing is signed or sent).
-    pub async fn risc_zero_verifier_paused(&self, fee_payer: &Pubkey) -> BindingsResult<bool> {
-        let state = self.state().await?;
-        let ix = self.risc_zero_verifier_paused_ix(&state.verifier_router, state.proof_selector);
+    /// What the view `ix` of the adapter returns, simulated with `fee_payer`,
+    /// any funded system account, paying the simulation's fee (nothing is
+    /// signed or sent): the counterpart of an `eth_call`.
+    async fn view<T: AnchorDeserialize>(
+        &self,
+        ix: Instruction,
+        fee_payer: &Pubkey,
+        what: &str,
+    ) -> BindingsResult<T> {
         let message = Message::new(&[ix], Some(fee_payer));
         let unsigned = VersionedTransaction {
             signatures: vec![
@@ -133,9 +136,7 @@ impl<'a> ProtocolAdapterInstance<'a> {
                 },
             )
             .await
-            .map_err(rpc_transport_error(
-                "the simulation of risc_zero_verifier_paused",
-            ))?
+            .map_err(rpc_transport_error(&format!("the simulation of {what}")))?
             .value;
         if let Some(error) = simulated.err {
             return Err(BindingsError::Simulation {
@@ -143,17 +144,49 @@ impl<'a> ProtocolAdapterInstance<'a> {
                 logs: simulated.logs.unwrap_or_default(),
             });
         }
-        returned::<bool>(&self.address, simulated.return_data)
+        returned::<T>(&self.address, simulated.return_data)
     }
 
-    /// `RISC_ZERO_VERIFIER_ROUTER()`.
-    pub async fn risc_zero_verifier_router(&self) -> BindingsResult<Pubkey> {
-        Ok(self.state().await?.verifier_router)
+    /// `riscZeroVerifierPaused()`: whether the router has paused the
+    /// verifier the build's selector routes to, `fee_payer` paying for the
+    /// simulations (`view`).
+    pub async fn risc_zero_verifier_paused(&self, fee_payer: &Pubkey) -> BindingsResult<bool> {
+        let verifier = self.verifier(fee_payer).await?;
+        self.view(
+            self.risc_zero_verifier_paused_ix(&verifier),
+            fee_payer,
+            "risc_zero_verifier_paused",
+        )
+        .await
     }
 
-    /// `RISC_ZERO_VERIFIER_SELECTOR()`.
-    pub async fn risc_zero_verifier_selector(&self) -> BindingsResult<[u8; 4]> {
-        Ok(self.state().await?.proof_selector)
+    /// `RISC_ZERO_VERIFIER_ROUTER()`, `fee_payer` paying for the simulation.
+    pub async fn risc_zero_verifier_router(&self, fee_payer: &Pubkey) -> BindingsResult<Pubkey> {
+        self.view(
+            self.risc_zero_verifier_router_ix(),
+            fee_payer,
+            "risc_zero_verifier_router",
+        )
+        .await
+    }
+
+    /// `RISC_ZERO_VERIFIER_SELECTOR()`, `fee_payer` paying for the simulation.
+    pub async fn risc_zero_verifier_selector(&self, fee_payer: &Pubkey) -> BindingsResult<[u8; 4]> {
+        self.view(
+            self.risc_zero_verifier_selector_ix(),
+            fee_payer,
+            "risc_zero_verifier_selector",
+        )
+        .await
+    }
+
+    /// The verifier the deployed build verifies with: its router and
+    /// selector, `fee_payer` paying for the simulations.
+    pub async fn verifier(&self, fee_payer: &Pubkey) -> BindingsResult<AdapterVerifier> {
+        Ok(AdapterVerifier {
+            router: self.risc_zero_verifier_router(fee_payer).await?,
+            selector: self.risc_zero_verifier_selector(fee_payer).await?,
+        })
     }
 
     /// `commitmentCount()`.
@@ -235,21 +268,20 @@ impl<'a> ProtocolAdapterInstance<'a> {
         Ok(self.state().await?.owner)
     }
 
-    /// `initialize`, with `payer` the program's upgrade authority.
+    /// `initialize`, with `payer` the program's upgrade authority and
+    /// `verifier` the build's (`verifier`).
     pub fn initialize_ix(
         &self,
         payer: &Pubkey,
         initial_owner: &Pubkey,
-        verifier_router: &Pubkey,
-        proof_selector: [u8; 4],
+        verifier: &AdapterVerifier,
     ) -> Instruction {
-        instructions::initialize_ix(
-            &self.address,
-            payer,
-            initial_owner,
-            verifier_router,
-            proof_selector,
-        )
+        instructions::initialize_ix(&self.address, payer, initial_owner, verifier)
+    }
+
+    /// `migrate_state`, by the owner `authority`.
+    pub fn migrate_state_ix(&self, authority: &Pubkey) -> Instruction {
+        instructions::migrate_state_ix(&self.address, authority)
     }
 
     /// `pause`, by the owner `authority`.
@@ -310,22 +342,24 @@ impl<'a> ProtocolAdapterInstance<'a> {
         instructions::upgrade_ix(&self.address, authority, buffer, spill)
     }
 
-    /// `risc_zero_verifier_paused`, for the deployment's `verifier_router`
-    /// and `proof_selector`.
-    pub fn risc_zero_verifier_paused_ix(
-        &self,
-        verifier_router: &Pubkey,
-        proof_selector: [u8; 4],
-    ) -> Instruction {
-        instructions::risc_zero_verifier_paused_ix(
-            &self.address,
-            &derive_verifier_entry_pda(verifier_router, proof_selector),
-        )
+    /// `risc_zero_verifier_paused`, for the build's `verifier`.
+    pub fn risc_zero_verifier_paused_ix(&self, verifier: &AdapterVerifier) -> Instruction {
+        instructions::risc_zero_verifier_paused_ix(&self.address, &verifier.entry())
     }
 
     /// `version`.
     pub fn version_ix(&self) -> Instruction {
         instructions::version_ix(&self.address)
+    }
+
+    /// `risc_zero_verifier_router`.
+    pub fn risc_zero_verifier_router_ix(&self) -> Instruction {
+        instructions::risc_zero_verifier_router_ix(&self.address)
+    }
+
+    /// `risc_zero_verifier_selector`.
+    pub fn risc_zero_verifier_selector_ix(&self) -> Instruction {
+        instructions::risc_zero_verifier_selector_ix(&self.address)
     }
 
     /// `txdata_init` of `authority`'s upload `upload_id`.
@@ -455,6 +489,7 @@ mod tests {
     use super::*;
     use crate::generated::protocol_adapter::constants::SCHEMA_VERSION;
     use crate::merkle::{zero_hashes, CommitmentTreeState};
+    use crate::pda::derive_verifier_entry_pda;
     use crate::{MAX_TREE_DEPTH, MOCK_SELECTOR};
     use solana_cluster_type::ClusterType;
 
@@ -515,8 +550,6 @@ mod tests {
             schema_version: SCHEMA_VERSION,
             bump: 255,
             owner: key(1),
-            verifier_router: key(2),
-            proof_selector: MOCK_SELECTOR,
             kind_tree_root: EMPTY_KIND_TREE_ROOT,
             paused: false,
             root: tree.root,
@@ -665,11 +698,15 @@ mod tests {
             logic_ref: [7; 32],
             consumed: true,
         }];
+        let verifier = AdapterVerifier {
+            router: key(3),
+            selector: MOCK_SELECTOR,
+        };
         for (name, built, expected) in [
             (
                 "initialize",
-                adapter.initialize_ix(&key(1), &key(2), &key(3), MOCK_SELECTOR),
-                instructions::initialize_ix(&pa, &key(1), &key(2), &key(3), MOCK_SELECTOR),
+                adapter.initialize_ix(&key(1), &key(2), &verifier),
+                instructions::initialize_ix(&pa, &key(1), &key(2), &verifier),
             ),
             (
                 "pause",
@@ -713,16 +750,31 @@ mod tests {
             ),
             (
                 "risc_zero_verifier_paused",
-                adapter.risc_zero_verifier_paused_ix(&key(3), MOCK_SELECTOR),
+                adapter.risc_zero_verifier_paused_ix(&verifier),
                 instructions::risc_zero_verifier_paused_ix(
                     &pa,
                     &derive_verifier_entry_pda(&key(3), MOCK_SELECTOR),
                 ),
             ),
             (
+                "migrate_state",
+                adapter.migrate_state_ix(&key(4)),
+                instructions::migrate_state_ix(&pa, &key(4)),
+            ),
+            (
                 "version",
                 adapter.version_ix(),
                 instructions::version_ix(&pa),
+            ),
+            (
+                "risc_zero_verifier_router",
+                adapter.risc_zero_verifier_router_ix(),
+                instructions::risc_zero_verifier_router_ix(&pa),
+            ),
+            (
+                "risc_zero_verifier_selector",
+                adapter.risc_zero_verifier_selector_ix(),
+                instructions::risc_zero_verifier_selector_ix(&pa),
             ),
             (
                 "txdata_init",
