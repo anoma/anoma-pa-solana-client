@@ -109,8 +109,6 @@ describe("the staging adapter on devnet", () => {
     console.log({ address: adapter.address, state });
 
     expect(await adapter.paused()).toBe(state.paused);
-    expect(await adapter.riscZeroVerifierRouter()).toBe(state.verifier_router);
-    expect(await adapter.riscZeroVerifierSelector()).toEqual(state.proof_selector);
     expect(await adapter.commitmentCount()).toBe(state.next_index);
     expect(await adapter.commitmentTreeDepth()).toBe(state.current_depth);
     expect(await adapter.commitmentTreeCapacity()).toBe(2n ** BigInt(state.current_depth));
@@ -123,10 +121,14 @@ describe("the staging adapter on devnet", () => {
     expect(adapter.emptyKindTreeRoot()).toEqual(idlConstant("EMPTY_KIND_TREE_ROOT"));
     expect(await adapter.owner()).toBe(state.owner);
 
-    // The owner, an operator wallet, pays the simulation's fee.
-    const { entry } = await deriveVerifierRouterPdas(state.verifier_router, bytes(state.proof_selector));
+    // The owner, an operator wallet, pays for the simulations. The build's
+    // router holds an entry for the build's selector, whose estop the
+    // adapter reports.
+    const verifier = await adapter.verifier(state.owner);
+    const { entry } = await deriveVerifierRouterPdas(verifier.router, verifier.selector);
     const verifierEntry = verifierRouterCoder.accounts.decode("VerifierEntry", await accountData(rpc, entry));
-    console.log({ verifierEntry });
+    console.log({ verifier, verifierEntry });
+    expect(Uint8Array.from(verifierEntry.selector)).toEqual(verifier.selector);
     expect(await adapter.riscZeroVerifierPaused(state.owner)).toBe(verifierEntry.estopped);
 
     const zero = new Uint8Array(32);

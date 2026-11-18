@@ -9,9 +9,7 @@ use anoma_pa_solana_client::addresses::{protocol_adapter_address, Environment};
 use anoma_pa_solana_client::estimate::Estimate;
 use anoma_pa_solana_client::forwarders::Forwarders;
 use anoma_pa_solana_client::generated::protocol_adapter::error::ProtocolAdapterError;
-use anoma_pa_solana_client::submission::{
-    read_adapter_state, read_verifier_program, Failure, Submission,
-};
+use anoma_pa_solana_client::submission::{read_deployed_adapter, Failure, Submission};
 use anoma_rm_risc0::transaction::Transaction;
 use base64::Engine;
 use solana_cluster_type::ClusterType;
@@ -37,21 +35,11 @@ async fn a_settled_devnet_transaction_estimated_again_fails_as_its_settlement_wo
     let adapter = protocol_adapter_address(Environment::Staging, &ClusterType::Devnet).unwrap();
     // The account that paid for the settlement.
     let payer: Pubkey = fixture["payer"].as_str().unwrap().parse().unwrap();
-    let state = read_adapter_state(&rpc, &adapter).await.unwrap();
-    let verifier = read_verifier_program(&rpc, &state.verifier_router, state.proof_selector)
-        .await
-        .unwrap();
-    let submission = Submission::prepare(
-        &rpc,
-        &Forwarders::default(),
-        adapter,
-        payer,
-        state,
-        verifier,
-        transaction,
-    )
-    .await
-    .unwrap();
+    let deployed = read_deployed_adapter(&rpc, adapter, &payer).await.unwrap();
+    let submission =
+        Submission::prepare(&rpc, &Forwarders::default(), deployed, payer, transaction)
+            .await
+            .unwrap();
 
     let started = Instant::now();
     let estimate = submission.estimate(&rpc).await.unwrap();

@@ -57,8 +57,16 @@ export function deriveEventAuthorityPda(program: Address): Promise<ProgramDerive
 // ---- Verifier router PDAs --------------------------------------------------
 
 /**
+ * The RISC Zero verifier an adapter build verifies with: the router it calls
+ * and the selector it accepts proofs for, which its `risc_zero_verifier_router`
+ * and `risc_zero_verifier_selector` report, as pa-evm's implementation holds
+ * `RISC_ZERO_VERIFIER_ROUTER` and `RISC_ZERO_VERIFIER_SELECTOR`.
+ */
+export type AdapterVerifier = { router: Address; selector: Uint8Array };
+
+/**
  * Derive the verifier-router state PDA and the router's verifier-entry PDA for
- * `selector`, the proof selector the adapter was initialized with.
+ * `selector`, the proof selector the adapter build verifies with.
  */
 export async function deriveVerifierRouterPdas(
   verifierRouterProgram: Address,

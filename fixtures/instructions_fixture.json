@@ -49,7 +49,7 @@
           "writable": false
         }
       ],
-      "data_hex": "afaf6d1f0d989bed02020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303ffffffff",
+      "data_hex": "afaf6d1f0d989bed0202020202020202020202020202020202020202020202020202020202020202",
       "name": "initialize",
       "program": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
     },
@@ -339,11 +339,6 @@
     {
       "accounts": [
         {
-          "address": "Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR",
-          "signer": false,
-          "writable": false
-        },
-        {
           "address": "AdJWkJknpP3onZQWvkzhfUfz6LxxwbDF1ohYmAV7NtK1",
           "signer": false,
           "writable": false
@@ -357,6 +352,45 @@
       "accounts": [],
       "data_hex": "7641c3c681d8fcc0",
       "name": "version",
+      "program": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+    },
+    {
+      "accounts": [],
+      "data_hex": "4a986b5938e5b920",
+      "name": "risc_zero_verifier_router",
+      "program": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+    },
+    {
+      "accounts": [],
+      "data_hex": "c1629383681b7815",
+      "name": "risc_zero_verifier_selector",
+      "program": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+    },
+    {
+      "accounts": [
+        {
+          "address": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "Fb88t17apPNxTw4BCCC85yvcybdCvaY41qGJYpWXyrsR",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "BaNhKDjFJTKQhS1To1XK8eApMSYBoMUNky6wKrf4RX5N",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "data_hex": "22bde2deda9c13d5",
+      "name": "migrate_state",
       "program": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
     },
     {

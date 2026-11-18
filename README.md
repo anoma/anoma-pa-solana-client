@@ -25,12 +25,11 @@ Client bindings for the Solana Protocol Adapter. One source of truth for instruc
 
 ## Pairing check
 
-`tools/settle-fixture` exercises the whole client surface against a live adapter: it decodes the state account, plans the settlement with `plan_settlement` (one v1 transaction carrying the input when it fits, otherwise the upload; the remaining accounts with any historical-root markers; the predicted new root), settles the fixture transaction, asserts the on-chain root equals the replay, and decodes the settlement's CPI events, printing the compute units the settlement consumed. Run it against devnet, or against a local validator set up from the adapter repo's `solana-pa-prototype/`:
+`tools/settle-fixture` exercises the whole client surface against a live adapter: it decodes the state account, reads the build's verifier through its getters, plans the settlement with `plan_settlement` (one v1 transaction carrying the input when it fits, otherwise the upload; the remaining accounts with any historical-root markers; the predicted new root), settles the fixture transaction, asserts the on-chain root equals the replay, and decodes the settlement's CPI events, printing the compute units the settlement consumed. Run it against devnet, or against a local validator set up from the adapter repo's `solana-pa-prototype/`:
 
 ```bash
 ./scripts/dev.sh validator-deploy                                    # every program loaded at genesis; keeps running
-PA_OWNER=<pubkey> PA_VERIFIER_ROUTER=BetEAE4npinksQBxvqUN1KkCVjYFJywWao45MSWtp5yg PA_PROOF_SELECTOR=73c457ba \
-  ./scripts/dev.sh init --cluster localnet
+PA_OWNER=<pubkey> ./scripts/dev.sh init --cluster localnet
 ```
 
 Then settle a fixture:

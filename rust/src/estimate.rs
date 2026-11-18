@@ -32,7 +32,6 @@ use solana_transaction_error::TransactionError;
 use crate::constants::{MOCK_SELECTOR, SETTLE_COMPUTE_UNIT_LIMIT, TXDATA_EXPIRY_SLOTS_DEFAULT};
 use crate::pda::{
     derive_pa_state_pda, derive_program_data_address, derive_root_marker_pda, derive_tx_data_pda,
-    derive_verifier_entry_pda,
 };
 use crate::settlement::{
     plan_settlement, PlanError, PlannedTransaction, SettlementPlan, SETTLE_TRANSACTION_CONFIG,
@@ -65,9 +64,10 @@ const SYSVARS: [Pubkey; 7] = [
 ];
 
 /// A Groth16 proof's verify instruction that a verifier program accepted:
-/// the router's call to it in a devnet settlement, which the file names with
-/// its verifier program. Its compute is the compute of one
-/// Groth16 verification, which does not depend on the proof.
+/// a devnet transaction's call of the risc0 3.1.0 verifier with
+/// risc0-ethereum v3.1.0's test receipt, which the file names with its
+/// verifier program. Its compute is the compute of one Groth16
+/// verification, which does not depend on the proof.
 struct Groth16Measurement {
     selector: [u8; 4],
     verify_instruction_data: Vec<u8>,
@@ -366,37 +366,35 @@ impl Submission {
     /// settlement whose verified proof would exhaust its budget fails here
     /// too.
     pub async fn estimate(&self, rpc: &RpcClient) -> Result<Estimate, SubmissionError> {
-        let pa_program = self.pa_program;
+        let pa_program = self.adapter.address;
         let payer = self.payer;
         let upload = derive_tx_data_pda(&pa_program, &payer, ESTIMATE_UPLOAD_ID).0;
         let (state_address, _) = derive_pa_state_pda(&pa_program);
         let input = |selector| placeholder_settlement_input(self.transaction.clone(), selector);
 
-        // The read's keys depend on what it reads: the adapter's state names
-        // the verifier entry, the entry names the verifier program, and each
-        // program names its program data. Read until one read holds every
-        // account that the settlement, planned from that read, names.
+        // The read's keys depend on what it reads: the build's verifier entry
+        // names the verifier program, and each program names its program
+        // data. Read until one read holds every account that the settlement,
+        // planned from that read, names.
+        let selector = self.adapter.verifier.selector;
+        let entry = self.adapter.verifier.entry();
         let first = plan_settlement(
             self.request_with(
-                &input(self.state.proof_selector)?,
-                &self.state,
-                self.verifier_program,
+                &input(selector)?,
+                &self.adapter.state,
+                self.adapter.verifier_program,
             ),
             ESTIMATE_UPLOAD_ID,
             0,
         )?;
         let mut keys: BTreeSet<Pubkey> = SYSVARS
             .into_iter()
+            .chain([entry])
             .chain(existing_accounts(&first, &pa_program, &upload))
             .collect();
-        let (snapshot, state, verifier_program, plan) = loop {
+        let (snapshot, verifier_program, plan) = loop {
             let snapshot = read(rpc, &keys).await?;
             let state = decode_adapter_state(&state_address, snapshot.data(&state_address))?;
-            let entry = derive_verifier_entry_pda(&state.verifier_router, state.proof_selector);
-            if keys.insert(entry) {
-                // The state names another verifier entry than the read held.
-                continue;
-            }
             let verifier_program = decode_verifier_entry(&entry, snapshot.data(&entry))?;
             let clock: solana_clock::Clock = decode_account(
                 snapshot.data(&solana_sdk_ids::sysvar::clock::ID),
@@ -404,7 +402,7 @@ impl Submission {
                 |data| bincode::deserialize(data),
             )?;
             let plan = plan_settlement(
-                self.request_with(&input(state.proof_selector)?, &state, verifier_program),
+                self.request_with(&input(selector)?, &state, verifier_program),
                 ESTIMATE_UPLOAD_ID,
                 clock.slot + TXDATA_EXPIRY_SLOTS_DEFAULT,
             )?;
@@ -413,7 +411,7 @@ impl Submission {
                 .chain(program_data_accounts(&snapshot))
                 .collect();
             if needed.is_subset(&keys) {
-                break (snapshot, state, verifier_program, plan);
+                break (snapshot, verifier_program, plan);
             }
             keys.extend(needed);
         };
@@ -429,7 +427,7 @@ impl Submission {
                 &pa_program,
                 &payer,
                 &verifier_program,
-                state.proof_selector,
+                selector,
             )
         })
         .await
@@ -496,9 +494,9 @@ mod tests {
     use super::*;
 
     /// The devnet verifier program verifies the Groth16 measurement proof
-    /// with the compute its verifications use in devnet settlements: 99,541
-    /// units in the log of both of the staging adapter's settlements at slots
-    /// 518006892 and 518008799, and the 56 units of the settlement's heap.
+    /// with the compute its verification used on devnet: 99,415 units in the
+    /// log of the measurement's transaction at slot 523022094, and the 56
+    /// units of the settlement's heap.
     #[tokio::test]
     #[ignore = "needs a Helius endpoint: run with --ignored, HELIUS_DEVNET_URL set"]
     async fn the_groth16_measurement_uses_a_devnet_verifications_compute() {
@@ -520,6 +518,6 @@ mod tests {
         let units = verification_units(&mut svm, &verifier, measurement.selector).unwrap();
 
         println!("a Groth16 verification on devnet: {units} compute units");
-        assert_eq!(units, 99_541 + 56);
+        assert_eq!(units, 99_415 + 56);
     }
 }

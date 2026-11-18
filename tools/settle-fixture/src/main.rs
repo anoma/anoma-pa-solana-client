@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use anchor::AccountDeserialize;
+use anchor::{AccountDeserialize, AnchorDeserialize};
 use anoma_pa_solana_client::generated::protocol_adapter::events::{
     ActionExecuted, CommitmentTreeRootAdded, ForwarderCallExecuted, TransactionExecuted,
 };
@@ -25,18 +25,19 @@ use anoma_pa_solana_client::generated::verifier_router::accounts::VerifierEntry;
 use anoma_pa_solana_client::settlement::CallAccounts;
 use anoma_pa_solana_client::{
     cpi_event_discriminator, decode_cpi_event, decode_pa_state, derive_pa_state_pda,
-    derive_verifier_entry_pda, plan_settlement, transaction_size, EventDecodeError,
-    PlannedTransaction, SettlementRequest, TXDATA_EXPIRY_SLOTS_DEFAULT,
+    plan_settlement, risc_zero_verifier_router_ix, risc_zero_verifier_selector_ix,
+    transaction_size, AdapterVerifier, EventDecodeError, PlannedTransaction, SettlementRequest,
+    TXDATA_EXPIRY_SLOTS_DEFAULT,
 };
 use base64::Engine;
 use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::RpcTransactionConfig;
+use solana_client::rpc_config::{RpcSimulateTransactionConfig, RpcTransactionConfig};
 use solana_commitment_config::CommitmentConfig;
-use solana_sdk::instruction::AccountMeta;
-use solana_sdk::message::VersionedMessage;
+use solana_sdk::instruction::{AccountMeta, Instruction};
+use solana_sdk::message::{Message, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{read_keypair_file, Keypair, Signature, Signer};
-use solana_sdk::transaction::VersionedTransaction;
+use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_transaction_status_client_types::{
     UiInstruction, UiParsedInstruction, UiTransactionEncoding,
 };
@@ -160,20 +161,33 @@ fn main() {
         .get_account_data(&pa_state)
         .expect("pa_state account");
     let state = decode_pa_state(&state_data).expect("decode pa_state");
+    let verifier = AdapterVerifier {
+        router: view(
+            &client,
+            &payer.pubkey(),
+            risc_zero_verifier_router_ix(&args.pa),
+        ),
+        selector: view(
+            &client,
+            &payer.pubkey(),
+            risc_zero_verifier_selector_ix(&args.pa),
+        ),
+    };
     println!(
-        "pa_state {pa_state}: schema {} paused {} next_index {} depth {} root {} selector {}",
+        "pa_state {pa_state}: schema {} paused {} next_index {} depth {} root {}; verifier router {} selector {}",
         state.schema_version,
         state.paused,
         state.next_index,
         state.current_depth,
         hex(&state.root),
-        hex(&state.proof_selector)
+        verifier.router,
+        hex(&verifier.selector)
     );
     let fixture_selector = fixture.selector.trim_start_matches("0x");
     assert_eq!(
-        hex(&state.proof_selector),
+        hex(&verifier.selector),
         fixture_selector,
-        "fixture selector must match the deployment's pinned selector"
+        "fixture selector must match the deployed build's selector"
     );
 
     // 2. The external-call segments, as given on the command line.
@@ -195,14 +209,14 @@ fn main() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let verifier_entry = derive_verifier_entry_pda(&state.verifier_router, state.proof_selector);
     let plan = plan_settlement(
         SettlementRequest {
             pa_program: args.pa,
             payer: payer.pubkey(),
             input: &tx_bytes,
             state: &state,
-            verifier_program: verifier_program_of(&client, &verifier_entry),
+            verifier,
+            verifier_program: verifier_program_of(&client, &verifier.entry()),
             nullifiers: &b64_32s(&fixture.consumed_nullifiers_b64),
             consumed_roots: &b64_32s(&fixture.historical_roots_b64),
             created: &b64_32s(&fixture.created_commitments_b64),
@@ -246,6 +260,39 @@ fn main() {
         hex(&after.root)
     );
     print_events(&client, &args.pa, &settle_sig);
+}
+
+/// What the adapter's view `ix` returns, simulated with `payer` paying the
+/// simulation's fee.
+fn view<T: AnchorDeserialize>(client: &RpcClient, payer: &Pubkey, ix: Instruction) -> T {
+    let program = ix.program_id.to_string();
+    let unsigned = Transaction::new_unsigned(Message::new(&[ix], Some(payer)));
+    let simulated = client
+        .simulate_transaction_with_config(
+            &unsigned,
+            RpcSimulateTransactionConfig {
+                sig_verify: false,
+                replace_recent_blockhash: true,
+                ..RpcSimulateTransactionConfig::default()
+            },
+        )
+        .expect("simulate the view")
+        .value;
+    assert!(
+        simulated.err.is_none(),
+        "the view failed: {:?}; logs: {:?}",
+        simulated.err,
+        simulated.logs
+    );
+    let returned = simulated.return_data.expect("the view returns data");
+    assert_eq!(
+        returned.program_id, program,
+        "the view's data is the adapter's"
+    );
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&returned.data.0)
+        .expect("base64 return data");
+    T::try_from_slice(&bytes).expect("decode the view's return data")
 }
 
 /// The verifier program the router entry points at.

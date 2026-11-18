@@ -13,6 +13,7 @@ import {
   containsBytes,
   createTransactionMessage,
   fetchEncodedAccount,
+  getAddressDecoder,
   getAddressEncoder,
   getBase64EncodedWireTransaction,
   getBase64Encoder,
@@ -38,6 +39,7 @@ import {
   deriveProgramDataAddress,
   deriveRootMarkerPda,
   deriveVerifierRouterPdas,
+  type AdapterVerifier,
 } from "./pda.js";
 
 /** The RPC's answer `response`, a failed request thrown as `RpcTransportError`. */
@@ -196,13 +198,11 @@ export class ProtocolAdapterInstance {
   }
 
   /**
-   * `riscZeroVerifierPaused()`: the adapter's `risc_zero_verifier_paused`
-   * simulated, with `feePayer`, any funded system account, paying the
-   * simulation's fee (nothing is signed or sent).
+   * What the view `ix` of the adapter returns, simulated with `feePayer`,
+   * any funded system account, paying the simulation's fee (nothing is
+   * signed or sent): the counterpart of an `eth_call`.
    */
-  async riscZeroVerifierPaused(feePayer: Address): Promise<boolean> {
-    const state = await this.state();
-    const ix = await this.riscZeroVerifierPausedIx(state.verifier_router, Uint8Array.from(state.proof_selector));
+  private async view(ix: Instruction, feePayer: Address, what: string): Promise<Uint8Array> {
     const transaction = compileTransaction(
       pipe(
         createTransactionMessage({ version: "legacy" }),
@@ -217,7 +217,7 @@ export class ProtocolAdapterInstance {
       ),
     );
     const { value } = await answered(
-      "the simulation of risc_zero_verifier_paused",
+      `the simulation of ${what}`,
       this.rpc
         .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
           encoding: "base64",
@@ -229,17 +229,38 @@ export class ProtocolAdapterInstance {
     if (value.err !== null) {
       throw new BindingsError({ kind: "Simulation", error: value.err, logs: value.logs ?? [] });
     }
-    return returnedBool(this.address, value.returnData);
+    return returnedBytes(this.address, value.returnData);
   }
 
-  /** `RISC_ZERO_VERIFIER_ROUTER()`. */
-  async riscZeroVerifierRouter(): Promise<Address> {
-    return (await this.state()).verifier_router;
+  /**
+   * `riscZeroVerifierPaused()`: whether the router has paused the verifier
+   * the build's selector routes to, `feePayer` paying for the simulations.
+   */
+  async riscZeroVerifierPaused(feePayer: Address): Promise<boolean> {
+    const ix = await this.riscZeroVerifierPausedIx(await this.verifier(feePayer));
+    return decodeBool(this.address, await this.view(ix, feePayer, "risc_zero_verifier_paused"));
   }
 
-  /** `RISC_ZERO_VERIFIER_SELECTOR()`. */
-  async riscZeroVerifierSelector(): Promise<number[]> {
-    return (await this.state()).proof_selector;
+  /** `RISC_ZERO_VERIFIER_ROUTER()`, `feePayer` paying for the simulation. */
+  async riscZeroVerifierRouter(feePayer: Address): Promise<Address> {
+    const ix = await this.riscZeroVerifierRouterIx();
+    const bytes = await this.view(ix, feePayer, "risc_zero_verifier_router");
+    return getAddressDecoder().decode(expectLength(this.address, bytes, 32));
+  }
+
+  /** `RISC_ZERO_VERIFIER_SELECTOR()`, `feePayer` paying for the simulation. */
+  async riscZeroVerifierSelector(feePayer: Address): Promise<Uint8Array> {
+    const ix = await this.riscZeroVerifierSelectorIx();
+    return expectLength(this.address, await this.view(ix, feePayer, "risc_zero_verifier_selector"), 4);
+  }
+
+  /** The verifier the deployed build verifies with, `feePayer` paying for the simulations. */
+  async verifier(feePayer: Address): Promise<AdapterVerifier> {
+    const [router, selector] = await Promise.all([
+      this.riscZeroVerifierRouter(feePayer),
+      this.riscZeroVerifierSelector(feePayer),
+    ]);
+    return { router, selector };
   }
 
   /** `commitmentCount()`. */
@@ -367,22 +388,22 @@ export class ProtocolAdapterInstance {
     return this.pda(idlSeed("TX_DATA_SEED"), Uint8Array.from(getAddressEncoder().encode(authority)), id);
   }
 
-  /** `initialize`, with `payer` the program's upgrade authority. */
-  async initializeIx(
-    payer: Address,
-    initialOwner: Address,
-    verifierRouter: Address,
-    proofSelector: Uint8Array,
-  ): Promise<Instruction> {
+  /** `initialize`, with `payer` the program's upgrade authority and `verifier` the build's (`verifier`). */
+  async initializeIx(payer: Address, initialOwner: Address, verifier: AdapterVerifier): Promise<Instruction> {
     const [programData, { entry }] = await Promise.all([
       this.programData(),
-      deriveVerifierRouterPdas(verifierRouter, proofSelector),
+      deriveVerifierRouterPdas(verifier.router, verifier.selector),
     ]);
     return this.instruction(
       "initialize",
       { payer, program_data: programData, verifier_entry: entry },
-      { initial_owner: initialOwner, verifier_router: verifierRouter, proof_selector: Array.from(proofSelector) },
+      { initial_owner: initialOwner },
     );
+  }
+
+  /** `migrate_state`, by the owner `authority`. */
+  migrateStateIx(authority: Address): Promise<Instruction> {
+    return this.instruction("migrate_state", { authority }, {});
   }
 
   /** `pause`, by the owner `authority`. */
@@ -437,15 +458,25 @@ export class ProtocolAdapterInstance {
     );
   }
 
-  /** `risc_zero_verifier_paused`, for the deployment's `verifierRouter` and `proofSelector`. */
-  async riscZeroVerifierPausedIx(verifierRouter: Address, proofSelector: Uint8Array): Promise<Instruction> {
-    const { entry } = await deriveVerifierRouterPdas(verifierRouter, proofSelector);
+  /** `risc_zero_verifier_paused`, for the build's `verifier`. */
+  async riscZeroVerifierPausedIx(verifier: AdapterVerifier): Promise<Instruction> {
+    const { entry } = await deriveVerifierRouterPdas(verifier.router, verifier.selector);
     return this.instruction("risc_zero_verifier_paused", { verifier_entry: entry }, {});
   }
 
   /** `version`. */
   versionIx(): Promise<Instruction> {
     return this.instruction("version", {}, {});
+  }
+
+  /** `risc_zero_verifier_router`. */
+  riscZeroVerifierRouterIx(): Promise<Instruction> {
+    return this.instruction("risc_zero_verifier_router", {}, {});
+  }
+
+  /** `risc_zero_verifier_selector`. */
+  riscZeroVerifierSelectorIx(): Promise<Instruction> {
+    return this.instruction("risc_zero_verifier_selector", {}, {});
   }
 
   /** `txdata_init` of `authority`'s upload `uploadId`. */
@@ -547,16 +578,31 @@ export function isLogicRefDenied(
   return denied.some((r) => r.length === logicRef.length && r.every((b, i) => b === logicRef[i]));
 }
 
-/** The bool `program` returned, as a simulation reports it. */
-export function returnedBool(
+/** A failure to decode what `program` returned. */
+function returnDecodeError(program: Address, error: string): BindingsError {
+  return new BindingsError({ kind: "Decode", what: `the return data of ${program}`, error });
+}
+
+/** The bytes `program` returned, as a simulation reports them. */
+export function returnedBytes(
   program: Address,
   returnData: Readonly<{ data: readonly [string, "base64"]; programId: Address }> | null,
-): boolean {
-  const what = `the return data of ${program}`;
-  const fail = (error: string) => new BindingsError({ kind: "Decode", what, error });
-  if (returnData === null) throw fail("the simulation returned nothing");
-  if (returnData.programId !== program) throw fail(`${returnData.programId} returned it`);
-  const bytes = getBase64Encoder().encode(returnData.data[0]);
-  if (bytes.length !== 1 || bytes[0]! > 1) throw fail(`${bytes.length} byte(s), not one bool: ${Array.from(bytes)}`);
+): Uint8Array {
+  if (returnData === null) throw returnDecodeError(program, "the simulation returned nothing");
+  if (returnData.programId !== program) throw returnDecodeError(program, `${returnData.programId} returned it`);
+  return Uint8Array.from(getBase64Encoder().encode(returnData.data[0]));
+}
+
+/** `bytes`, which `program` returned, when they are `length` long. */
+function expectLength(program: Address, bytes: Uint8Array, length: number): Uint8Array {
+  if (bytes.length !== length) throw returnDecodeError(program, `${bytes.length} byte(s), not ${length}`);
+  return bytes;
+}
+
+/** The bool in `bytes`, which `program` returned. */
+export function decodeBool(program: Address, bytes: Uint8Array): boolean {
+  if (bytes.length !== 1 || bytes[0]! > 1) {
+    throw returnDecodeError(program, `${bytes.length} byte(s), not one bool: ${Array.from(bytes)}`);
+  }
   return bytes[0] === 1;
 }

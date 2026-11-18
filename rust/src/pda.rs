@@ -74,7 +74,7 @@ pub fn derive_event_authority_pda(program: &Pubkey) -> (Pubkey, u8) {
 ///
 /// The router PDA holds the registry of verifier programs; the entry PDA points
 /// to the verifier registered under `selector`, the proof selector the adapter
-/// was initialized with (`PAStateAccount::proof_selector`).
+/// build verifies with (`AdapterVerifier`).
 pub fn derive_verifier_router_pdas(
     verifier_router_program: &Pubkey,
     selector: [u8; 4],
@@ -92,6 +92,25 @@ pub fn derive_verifier_router_pdas(
 /// not as constants.
 pub fn derive_verifier_entry_pda(verifier_router_program: &Pubkey, selector: [u8; 4]) -> Pubkey {
     Pubkey::find_program_address(&[b"verifier", &selector], verifier_router_program).0
+}
+
+/// The RISC Zero verifier an adapter build verifies with: the router it
+/// calls and the selector it accepts proofs for, which its
+/// `risc_zero_verifier_router` and `risc_zero_verifier_selector` report, as
+/// pa-evm's implementation holds `RISC_ZERO_VERIFIER_ROUTER` and
+/// `RISC_ZERO_VERIFIER_SELECTOR`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdapterVerifier {
+    pub router: Pubkey,
+    pub selector: [u8; 4],
+}
+
+impl AdapterVerifier {
+    /// The router's entry for the selector, which names the verifier program
+    /// and holds its emergency stop.
+    pub fn entry(&self) -> Pubkey {
+        derive_verifier_entry_pda(&self.router, self.selector)
+    }
 }
 
 // ---- Upgradeable loader ------------------------------------------------------
