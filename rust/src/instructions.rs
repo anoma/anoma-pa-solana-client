@@ -518,6 +518,36 @@ mod tests {
         router["address"].as_str().unwrap().parse().unwrap()
     }
 
+    /// The verifier the adapter build's IDL pins `initialize`'s
+    /// `verifier_entry` to: the router's entry for the build's selector,
+    /// `["verifier", RISC_ZERO_VERIFIER_SELECTOR]` under
+    /// `RISC_ZERO_VERIFIER_ROUTER`.
+    fn idl_verifier() -> AdapterVerifier {
+        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/idls/protocol_adapter.json"
+        )))
+        .unwrap();
+        let initialize = idl["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|spec| spec["name"] == "initialize")
+            .unwrap();
+        let pda = &initialize["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|account| account["name"] == "verifier_entry")
+            .unwrap()["pda"];
+        AdapterVerifier {
+            router: Pubkey::new_from_array(
+                serde_json::from_value(pda["program"]["value"].clone()).unwrap(),
+            ),
+            selector: serde_json::from_value(pda["seeds"][1]["value"].clone()).unwrap(),
+        }
+    }
+
     /// The build's verifier router, the verifier accounts `key(12)` to
     /// `key(14)`, and with `remaining` two remaining accounts.
     fn settlement(new_root_marker: Option<Pubkey>, remaining: bool) -> SettlementAccounts {
@@ -594,9 +624,15 @@ mod tests {
                     .collect::<Option<Vec<Vec<u8>>>>()
                 {
                     let seeds: Vec<&[u8]> = seeds.iter().map(Vec::as_slice).collect();
+                    // A PDA of another program names it; the adapter's own
+                    // name none.
+                    let program = serde_json::from_value::<[u8; 32]>(
+                        account["pda"]["program"]["value"].clone(),
+                    )
+                    .map_or(ix.program_id, Pubkey::new_from_array);
                     assert_eq!(
                         meta.pubkey,
-                        Pubkey::find_program_address(&seeds, &ix.program_id).0,
+                        Pubkey::find_program_address(&seeds, &program).0,
                         "{account_name} PDA"
                     );
                 }
@@ -616,10 +652,12 @@ mod tests {
     #[test]
     fn initialize_matches_the_adapters_idl() {
         let (payer, owner) = (key(1), key(2));
-        let verifier = AdapterVerifier {
-            router: key(3),
-            selector: crate::MOCK_SELECTOR,
-        };
+        let verifier = idl_verifier();
+        assert_eq!(
+            verifier.router,
+            idl_router(),
+            "settle names the same router"
+        );
         let ix = initialize_ix(&ID, &payer, &owner, &verifier);
         let by_name = assert_matches_the_adapters_idl(&ix, "initialize", &owner.to_bytes());
         assert_eq!(by_name("payer"), payer);
@@ -756,7 +794,7 @@ mod tests {
         let by_name = assert_matches_the_adapters_idl(&ix, "update_expiry_config", &args);
         assert_eq!(by_name("authority"), key(4));
 
-        let entry = derive_verifier_entry_pda(&key(3), crate::MOCK_SELECTOR);
+        let entry = idl_verifier().entry();
         let ix = risc_zero_verifier_paused_ix(&ID, &entry);
         let by_name = assert_matches_the_adapters_idl(&ix, "risc_zero_verifier_paused", &[]);
         assert_eq!(by_name("verifier_entry"), entry);
