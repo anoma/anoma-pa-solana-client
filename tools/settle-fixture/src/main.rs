@@ -262,10 +262,10 @@ fn main() {
     print_events(&client, &args.pa, &settle_sig);
 }
 
-/// The verifier program the router entry points at.
 /// What the adapter's view `ix` returns, simulated with `payer` paying the
 /// simulation's fee.
 fn view<T: AnchorDeserialize>(client: &RpcClient, payer: &Pubkey, ix: Instruction) -> T {
+    let program = ix.program_id.to_string();
     let unsigned = Transaction::new_unsigned(Message::new(&[ix], Some(payer)));
     let simulated = client
         .simulate_transaction_with_config(
@@ -285,12 +285,17 @@ fn view<T: AnchorDeserialize>(client: &RpcClient, payer: &Pubkey, ix: Instructio
         simulated.logs
     );
     let returned = simulated.return_data.expect("the view returns data");
+    assert_eq!(
+        returned.program_id, program,
+        "the view's data is the adapter's"
+    );
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&returned.data.0)
         .expect("base64 return data");
     T::try_from_slice(&bytes).expect("decode the view's return data")
 }
 
+/// The verifier program the router entry points at.
 fn verifier_program_of(client: &RpcClient, verifier_entry: &Pubkey) -> Pubkey {
     let data = client
         .get_account_data(verifier_entry)

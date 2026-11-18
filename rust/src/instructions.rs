@@ -489,33 +489,46 @@ pub fn settle_from_txdata_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pda::derive_verifier_entry_pda;
 
     fn key(n: u8) -> Pubkey {
         Pubkey::new_from_array([n; 32])
     }
 
-    /// The verifier router the adapter build's IDL fixes `settle`'s
-    /// `verifier_router_program` to: the build's `RISC_ZERO_VERIFIER_ROUTER`.
-    pub(crate) fn idl_router() -> Pubkey {
+    /// The adapter IDL's instruction `name`.
+    fn idl_instruction(name: &str) -> serde_json::Value {
         let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/idls/protocol_adapter.json"
         )))
         .unwrap();
-        let settle = idl["instructions"]
+        idl["instructions"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|spec| spec["name"] == "settle")
-            .unwrap();
-        let router = settle["accounts"]
+            .find(|spec| spec["name"] == name)
+            .unwrap()
+            .clone()
+    }
+
+    /// The account `account` of the adapter IDL's instruction `instruction`.
+    fn idl_account(instruction: &str, account: &str) -> serde_json::Value {
+        idl_instruction(instruction)["accounts"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|account| account["name"] == "verifier_router_program")
-            .unwrap();
-        router["address"].as_str().unwrap().parse().unwrap()
+            .find(|spec| spec["name"] == account)
+            .unwrap()
+            .clone()
+    }
+
+    /// The verifier router the adapter build's IDL fixes `settle`'s
+    /// `verifier_router_program` to: the build's `RISC_ZERO_VERIFIER_ROUTER`.
+    fn idl_router() -> Pubkey {
+        idl_account("settle", "verifier_router_program")["address"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap()
     }
 
     /// The verifier the adapter build's IDL pins `initialize`'s
@@ -523,23 +536,7 @@ mod tests {
     /// `["verifier", RISC_ZERO_VERIFIER_SELECTOR]` under
     /// `RISC_ZERO_VERIFIER_ROUTER`.
     fn idl_verifier() -> AdapterVerifier {
-        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/idls/protocol_adapter.json"
-        )))
-        .unwrap();
-        let initialize = idl["instructions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|spec| spec["name"] == "initialize")
-            .unwrap();
-        let pda = &initialize["accounts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|account| account["name"] == "verifier_entry")
-            .unwrap()["pda"];
+        let pda = &idl_account("initialize", "verifier_entry")["pda"];
         AdapterVerifier {
             router: Pubkey::new_from_array(
                 serde_json::from_value(pda["program"]["value"].clone()).unwrap(),
@@ -577,18 +574,7 @@ mod tests {
         name: &str,
         args: &[u8],
     ) -> impl Fn(&str) -> Pubkey {
-        let idl: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/idls/protocol_adapter.json"
-        )))
-        .unwrap();
-        let spec = idl["instructions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|spec| spec["name"] == name)
-            .unwrap()
-            .clone();
+        let spec = idl_instruction(name);
 
         let mut data: Vec<u8> = serde_json::from_value(spec["discriminator"].clone()).unwrap();
         data.extend(args);
@@ -661,10 +647,6 @@ mod tests {
         let ix = initialize_ix(&ID, &payer, &owner, &verifier);
         let by_name = assert_matches_the_adapters_idl(&ix, "initialize", &owner.to_bytes());
         assert_eq!(by_name("payer"), payer);
-        assert_eq!(
-            by_name("verifier_entry"),
-            derive_verifier_entry_pda(&verifier.router, verifier.selector)
-        );
         assert_eq!(
             by_name("event_authority"),
             derive_event_authority_pda(&ID).0

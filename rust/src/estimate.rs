@@ -366,7 +366,7 @@ impl Submission {
     /// settlement whose verified proof would exhaust its budget fails here
     /// too.
     pub async fn estimate(&self, rpc: &RpcClient) -> Result<Estimate, SubmissionError> {
-        let pa_program = self.pa_program;
+        let pa_program = self.adapter.address;
         let payer = self.payer;
         let upload = derive_tx_data_pda(&pa_program, &payer, ESTIMATE_UPLOAD_ID).0;
         let (state_address, _) = derive_pa_state_pda(&pa_program);
@@ -376,10 +376,14 @@ impl Submission {
         // names the verifier program, and each program names its program
         // data. Read until one read holds every account that the settlement,
         // planned from that read, names.
-        let selector = self.verifier.selector;
-        let entry = self.verifier.entry();
+        let selector = self.adapter.verifier.selector;
+        let entry = self.adapter.verifier.entry();
         let first = plan_settlement(
-            self.request_with(&input(selector)?, &self.state, self.verifier_program),
+            self.request_with(
+                &input(selector)?,
+                &self.adapter.state,
+                self.adapter.verifier_program,
+            ),
             ESTIMATE_UPLOAD_ID,
             0,
         )?;

@@ -256,10 +256,11 @@ export class ProtocolAdapterInstance {
 
   /** The verifier the deployed build verifies with, `feePayer` paying for the simulations. */
   async verifier(feePayer: Address): Promise<AdapterVerifier> {
-    return {
-      router: await this.riscZeroVerifierRouter(feePayer),
-      selector: await this.riscZeroVerifierSelector(feePayer),
-    };
+    const [router, selector] = await Promise.all([
+      this.riscZeroVerifierRouter(feePayer),
+      this.riscZeroVerifierSelector(feePayer),
+    ]);
+    return { router, selector };
   }
 
   /** `commitmentCount()`. */

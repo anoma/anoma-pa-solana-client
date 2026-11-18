@@ -256,11 +256,8 @@ pub async fn read_verifier_program(
 /// A transaction ready to be planned: the adapter's state and the accounts of
 /// its external calls, read from the chain.
 pub struct Submission {
-    pub(crate) pa_program: Pubkey,
+    pub(crate) adapter: DeployedAdapter,
     pub(crate) payer: Pubkey,
-    pub(crate) verifier: AdapterVerifier,
-    pub(crate) verifier_program: Pubkey,
-    pub(crate) state: PAStateAccount,
     pub(crate) transaction: Transaction,
     resources: SettledResources,
     accounts: CallAccounts,
@@ -281,18 +278,9 @@ impl Submission {
         let resources = settled_resources(&transaction)?;
         let calls = external_calls(&transaction)?;
         let accounts = forwarders.accounts(rpc, &calls).await?;
-        let DeployedAdapter {
-            address: pa_program,
-            state,
-            verifier,
-            verifier_program,
-        } = adapter;
         Ok(Self {
-            pa_program,
+            adapter,
             payer,
-            verifier,
-            verifier_program,
-            state,
             transaction,
             resources,
             accounts,
@@ -301,7 +289,7 @@ impl Submission {
 
     /// The adapter's state the settlement is planned against.
     pub fn state(&self) -> &PAStateAccount {
-        &self.state
+        &self.adapter.state
     }
 
     /// The resources the settlement consumes and creates.
@@ -310,7 +298,7 @@ impl Submission {
     }
 
     fn request<'a>(&'a self, input: &'a [u8]) -> SettlementRequest<'a> {
-        self.request_with(input, &self.state, self.verifier_program)
+        self.request_with(input, &self.adapter.state, self.adapter.verifier_program)
     }
 
     /// The request settling `input` against `state`, whose proofs
@@ -322,11 +310,11 @@ impl Submission {
         verifier_program: Pubkey,
     ) -> SettlementRequest<'a> {
         SettlementRequest {
-            pa_program: self.pa_program,
+            pa_program: self.adapter.address,
             payer: self.payer,
             input,
             state,
-            verifier: self.verifier,
+            verifier: self.adapter.verifier,
             verifier_program,
             nullifiers: &self.resources.nullifiers,
             consumed_roots: &self.resources.consumed_roots,
